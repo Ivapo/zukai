@@ -1,13 +1,18 @@
-import { useEffect, useMemo, useReducer, useRef } from "react";
+import type { UnlistenFn } from "@tauri-apps/api/event";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Canvas } from "./components/Canvas";
 import { Inspector } from "./components/Inspector";
 import { FileActions, Toolbar } from "./components/Toolbar";
 import {
+  installCloseGuard,
   newDocument,
   openDocument,
+  openRecentDocument,
+  refreshRecents,
   saveDocument,
   saveDocumentAs,
 } from "./editor/files";
+import { installMenu } from "./editor/menu";
 import { initialState, reducer, Tool } from "./editor/state";
 import { fileLabel } from "./model/document";
 import "./styles.css";
@@ -17,6 +22,8 @@ const TOOL_KEYS: Record<string, Tool> = { v: "select", n: "node", l: "link" };
 
 function App() {
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
+  /** Whether the native menu owns the Cmd/Ctrl chords (desktop) or we do. */
+  const [menuInstalled, setMenuInstalled] = useState(false);
 
   // The file commands are async and outlive the render that started them, so
   // they read the live state through a ref rather than closing over a snapshot.
@@ -31,6 +38,33 @@ function App() {
     }),
     [],
   );
+
+  // Desktop-only, installed once: the remembered file list and the guard that
+  // stops the window's close button from discarding unsaved work.
+  useEffect(() => {
+    void refreshRecents(dispatch);
+    let unlisten: UnlistenFn | null = null;
+    let unmounted = false;
+    void installCloseGuard(() => stateRef.current).then((fn) => {
+      if (unmounted) fn?.();
+      else unlisten = fn;
+    });
+    return () => {
+      unmounted = true;
+      unlisten?.();
+    };
+  }, []);
+
+  // The native menu mirrors the toolbar commands; rebuilt when the recent list
+  // changes so "Open Recent" stays current.
+  useEffect(() => {
+    void installMenu({
+      files,
+      recents: state.recents,
+      onOpenRecent: (path) =>
+        void openRecentDocument(stateRef.current, dispatch, path),
+    }).then(setMenuInstalled);
+  }, [files, state.recents]);
 
   // Reflect the file name and unsaved state in the window/tab title.
   useEffect(() => {
@@ -47,6 +81,9 @@ function App() {
       // File shortcuts own every Cmd/Ctrl chord; returning unconditionally keeps
       // e.g. Cmd+N from also falling through to the Node tool key below.
       if (e.metaKey || e.ctrlKey) {
+        // With a native menu installed its accelerators fire these commands, so
+        // handling them here as well would run some of them twice.
+        if (menuInstalled) return;
         switch (e.key.toLowerCase()) {
           case "s":
             e.preventDefault();
@@ -79,7 +116,7 @@ function App() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [state.selection, files]);
+  }, [state.selection, files, menuInstalled]);
 
   return (
     <div className="app">

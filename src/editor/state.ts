@@ -39,6 +39,8 @@ export interface EditorState {
   dirty: boolean;
   /** File backing the document (`null` = never saved). */
   currentPath: string | null;
+  /** Recently opened/saved paths, most recent first; owned by the Rust store. */
+  recents: string[];
 }
 
 /** Lane count a freshly drawn link starts with. */
@@ -54,6 +56,7 @@ export function initialState(): EditorState {
     linkFrom: null,
     dirty: false,
     currentPath: null,
+    recents: [],
   };
 }
 
@@ -78,7 +81,8 @@ export type EditAction =
 export type PersistAction =
   | { type: "loadDocument"; doc: RawDocument; path: string }
   | { type: "newDocument" }
-  | { type: "markSaved"; path: string };
+  | { type: "markSaved"; path: string }
+  | { type: "setRecents"; recents: string[] };
 
 /** Every action the UI can dispatch. */
 export type Action = EditAction | PersistAction;
@@ -118,11 +122,24 @@ export function reducer(state: EditorState, action: Action): EditorState {
     case "markSaved":
       return { ...state, dirty: false, currentPath: action.path };
 
+    case "setRecents":
+      // Every save/open pushes the path and dispatches the store's reply, which
+      // is usually the list we already hold. Returning `state` unchanged in that
+      // case keeps the identity stable, so the menu is not rebuilt for nothing.
+      return sameList(state.recents, action.recents)
+        ? state
+        : { ...state, recents: action.recents };
+
     default: {
       const next = editReducer(state, action);
       return next.doc !== state.doc ? { ...next, dirty: true } : next;
     }
   }
+}
+
+/** Element-wise equality of two path lists. */
+function sameList(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((p, i) => p === b[i]);
 }
 
 /** Apply an editing action; leaves `dirty`/`currentPath` to {@link reducer}. */

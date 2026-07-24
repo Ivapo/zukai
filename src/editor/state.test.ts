@@ -43,6 +43,27 @@ describe("persistence actions", () => {
     expect(next.currentPath).toBe("/p/bar.zkai");
     expect(next.doc).toBe(start.doc); // same reference
   });
+
+  it("setRecents replaces the list but keeps state identity when unchanged", () => {
+    const start = { ...initialState(), dirty: true };
+
+    const next = reducer(start, {
+      type: "setRecents",
+      recents: ["/p/b.zkai", "/p/a.zkai"],
+    });
+
+    expect(next.recents).toEqual(["/p/b.zkai", "/p/a.zkai"]);
+    expect(next.dirty).toBe(true); // recents say nothing about unsaved changes
+    expect(next.doc).toBe(start.doc);
+
+    // An identical list must not produce a new state: the menu is rebuilt off
+    // this identity, and every save re-reports the same paths.
+    const again = reducer(next, {
+      type: "setRecents",
+      recents: ["/p/b.zkai", "/p/a.zkai"],
+    });
+    expect(again).toBe(next);
+  });
 });
 
 describe("dirty tracking (document identity)", () => {

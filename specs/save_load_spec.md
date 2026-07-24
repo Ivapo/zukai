@@ -1,9 +1,9 @@
 ---
-status: reviewed — ready to implement (2 review rounds, 2026-07-24)
+status: implemented (2 review rounds, 2026-07-24)
 last_updated: 2026-07-24
 note: Save/open Zukai documents as .zkai YAML files, with dirty tracking and an unsaved-changes guard.
-implemented: ["Phase 1", "Phase 2", "Phase 3"]
-not_implemented: ["Phase 4 (deferred)"]
+implemented: ["Phase 1", "Phase 2", "Phase 3", "Phase 4"]
+not_implemented: []
 related: []
 reference: "Tauri 2 plugin-dialog (https://v2.tauri.app/plugin/dialog/) for native file pickers. network.yaml import/export is a SEPARATE future spec — this spec is Zukai's own format only."
 ---
@@ -175,9 +175,37 @@ unit-testable (see Phase 2's `vitest` gate); only the actual file-picker path ne
   `@tauri-apps/plugin-dialog` (JS, `package.json`); register it in the builder
   (`src-tauri/src/lib.rs:11`) and add **`"dialog:default"`** to the `permissions`
   array in `src-tauri/capabilities/default.json` (currently only `core:default`,
-  `opener:default`).
+  `opener:default`). Phase 4 adds one more: `"core:window:allow-destroy"`.
 - File **I/O is done in Rust** (`std::fs`) inside the commands, so `tauri-plugin-fs`
   and its permission surface are **not** required.
+
+### 2.6 Desktop integration (Phase 4)
+
+Three pieces of desktop behaviour that the in-webview UI cannot provide, each
+with a decision recorded:
+
+- **Close guard.** `getCurrentWindow().onCloseRequested` reuses the *same*
+  `confirmDiscard` prompt as New/Open, so there is one answer to "may I throw this
+  away?". A failed prompt prevents the close rather than allowing it — losing a
+  document to a broken dialog is the worse failure. `onCloseRequested` calls
+  `window.destroy()` when the handler does not `preventDefault()`, which needs
+  **`core:window:allow-destroy`**; `core:window:default` does *not* include it.
+- **Menu built in JS, not Rust.** `@tauri-apps/api/menu` lets menu items call the
+  same `FileActions` the toolbar buttons do — one command surface, no menu-id and
+  event plumbing to keep in sync across the language boundary, and no capability
+  change (`core:menu:default` comes with `core:default`). Zukai's commands are
+  *prepended into Tauri's own File submenu* (its `Menu::default` already has one,
+  holding Close Window), with a fallback that creates the submenu on Linux, whose
+  default menu has none. When the menu installs, the webview keydown handler stops
+  claiming Cmd/Ctrl chords so a command cannot fire twice.
+- **Recents owned by Rust.** `recent.json` in `app_config_dir()`, read/written by
+  `recent_files` / `push_recent_file` (`src-tauri/src/recent.rs`) — consistent with
+  §2.1's "the on-disk shape has one owner" and it keeps `tauri-plugin-fs` out of the
+  frontend. Rust can also **prune paths that no longer exist**, which the webview
+  cannot check. Recents are best-effort: a broken store reads as an empty list and
+  never fails the save or open that touched it. They surface in the menu only, so
+  the list is `EditorState.recents` fed by a `setRecents` action that returns the
+  same state when the list is unchanged (the menu rebuild keys off that identity).
 
 ## 3. Open questions
 
@@ -243,10 +271,31 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
   fires when dirty. `bun run build` green.
 - **Docs touched:** update the project-memory roadmap (save/load shipped).
 
-### Phase 4 — Desktop polish (deferred)
-- Window `close-requested` unsaved guard, native OS menu, recent-files list.
-- **Unblocks:** none needed for core save/load; do when the desktop app is the
-  primary target.
+### Phase 4 — Desktop polish  (depends on Phase 3)
+
+Deferred through Phases 1–3 as "not needed for core save/load"; scoped out in full
+when it was picked up (§2.6 records the decisions).
+
+- **Scope:** (a) recents store in Rust — `recent.rs` with `recent_files` /
+  `push_recent_file` over `recent.json` in `app_config_dir()`, pure `promote`/`prune`
+  helpers, registered in `generate_handler!`; (b) `"core:window:allow-destroy"` in
+  `capabilities/default.json`; (c) `EditorState.recents` + a `setRecents` action that
+  keeps state identity when the list is unchanged; (d) `files.ts` gains
+  `refreshRecents`, `openRecentDocument`, and `installCloseGuard`, and pushes the path
+  to the store after every successful save/open; (e) `menu.ts` builds the native menu
+  from `Menu.default()`, prepending New / Open… / Open Recent ▸ / Save / Save As… into
+  the stock File submenu; (f) `App.tsx` installs both, and stops handling Cmd/Ctrl
+  chords once the menu has them.
+- **Exit gate:** `cargo test` green including the `promote`/`prune`/store tests;
+  `cargo fmt --check` + `clippy --all-targets` clean; `bun run build` and `vitest`
+  green with a `setRecents` case; and a `tauri dev` manual run — (a) the File menu
+  performs each command via its accelerator; (b) Save As two files, then Open Recent
+  lists them newest-first and reopens one, surviving a restart; (c) deleting a
+  remembered file drops it from the menu on the next read; (d) closing the window
+  while dirty prompts, Cancel keeps it open, Discard closes it; (e) `bun run dev`
+  still works with no menu and the webview shortcuts.
+- **Docs touched:** `rules/persistence.md` (menu/close-guard/recents rows, the new
+  permission), this spec's §2.6 and frontmatter.
 
 ## 5. Review log
 

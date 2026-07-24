@@ -1,5 +1,6 @@
 pub mod model;
 mod persist;
+mod recent;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -15,7 +16,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             persist::save_document,
-            persist::load_document
+            persist::load_document,
+            recent::recent_files,
+            recent::push_recent_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
