@@ -44,7 +44,8 @@ design, open questions, and **numbered implementation phases**. Each phase is
 strictly sequential and sized to **one plan-mode pass** with a concrete exit gate
 (build + tests green, plus a behavioural check). To implement, run "implement Phase
 N of `specs/<spec>.md`". Conventions live in `specs/spec-authoring.md`; start new
-specs from `specs/_template.md`.
+specs from `specs/_template.md`. Review a draft before implementing with
+`/review-spec <spec>` (the §7 loop) — a spec must reach `status: reviewed` first.
 
 **Standing plan-mode rule:** when planning a phase of a spec, always include, as
 explicit plan steps, (1) a **commit plan** (what gets committed, the message,

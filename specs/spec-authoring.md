@@ -131,3 +131,5 @@ building. (Validated on `save_load_spec.md`, which converged in two rounds.)
 7. **Record it.** Keep a `## Review log` in the spec: per round, the verdict, blockers
    fixed, notable rejections. On convergence, move `status` off `draft` (to
    `reviewed`).
+
+`/review-spec <spec>` is the executable form of this loop.
