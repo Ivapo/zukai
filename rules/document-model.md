@@ -44,3 +44,10 @@ Rust side reads. When you change a Rust type, change its TS twin in the same pas
 Zukai saves its own YAML (schema keyed by `SCHEMA_VERSION` in `mod.rs`, distinct
 from Assimilator's `network.yaml` `schema_version`), via `serde_yaml`. The model
 round-trips — see the tests in `mod.rs`.
+
+On-disk files use the **`.zkai`** extension and are read/written by the
+`save_document` / `load_document` Tauri commands in `src-tauri/src/persist.rs`.
+`load_document` probes `schema_version` first (a minimal `VersionProbe` struct)
+and rejects a *newer* file with a friendly error before deserializing the full
+`Document`; the YAML shape is unchanged. YAML is only the on-disk body — the
+document crosses IPC as JSON.

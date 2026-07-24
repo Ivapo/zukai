@@ -2,8 +2,8 @@
 status: reviewed — ready to implement (2 review rounds, 2026-07-24)
 last_updated: 2026-07-24
 note: Save/open Zukai documents as .zkai YAML files, with dirty tracking and an unsaved-changes guard.
-implemented: []
-not_implemented: ["Phase 1", "Phase 2", "Phase 3", "Phase 4 (deferred)"]
+implemented: ["Phase 1"]
+not_implemented: ["Phase 2", "Phase 3", "Phase 4 (deferred)"]
 related: []
 reference: "Tauri 2 plugin-dialog (https://v2.tauri.app/plugin/dialog/) for native file pickers. network.yaml import/export is a SEPARATE future spec — this spec is Zukai's own format only."
 ---
