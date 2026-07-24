@@ -3,6 +3,7 @@ import { Canvas } from "./components/Canvas";
 import { Inspector } from "./components/Inspector";
 import { Toolbar } from "./components/Toolbar";
 import { initialState, reducer, Tool } from "./editor/state";
+import { fileLabel } from "./model/document";
 import "./styles.css";
 
 /** Single-key shortcuts for switching tools. */
@@ -10,6 +11,12 @@ const TOOL_KEYS: Record<string, Tool> = { v: "select", n: "node", l: "link" };
 
 function App() {
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
+
+  // Reflect the file name and unsaved state in the window/tab title.
+  useEffect(() => {
+    const dot = state.dirty ? "• " : "";
+    document.title = `${dot}${fileLabel(state.currentPath)} — Zukai`;
+  }, [state.currentPath, state.dirty]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {

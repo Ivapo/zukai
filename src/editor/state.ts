@@ -4,6 +4,8 @@ import {
   defaultLane,
   emptyDocument,
   nextId,
+  normalizeDocument,
+  RawDocument,
 } from "../model/document";
 import {
   Document,
@@ -33,6 +35,10 @@ export interface EditorState {
   selection: Selection | null;
   /** Node the in-progress link starts from, while the link tool is drawing. */
   linkFrom: NodeId | null;
+  /** Unsaved changes exist since the last save/load/new. */
+  dirty: boolean;
+  /** File backing the document (`null` = never saved). */
+  currentPath: string | null;
 }
 
 /** Lane count a freshly drawn link starts with. */
@@ -46,11 +52,13 @@ export function initialState(): EditorState {
     tool: "select",
     selection: null,
     linkFrom: null,
+    dirty: false,
+    currentPath: null,
   };
 }
 
-/** Every edit the UI can request. */
-export type Action =
+/** Every edit to the document or view the UI can request. */
+export type EditAction =
   | { type: "setTool"; tool: Tool }
   | { type: "setView"; view: ViewTransform }
   | { type: "addNode"; pos: Vec2 }
@@ -66,8 +74,59 @@ export type Action =
   | { type: "select"; selection: Selection | null }
   | { type: "deleteSelection" };
 
-/** Apply an action, returning the next state (never mutates `state`). */
+/** Whole-document lifecycle actions; they manage `dirty`/`currentPath` explicitly. */
+export type PersistAction =
+  | { type: "loadDocument"; doc: RawDocument; path: string }
+  | { type: "newDocument" }
+  | { type: "markSaved"; path: string };
+
+/** Every action the UI can dispatch. */
+export type Action = EditAction | PersistAction;
+
+/**
+ * Apply an action, returning the next state (never mutates `state`).
+ *
+ * Persistence actions set `dirty`/`currentPath` explicitly; editing actions run
+ * through {@link editReducer} and then have `dirty` set by **document identity** —
+ * the reducer's immutable updates change `doc`'s reference iff it actually changed,
+ * so no-op actions (`setTool`, a `moveNode` on a missing node, …) never dirty.
+ */
 export function reducer(state: EditorState, action: Action): EditorState {
+  switch (action.type) {
+    case "loadDocument":
+      return {
+        ...state,
+        doc: normalizeDocument(action.doc),
+        currentPath: action.path,
+        dirty: false,
+        selection: null,
+        linkFrom: null,
+        view: IDENTITY_VIEW,
+      };
+
+    case "newDocument":
+      return {
+        ...state,
+        doc: emptyDocument("Untitled"),
+        currentPath: null,
+        dirty: false,
+        selection: null,
+        linkFrom: null,
+        view: IDENTITY_VIEW,
+      };
+
+    case "markSaved":
+      return { ...state, dirty: false, currentPath: action.path };
+
+    default: {
+      const next = editReducer(state, action);
+      return next.doc !== state.doc ? { ...next, dirty: true } : next;
+    }
+  }
+}
+
+/** Apply an editing action; leaves `dirty`/`currentPath` to {@link reducer}. */
+function editReducer(state: EditorState, action: EditAction): EditorState {
   switch (action.type) {
     case "setTool":
       // Leaving the link tool abandons any half-drawn link.

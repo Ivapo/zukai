@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { clampZoom } from "../editor/geometry";
 import { Action, EditorState, Tool } from "../editor/state";
+import { fileLabel } from "../model/document";
 
 interface ToolbarProps {
   state: EditorState;
@@ -19,8 +20,16 @@ export function Toolbar({ state, dispatch }: ToolbarProps) {
   const { tool, view } = state;
   return (
     <header className="toolbar">
-      <div className="wordmark">
-        Zukai<span className="wordmark-sub">schematic</span>
+      <div className="toolbar-left">
+        <div className="wordmark">
+          Zukai<span className="wordmark-sub">schematic</span>
+        </div>
+        <span
+          className={`doc-name${state.dirty ? " is-dirty" : ""}`}
+          title={state.dirty ? "Unsaved changes" : undefined}
+        >
+          {fileLabel(state.currentPath)}
+        </span>
       </div>
 
       <div className="tools" role="radiogroup" aria-label="Drawing tool">

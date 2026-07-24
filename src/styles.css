@@ -81,6 +81,23 @@ body {
   color: var(--chrome-dim);
 }
 
+.toolbar-left {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+
+.doc-name {
+  font-family: "Overpass Mono", monospace;
+  font-size: 12px;
+  color: var(--chrome-dim);
+}
+
+.doc-name.is-dirty::before {
+  content: "● ";
+  color: var(--paint-yellow);
+}
+
 .tools {
   display: flex;
   gap: 4px;

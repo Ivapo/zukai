@@ -3,6 +3,7 @@
 import {
   Document,
   Lane,
+  Layout,
   Link,
   LinkId,
   Node,
@@ -30,6 +31,45 @@ export function emptyDocument(name: string): Document {
     markings: [],
     signs: [],
   };
+}
+
+/**
+ * A document as it may arrive from the `load_document` command. Rust drops empty
+ * collections and layout sub-maps from the wire (`skip_serializing_if`), so every
+ * collection here is optional; `schema_version`/`metadata` are always emitted.
+ */
+export type RawDocument = Pick<Document, "schema_version" | "metadata"> &
+  Partial<Omit<Document, "schema_version" | "metadata" | "layout">> & {
+    layout?: Partial<Layout>;
+  };
+
+/**
+ * Fill any collection or layout sub-map the loader omitted, yielding a `Document`
+ * the frontend can consume without guarding every `.map`/lookup. Applied at exactly
+ * one boundary (the `loadDocument` reducer case); also hardens hand-edited files.
+ */
+export function normalizeDocument(raw: RawDocument): Document {
+  const layout = raw.layout ?? {};
+  return {
+    schema_version: raw.schema_version,
+    metadata: raw.metadata,
+    nodes: raw.nodes ?? [],
+    links: raw.links ?? [],
+    junctions: raw.junctions ?? [],
+    layout: {
+      nodes: layout.nodes ?? {},
+      links: layout.links ?? {},
+      junctions: layout.junctions ?? {},
+      signs: layout.signs ?? {},
+    },
+    markings: raw.markings ?? [],
+    signs: raw.signs ?? [],
+  };
+}
+
+/** Display name for the document's backing file: its basename, or "Untitled". */
+export function fileLabel(currentPath: string | null): string {
+  return currentPath ? currentPath.split(/[\\/]/).pop()! : "Untitled";
 }
 
 /** A lane with default width/speed and the given index. */
