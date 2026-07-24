@@ -1,0 +1,24 @@
+#!/bin/sh
+#
+# Pre-commit gate: Rust must be formatted and clippy-clean before a commit lands.
+# Skips automatically when a commit stages no Rust files (docs-only commits stay
+# fast). The Rust crate lives under src-tauri/.
+#
+# One-time setup per clone (this is a local git setting, not committed):
+#   git config core.hooksPath .githooks
+#
+set -eu
+
+# Only run the Rust gate when Rust-relevant files are staged.
+if ! git diff --cached --name-only --diff-filter=ACMR \
+    | grep -qE '\.rs$|(^|/)Cargo\.(toml|lock)$'; then
+  exit 0
+fi
+
+cd "$(git rev-parse --show-toplevel)/src-tauri"
+
+echo "pre-commit → cargo fmt --check"
+cargo fmt --check
+
+echo "pre-commit → cargo clippy --all-targets -- -D warnings"
+cargo clippy --all-targets -- -D warnings

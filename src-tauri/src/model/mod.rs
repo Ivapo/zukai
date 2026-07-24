@@ -170,9 +170,24 @@ mod tests {
         }];
         doc.layout = Layout {
             nodes: [
-                ("N1".into(), NodeView { pos: Vec2::new(0.0, 0.0) }),
-                ("N2".into(), NodeView { pos: Vec2::new(100.0, 0.0) }),
-                ("N3".into(), NodeView { pos: Vec2::new(200.0, 0.0) }),
+                (
+                    "N1".into(),
+                    NodeView {
+                        pos: Vec2::new(0.0, 0.0),
+                    },
+                ),
+                (
+                    "N2".into(),
+                    NodeView {
+                        pos: Vec2::new(100.0, 0.0),
+                    },
+                ),
+                (
+                    "N3".into(),
+                    NodeView {
+                        pos: Vec2::new(200.0, 0.0),
+                    },
+                ),
             ]
             .into_iter()
             .collect(),

@@ -32,6 +32,18 @@ cd src-tauri && cargo check    # type-check the Rust backend
 cd src-tauri && cargo build    # build the Rust backend
 ```
 
+## Conventions
+
+- Run `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings` (from
+  `src-tauri/`) before committing. `--all-targets` is load-bearing — it lints the
+  `#[cfg(test)]` modules and any integration tests, not just the built binary.
+- A tracked **pre-commit hook** (`.githooks/pre-commit`) enforces this
+  automatically; enable it once per clone (it's a local git setting, not committed):
+  ```bash
+  git config core.hooksPath .githooks
+  ```
+  The hook skips commits that stage no Rust files, so docs-only commits stay fast.
+
 ## Development flow
 
 Zukai uses a two-tier documentation system, adapted from Assimilator and sized for

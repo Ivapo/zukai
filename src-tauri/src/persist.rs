@@ -122,8 +122,11 @@ mod tests {
         let path = dir.path().join("future.zkai");
         let path_str = path.to_str().expect("utf-8 path").to_string();
 
-        fs::write(&path, "schema_version: 2\nmetadata:\n  name: From the future\n")
-            .expect("write");
+        fs::write(
+            &path,
+            "schema_version: 2\nmetadata:\n  name: From the future\n",
+        )
+        .expect("write");
 
         let err = load_document(path_str).expect_err("newer file must be rejected");
         // The friendly message, not a raw serde error.
