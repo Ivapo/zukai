@@ -98,6 +98,28 @@ body {
   color: var(--paint-yellow);
 }
 
+.file-actions {
+  display: flex;
+  gap: 2px;
+}
+
+.file-btn {
+  padding: 5px 8px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--chrome-dim);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.file-btn:hover {
+  background: var(--desk-2);
+  color: var(--chrome-text);
+}
+
 .tools {
   display: flex;
   gap: 4px;

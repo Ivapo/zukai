@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { fileLabel, normalizeDocument, RawDocument } from "./document";
+import {
+  ensureZkaiExtension,
+  fileLabel,
+  normalizeDocument,
+  RawDocument,
+} from "./document";
 import { SCHEMA_VERSION } from "./types";
 
 describe("normalizeDocument", () => {
@@ -46,5 +51,25 @@ describe("fileLabel", () => {
   it("returns the basename for POSIX and Windows paths", () => {
     expect(fileLabel("/home/ivan/roads/foo.zkai")).toBe("foo.zkai");
     expect(fileLabel("C:\\Users\\ivan\\foo.zkai")).toBe("foo.zkai");
+  });
+});
+
+describe("ensureZkaiExtension", () => {
+  it("appends .zkai to an extension-less name", () => {
+    expect(ensureZkaiExtension("foo")).toBe("foo.zkai");
+    expect(ensureZkaiExtension("/home/ivan/roads/foo")).toBe(
+      "/home/ivan/roads/foo.zkai",
+    );
+  });
+
+  it("leaves an existing extension alone", () => {
+    expect(ensureZkaiExtension("foo.zkai")).toBe("foo.zkai");
+    expect(ensureZkaiExtension("foo.yaml")).toBe("foo.yaml");
+  });
+
+  it("only considers the basename, not dots in parent directories", () => {
+    expect(ensureZkaiExtension("/home/ivan/road.work/foo")).toBe(
+      "/home/ivan/road.work/foo.zkai",
+    );
   });
 });

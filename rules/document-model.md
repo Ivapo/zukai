@@ -51,3 +51,8 @@ On-disk files use the **`.zkai`** extension and are read/written by the
 and rejects a *newer* file with a friendly error before deserializing the full
 `Document`; the YAML shape is unchanged. YAML is only the on-disk body — the
 document crosses IPC as JSON.
+
+Because empty collections and layout sub-maps are `skip_serializing_if`-elided,
+`load_document`'s JSON can omit them entirely. The frontend restores them with
+`normalizeDocument` (`src/model/document.ts`) at exactly one boundary — the
+`loadDocument` reducer case. See `rules/persistence.md` for the full save/open path.

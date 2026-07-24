@@ -1,13 +1,22 @@
-/** Top control bar: wordmark, tool selection, and zoom readout. */
+/** Top control bar: wordmark, file commands, tool selection, and zoom readout. */
 
 import type { ReactNode } from "react";
 import { clampZoom } from "../editor/geometry";
 import { Action, EditorState, Tool } from "../editor/state";
 import { fileLabel } from "../model/document";
 
+/** The file commands, wired to the dialog/IPC glue by `App`. */
+export interface FileActions {
+  onNew: () => void;
+  onOpen: () => void;
+  onSave: () => void;
+  onSaveAs: () => void;
+}
+
 interface ToolbarProps {
   state: EditorState;
   dispatch: (action: Action) => void;
+  files: FileActions;
 }
 
 const TOOLS: { tool: Tool; label: string; hint: string; icon: ReactNode }[] = [
@@ -16,7 +25,21 @@ const TOOLS: { tool: Tool; label: string; hint: string; icon: ReactNode }[] = [
   { tool: "link", label: "Link", hint: "L", icon: <LinkIcon /> },
 ];
 
-export function Toolbar({ state, dispatch }: ToolbarProps) {
+/** Shortcut prefixes, shown in tooltips: ⌘ on macOS, Ctrl elsewhere. */
+const MAC =
+  typeof navigator !== "undefined" && navigator.userAgent.includes("Mac");
+const MOD = MAC ? "⌘" : "Ctrl+";
+const SHIFT_MOD = MAC ? "⇧⌘" : "Ctrl+Shift+";
+
+const FILE_COMMANDS: { label: string; hint: string; key: keyof FileActions }[] =
+  [
+    { label: "New", hint: `${MOD}N`, key: "onNew" },
+    { label: "Open…", hint: `${MOD}O`, key: "onOpen" },
+    { label: "Save", hint: `${MOD}S`, key: "onSave" },
+    { label: "Save As…", hint: `${SHIFT_MOD}S`, key: "onSaveAs" },
+  ];
+
+export function Toolbar({ state, dispatch, files }: ToolbarProps) {
   const { tool, view } = state;
   return (
     <header className="toolbar">
@@ -30,6 +53,19 @@ export function Toolbar({ state, dispatch }: ToolbarProps) {
         >
           {fileLabel(state.currentPath)}
         </span>
+
+        <div className="file-actions">
+          {FILE_COMMANDS.map((c) => (
+            <button
+              key={c.label}
+              className="file-btn"
+              title={`${c.label.replace("…", "")} (${c.hint})`}
+              onClick={files[c.key]}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="tools" role="radiogroup" aria-label="Drawing tool">

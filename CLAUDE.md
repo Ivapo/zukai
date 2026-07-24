@@ -79,6 +79,8 @@ there's real cross-file knowledge worth extracting, not for every file.
 
 - `rules/document-model.md` — the three-part `Document`, the geometry-free/
   presentation split, and the Rust↔TypeScript mirror discipline
+- `rules/persistence.md` — the save/open path: toolbar → dialog+IPC glue → Rust
+  commands → reducer, and the normalize-at-one-boundary rule
 
 Specs are authoritative for *intent and plan*; `rules/`, this file, and the code
 are authoritative for *current state*. When a shipped phase changes what a rule

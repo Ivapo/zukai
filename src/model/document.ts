@@ -72,6 +72,20 @@ export function fileLabel(currentPath: string | null): string {
   return currentPath ? currentPath.split(/[\\/]/).pop()! : "Untitled";
 }
 
+/** The extension Zukai documents are saved under. */
+export const ZKAI_EXTENSION = "zkai";
+
+/**
+ * Add the `.zkai` extension to a path that has none. Save dialogs vary by
+ * platform in whether they append the filter's extension, so a name typed as
+ * `foo` still lands as `foo.zkai`; a name with any other extension is left alone
+ * (the user asked for it).
+ */
+export function ensureZkaiExtension(path: string): string {
+  const base = path.split(/[\\/]/).pop() ?? "";
+  return base.includes(".") ? path : `${path}.${ZKAI_EXTENSION}`;
+}
+
 /** A lane with default width/speed and the given index. */
 export function defaultLane(id: number): Lane {
   return { id, width: DEFAULT_LANE_WIDTH, speed_limit: DEFAULT_SPEED_LIMIT };
