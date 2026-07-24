@@ -11,6 +11,7 @@
 
   --paper: #e7ebee;
   --grid-dot: #c1ccd4;
+  --island: #c9d6c9;
 
   --paint-white: #f5f7f8;
   --paint-yellow: #f5c518;
@@ -245,6 +246,71 @@ body {
   fill: none;
   stroke: var(--paint-yellow);
   stroke-width: 2.5;
+}
+
+/* ----- junction glyphs ----- */
+
+.junction {
+  cursor: pointer;
+}
+
+.jn-hit {
+  fill: transparent;
+}
+
+.jn-halo {
+  fill: none;
+  stroke: var(--paint-yellow);
+  stroke-width: 2.5;
+}
+
+.jn-pad {
+  fill: var(--asphalt);
+}
+
+.jn-ring {
+  fill: none;
+  stroke: var(--asphalt);
+}
+
+.jn-island {
+  fill: var(--island);
+}
+
+.jn-edge {
+  fill: none;
+  stroke: var(--paint-white);
+  stroke-width: 1.5;
+}
+
+.jn-stopbar {
+  stroke: var(--paint-white);
+  stroke-width: 4;
+  stroke-linecap: butt;
+}
+
+.jn-priority {
+  fill: var(--paint-yellow);
+  stroke: var(--ink);
+  stroke-width: 1.5;
+}
+
+.jn-signal-body {
+  fill: #16191e;
+  stroke: var(--paint-white);
+  stroke-width: 1;
+}
+
+.jn-red {
+  fill: #e5484d;
+}
+
+.jn-amber {
+  fill: var(--paint-yellow);
+}
+
+.jn-green {
+  fill: #46a758;
 }
 
 /* ----- inspector ----- */

@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { findLink, findNode } from "../model/document";
-import { LinkStyle, NodeKind } from "../model/types";
+import { JunctionGlyph, LinkStyle, Node, NodeKind } from "../model/types";
 import { Action, EditorState } from "../editor/state";
 
 interface InspectorProps {
@@ -12,6 +12,13 @@ interface InspectorProps {
 
 const NODE_KINDS: NodeKind[] = ["endpoint", "junction", "waypoint"];
 const LINK_STYLES: LinkStyle[] = ["motorway", "arterial", "local", "ramp"];
+const GLYPHS: { value: JunctionGlyph; label: string }[] = [
+  { value: "generic", label: "Plain" },
+  { value: "roundabout", label: "Roundabout" },
+  { value: "signalized_cross", label: "Signals" },
+  { value: "priority_cross", label: "Priority" },
+  { value: "t_junction", label: "T-junction" },
+];
 
 export function Inspector({ state, dispatch }: InspectorProps) {
   const { doc, selection } = state;
@@ -49,6 +56,14 @@ export function Inspector({ state, dispatch }: InspectorProps) {
             ))}
           </div>
         </Field>
+
+        {node.type === "junction" && (
+          <JunctionFields
+            node={node}
+            state={state}
+            dispatch={dispatch}
+          />
+        )}
 
         <button
           className="danger"
@@ -120,6 +135,61 @@ export function Inspector({ state, dispatch }: InspectorProps) {
         Delete link
       </button>
     </aside>
+  );
+}
+
+function JunctionFields({
+  node,
+  state,
+  dispatch,
+}: {
+  node: Node;
+  state: EditorState;
+  dispatch: (action: Action) => void;
+}) {
+  const view = state.doc.layout.junctions[node.id];
+  const glyph = view?.glyph ?? "generic";
+  const scale = view?.scale ?? 1;
+  return (
+    <>
+      <Field label="Glyph">
+        <div className="segmented segmented-wrap">
+          {GLYPHS.map((g) => (
+            <button
+              key={g.value}
+              className={`seg${glyph === g.value ? " is-active" : ""}`}
+              onClick={() =>
+                dispatch({ type: "setJunctionGlyph", id: node.id, glyph: g.value })
+              }
+            >
+              {g.label}
+            </button>
+          ))}
+        </div>
+      </Field>
+
+      <Field label="Size">
+        <div className="stepper">
+          <button
+            onClick={() =>
+              dispatch({ type: "setJunctionScale", id: node.id, scale: scale - 0.25 })
+            }
+            disabled={scale <= 0.5}
+          >
+            −
+          </button>
+          <span className="stepper-value">{scale.toFixed(2)}×</span>
+          <button
+            onClick={() =>
+              dispatch({ type: "setJunctionScale", id: node.id, scale: scale + 0.25 })
+            }
+            disabled={scale >= 2.5}
+          >
+            +
+          </button>
+        </div>
+      </Field>
+    </>
   );
 }
 

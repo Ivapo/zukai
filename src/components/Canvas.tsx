@@ -3,7 +3,7 @@
 import type React from "react";
 import { useRef, useState } from "react";
 import { linkPolyline, nodePos } from "../model/document";
-import { Link, Node, NodeId, Vec2 } from "../model/types";
+import { JunctionGlyph, Link, Node, NodeId, Vec2 } from "../model/types";
 import {
   endDirection,
   LANE_PX,
@@ -193,6 +193,21 @@ export function Canvas({ state, dispatch }: CanvasProps) {
         {doc.nodes.map((node) => {
           const p = nodePos(doc, node.id);
           if (!p) return null;
+          if (node.type === "junction") {
+            const view = doc.layout.junctions[node.id];
+            return (
+              <JunctionGlyphShape
+                key={node.id}
+                glyph={view?.glyph ?? "generic"}
+                scale={view?.scale ?? 1}
+                center={p}
+                arms={junctionArms(doc, node.id)}
+                selected={isSelected(selection, "node", node.id)}
+                isLinkStart={linkFrom === node.id}
+                onPointerDown={(e) => onNodePointerDown(e, node)}
+              />
+            );
+          }
           return (
             <NodeShape
               key={node.id}
@@ -207,6 +222,32 @@ export function Canvas({ state, dispatch }: CanvasProps) {
       </g>
     </svg>
   );
+}
+
+/** An arm meeting a junction: unit direction away from the node, and road width. */
+interface Arm {
+  dir: Vec2;
+  width: number;
+}
+
+/** The arms incident to a junction node, derived from the links that touch it. */
+function junctionArms(doc: EditorState["doc"], nodeId: NodeId): Arm[] {
+  const arms: Arm[] = [];
+  for (const link of doc.links) {
+    const touchesStart = link.from_node === nodeId;
+    const touchesEnd = link.to_node === nodeId;
+    if (!touchesStart && !touchesEnd) continue;
+    const poly = linkPolyline(doc, link);
+    if (!poly || poly.length < 2) continue;
+    // Orient the polyline so the junction node is first, then step to the next
+    // point to get the direction of the approach leaving the node.
+    const [n0, n1] = touchesStart ? [poly[0], poly[1]] : [poly[poly.length - 1], poly[poly.length - 2]];
+    const dx = n1.x - n0.x;
+    const dy = n1.y - n0.y;
+    const len = Math.hypot(dx, dy) || 1;
+    arms.push({ dir: { x: dx / len, y: dy / len }, width: roadWidth(link.lanes.length) });
+  }
+  return arms;
 }
 
 function isSelected(sel: Selection | null, kind: "node" | "link", id: string) {
@@ -314,4 +355,134 @@ function NodeShape({
       <circle className="node-dot" r={r} vectorEffect="non-scaling-stroke" />
     </g>
   );
+}
+
+/**
+ * A junction drawn as a recognizable symbol. The generic/signalized/priority
+ * glyphs sit on an asphalt pad where the arms meet; the roundabout replaces the
+ * pad with a ring and island. Approach-derived details (stop bars, arm widths)
+ * come from `arms`, which is why the glyph reads correctly for any arm layout.
+ */
+function JunctionGlyphShape({
+  glyph,
+  scale,
+  center,
+  arms,
+  selected,
+  isLinkStart,
+  onPointerDown,
+}: {
+  glyph: JunctionGlyph;
+  scale: number;
+  center: Vec2;
+  arms: Arm[];
+  selected: boolean;
+  isLinkStart: boolean;
+  onPointerDown: (e: React.PointerEvent) => void;
+}) {
+  const maxW = arms.length ? Math.max(...arms.map((a) => a.width)) : roadWidth(1);
+  const rp = (maxW * 0.62 + 3) * scale;
+
+  const ro = Math.max(20, maxW * 1.35) * scale;
+  const ringT = ro * 0.42;
+  const ri = ro - ringT;
+
+  const outerR = glyph === "roundabout" ? ro : rp;
+  const highlight = selected || isLinkStart;
+
+  return (
+    <g
+      className="junction"
+      transform={`translate(${center.x} ${center.y})`}
+      onPointerDown={onPointerDown}
+    >
+      {/* Transparent hit disc so the whole glyph is clickable. */}
+      <circle className="jn-hit" r={outerR + 2} />
+
+      {highlight && (
+        <circle className="jn-halo" r={outerR + 5} vectorEffect="non-scaling-stroke" />
+      )}
+
+      {glyph === "roundabout" ? (
+        <>
+          <circle className="jn-ring" r={(ri + ro) / 2} strokeWidth={ringT} />
+          <circle className="jn-island" r={ri} />
+          <circle className="jn-edge" r={ro} vectorEffect="non-scaling-stroke" />
+          <circle className="jn-edge" r={ri} vectorEffect="non-scaling-stroke" />
+        </>
+      ) : (
+        <circle className="jn-pad" r={rp} />
+      )}
+
+      {glyph === "signalized_cross" && (
+        <>
+          {arms.map((a, i) => {
+            // Sit the stop line just beyond the pad, on the visible approach road.
+            const dist = rp + 4;
+            const cx = a.dir.x * dist;
+            const cy = a.dir.y * dist;
+            const hx = -a.dir.y * (a.width / 2 + 1);
+            const hy = a.dir.x * (a.width / 2 + 1);
+            return (
+              <line
+                key={i}
+                className="jn-stopbar"
+                x1={cx - hx}
+                y1={cy - hy}
+                x2={cx + hx}
+                y2={cy + hy}
+                vectorEffect="non-scaling-stroke"
+              />
+            );
+          })}
+          <SignalHead rp={rp} scale={scale} />
+        </>
+      )}
+
+      {glyph === "priority_cross" && (
+        <polygon
+          className="jn-priority"
+          points={diamondPoints(rp * 0.85)}
+          vectorEffect="non-scaling-stroke"
+        />
+      )}
+    </g>
+  );
+}
+
+/** A small three-aspect signal head, offset up-right of the junction centre. */
+function SignalHead({ rp, scale }: { rp: number; scale: number }) {
+  const off = rp + 7 * scale;
+  const bx = off * 0.707;
+  const by = -off * 0.707;
+  const w = 6.5 * scale;
+  const h = 17 * scale;
+  const dotR = w * 0.3;
+  const top = by - h / 2;
+  const aspects = [
+    { cy: top + h * 0.22, cls: "jn-red" },
+    { cy: top + h * 0.5, cls: "jn-amber" },
+    { cy: top + h * 0.78, cls: "jn-green" },
+  ];
+  return (
+    <g>
+      <rect
+        className="jn-signal-body"
+        x={bx - w / 2}
+        y={top}
+        width={w}
+        height={h}
+        rx={2 * scale}
+        vectorEffect="non-scaling-stroke"
+      />
+      {aspects.map((a, i) => (
+        <circle key={i} className={a.cls} cx={bx} cy={a.cy} r={dotR} />
+      ))}
+    </g>
+  );
+}
+
+/** Points for a diamond (rotated square) of half-diagonal `s`, centred at origin. */
+function diamondPoints(s: number): string {
+  return `0,${-s} ${s},0 0,${s} ${-s},0`;
 }

@@ -8,6 +8,7 @@ import {
 import {
   Document,
   Junction,
+  JunctionGlyph,
   LinkId,
   LinkStyle,
   NodeId,
@@ -55,6 +56,8 @@ export type Action =
   | { type: "addNode"; pos: Vec2 }
   | { type: "moveNode"; id: NodeId; pos: Vec2 }
   | { type: "setNodeKind"; id: NodeId; kind: NodeKind }
+  | { type: "setJunctionGlyph"; id: NodeId; glyph: JunctionGlyph }
+  | { type: "setJunctionScale"; id: NodeId; scale: number }
   | { type: "startLink"; from: NodeId }
   | { type: "completeLink"; to: NodeId }
   | { type: "cancelLink" }
@@ -81,6 +84,14 @@ export function reducer(state: EditorState, action: Action): EditorState {
 
     case "setNodeKind":
       return setNodeKind(state, action.id, action.kind);
+
+    case "setJunctionGlyph":
+      return setJunctionView(state, action.id, { glyph: action.glyph });
+
+    case "setJunctionScale":
+      return setJunctionView(state, action.id, {
+        scale: Math.max(0.5, Math.min(2.5, Math.round(action.scale * 4) / 4)),
+      });
 
     case "startLink":
       return { ...state, linkFrom: action.from };
@@ -169,6 +180,30 @@ function setNodeKind(
       nodes,
       junctions,
       layout: { ...doc.layout, junctions: junctionViews },
+    },
+  };
+}
+
+/** Merge a partial change into a node's junction view, creating it if absent. */
+function setJunctionView(
+  state: EditorState,
+  id: NodeId,
+  patch: Partial<{ glyph: JunctionGlyph; scale: number }>,
+): EditorState {
+  const { doc } = state;
+  const current = doc.layout.junctions[id] ?? {
+    glyph: "generic" as JunctionGlyph,
+    rotation: 0,
+    scale: 1,
+  };
+  return {
+    ...state,
+    doc: {
+      ...doc,
+      layout: {
+        ...doc.layout,
+        junctions: { ...doc.layout.junctions, [id]: { ...current, ...patch } },
+      },
     },
   };
 }
