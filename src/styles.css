@@ -120,6 +120,41 @@ body {
   color: var(--chrome-text);
 }
 
+/* Undo/redo and the tool group share the header's middle slot, so the toolbar
+   keeps its three-way space-between layout. */
+.toolbar-center {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.history {
+  display: flex;
+  gap: 2px;
+}
+
+.history-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--line);
+  background: var(--desk-2);
+  color: var(--chrome-text);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.history-btn:hover:not(:disabled) {
+  border-color: var(--chrome-dim);
+}
+
+.history-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
 .tools {
   display: flex;
   gap: 4px;

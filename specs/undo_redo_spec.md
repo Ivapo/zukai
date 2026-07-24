@@ -1,9 +1,9 @@
 ---
-status: partial (Phase 1 landed; reviewed in 2 rounds, 2026-07-24)
+status: implemented (2 review rounds, 2026-07-24)
 last_updated: 2026-07-24
 note: Linear undo/redo for document edits — snapshot history in the reducer, with drag coalescing, wired to keyboard, toolbar, and the native Edit menu.
-implemented: ["Phase 1"]
-not_implemented: ["Phase 2"]
+implemented: ["Phase 1", "Phase 2"]
+not_implemented: []
 related: [specs/save_load_spec.md]
 reference: null   # Not an Assimilator-coupled feature; Zukai-internal only.
 ---
@@ -328,6 +328,17 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
   bullet in `rules/persistence.md` to say Cmd+Z/Shift+Cmd+Z are now Zukai's items
   in the Edit submenu, replacing the predefined pair; update the project-memory
   roadmap (undo/redo shipped).
+- **As built (2026-07-24):** one addition beyond §2.7 — when `findSubmenu(menu,
+  "Edit")` finds nothing, `build()` inserts an Edit submenu holding the two items,
+  mirroring the existing File fallback. Without it a menu install on such a
+  platform would leave the app with no undo accelerator at all, since a successful
+  install stops `App.tsx` claiming the chords. Docs landed as a new
+  `rules/history.md` (plus the `rules/persistence.md` and `CLAUDE.md` updates).
+  Verified: the whole browser path end to end (drag = one undo step, all three
+  chords, toolbar buttons and their disabled states, chords aimed at a text input
+  ignored) and, under `tauri dev`, that the installed menu is Zukai's and its Edit
+  submenu holds exactly one Undo/Redo pair (Cmd+Z / Shift+Cmd+Z) above the
+  Cut/Copy/Paste separator.
 
 ## 5. Review log
 

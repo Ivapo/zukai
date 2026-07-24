@@ -69,7 +69,8 @@ phase from a spec still `status: draft`** — it must pass the review loop
 
 - `specs/spec-authoring.md` — how to write specs (read before drafting one)
 - `specs/_template.md` — copy this to start a new spec
-- `specs/save_load_spec.md` — save/open `.zkai` documents (draft; 4 phases)
+- `specs/save_load_spec.md` — save/open `.zkai` documents (implemented; 4 phases)
+- `specs/undo_redo_spec.md` — undo/redo over document edits (implemented; 2 phases)
 
 **`rules/` — current-state reference (the *what is*).** Terse, authoritative maps
 of subsystems, read on demand. Unlike specs, rules describe the code as it is now;
@@ -81,6 +82,8 @@ there's real cross-file knowledge worth extracting, not for every file.
   presentation split, and the Rust↔TypeScript mirror discipline
 - `rules/persistence.md` — the save/open path: toolbar → dialog+IPC glue → Rust
   commands → reducer, and the normalize-at-one-boundary rule
+- `rules/history.md` — undo/redo: the snapshot stack in the reducer, the
+  document-identity signal, drag coalescing, and the three trigger surfaces
 
 Specs are authoritative for *intent and plan*; `rules/`, this file, and the code
 are authoritative for *current state*. When a shipped phase changes what a rule

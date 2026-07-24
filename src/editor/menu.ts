@@ -25,6 +25,9 @@ export interface MenuOptions {
   /** Remembered document paths, most recent first. */
   recents: string[];
   onOpenRecent: (path: string) => void;
+  /** Document undo/redo, shared with the toolbar buttons. */
+  onUndo: () => void;
+  onRedo: () => void;
 }
 
 /** The menu we last installed; kept so a rebuild can release the old one. */
@@ -65,6 +68,23 @@ async function build(opts: MenuOptions): Promise<boolean> {
     } else {
       // Linux's default menu has no File submenu — give the commands their own.
       await menu.insert(await Submenu.new({ text: "File", items: commands }), 0);
+    }
+
+    // Tauri's default Edit submenu opens with the *predefined* Undo/Redo, which
+    // drive webview text editing and own Cmd+Z / Shift+Cmd+Z. Swap in our own so
+    // the chords undo the document instead. Removing the pair takes two
+    // `removeAt(0)`: Redo shifts into 0 once Undo is gone.
+    const edit = await findSubmenu(menu, "Edit");
+    const history = await historyCommands(opts);
+    if (edit) {
+      await edit.removeAt(0);
+      await edit.removeAt(0);
+      await edit.insert(history, 0);
+    } else {
+      // Same fallback as File above: a default menu without an Edit submenu
+      // would otherwise leave the app with no undo accelerator at all, since a
+      // successful install stops `App` from claiming the chords.
+      await menu.insert(await Submenu.new({ text: "Edit", items: history }), 1);
     }
 
     const previous = installed;
@@ -110,6 +130,28 @@ async function fileCommands(
       text: "Save As…",
       accelerator: "CmdOrCtrl+Shift+S",
       action: () => files.onSaveAs(),
+    }),
+  ];
+}
+
+/**
+ * Zukai's Undo/Redo, replacing the Edit submenu's predefined pair. Kept always
+ * enabled — they no-op at the ends of the history stacks, and the toolbar
+ * buttons carry the disabled affordance without a per-flip IPC round trip.
+ */
+async function historyCommands(opts: MenuOptions): Promise<MenuItem[]> {
+  return [
+    await MenuItem.new({
+      id: "zukai-undo",
+      text: "Undo",
+      accelerator: "CmdOrCtrl+Z",
+      action: () => opts.onUndo(),
+    }),
+    await MenuItem.new({
+      id: "zukai-redo",
+      text: "Redo",
+      accelerator: "CmdOrCtrl+Shift+Z",
+      action: () => opts.onRedo(),
     }),
   ];
 }

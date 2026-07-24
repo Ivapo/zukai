@@ -7,7 +7,7 @@ design rationale lives in `specs/save_load_spec.md`. Hand-maintained.
 
 | Step | Where |
 |------|-------|
-| Trigger | Toolbar `.file-actions` buttons (`src/components/Toolbar.tsx`), the native File menu (`src/editor/menu.ts`), and Cmd/Ctrl+N/O/S, Shift for Save As (`src/App.tsx` keydown) |
+| Trigger | Toolbar `.file-actions` buttons (`src/components/Toolbar.tsx`), the native File menu (`src/editor/menu.ts`), and Cmd/Ctrl+N/O/S, Shift for Save As (`src/App.tsx` keydown) — the same three surfaces undo/redo use (`rules/history.md`) |
 | Dialog + IPC | `src/editor/files.ts` — with `menu.ts`, one of only two modules that touch the Tauri runtime |
 | Commands | `save_document` / `load_document` (`src-tauri/src/persist.rs`), `recent_files` / `push_recent_file` (`src-tauri/src/recent.rs`), all registered in `src-tauri/src/lib.rs` |
 | Apply | `loadDocument` / `newDocument` / `markSaved` / `setRecents` reducer cases (`src/editor/state.ts`) |
@@ -56,8 +56,16 @@ in Rust (`std::fs` + `serde_yaml`) so the on-disk shape has one owner. No
 - `installMenu` resolving `true` means the native accelerators own the Cmd/Ctrl
   chords, and `App.tsx`'s keydown handler stops claiming them. Both handling them
   would fire a command twice on platforms where the key still reaches the webview.
+  That covers Cmd+Z / Shift+Cmd+Z too: `build()` **replaces** the Edit submenu's
+  first two items — Tauri's *predefined* Undo/Redo, which drive webview text
+  editing — with Zukai's own, so the chords undo the document (`rules/history.md`).
+  Removing the pair takes two `removeAt(0)`; it is the only place the menu code
+  removes anything, and it runs before `setAsAppMenu()` so a throw leaves nothing
+  half-installed.
 - Zukai's commands are **prepended into Tauri's own File submenu** (found by title);
   the fallback branch that builds one is Linux's path, whose default menu has none.
+  The Edit submenu has the same fallback, for the same reason and because a menu
+  install without an undo accelerator would leave the app with none at all.
 - Recents live in `recent.json` in the app config dir, owned by
   `src-tauri/src/recent.rs`. `recent_files` prunes paths that no longer exist — the
   webview cannot check that itself. The list is best-effort: a broken store reads as

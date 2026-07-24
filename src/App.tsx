@@ -63,6 +63,8 @@ function App() {
       recents: state.recents,
       onOpenRecent: (path) =>
         void openRecentDocument(stateRef.current, dispatch, path),
+      onUndo: () => dispatch({ type: "undo" }),
+      onRedo: () => dispatch({ type: "redo" }),
     }).then(setMenuInstalled);
   }, [files, state.recents]);
 
@@ -78,8 +80,9 @@ function App() {
       const target = e.target as HTMLElement;
       if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
 
-      // File shortcuts own every Cmd/Ctrl chord; returning unconditionally keeps
-      // e.g. Cmd+N from also falling through to the Node tool key below.
+      // File and history shortcuts own every Cmd/Ctrl chord; returning
+      // unconditionally keeps e.g. Cmd+N from also falling through to the Node
+      // tool key below.
       if (e.metaKey || e.ctrlKey) {
         // With a native menu installed its accelerators fire these commands, so
         // handling them here as well would run some of them twice.
@@ -96,6 +99,16 @@ function App() {
           case "n":
             e.preventDefault();
             files.onNew();
+            break;
+          case "z":
+            e.preventDefault();
+            dispatch({ type: e.shiftKey ? "redo" : "undo" });
+            break;
+          // Redo's Windows spelling. Browser-path only: a native menu item
+          // carries one accelerator, and the Edit menu already has Shift+Cmd+Z.
+          case "y":
+            e.preventDefault();
+            dispatch({ type: "redo" });
             break;
         }
         return;

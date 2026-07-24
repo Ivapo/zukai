@@ -68,20 +68,43 @@ export function Toolbar({ state, dispatch, files }: ToolbarProps) {
         </div>
       </div>
 
-      <div className="tools" role="radiogroup" aria-label="Drawing tool">
-        {TOOLS.map((t) => (
+      <div className="toolbar-center">
+        <div className="history">
           <button
-            key={t.tool}
-            className={`tool${tool === t.tool ? " is-active" : ""}`}
-            role="radio"
-            aria-checked={tool === t.tool}
-            title={`${t.label} (${t.hint})`}
-            onClick={() => dispatch({ type: "setTool", tool: t.tool })}
+            className="history-btn"
+            title={`Undo (${MOD}Z)`}
+            aria-label="Undo"
+            disabled={state.past.length === 0}
+            onClick={() => dispatch({ type: "undo" })}
           >
-            {t.icon}
-            <span>{t.label}</span>
+            <UndoIcon />
           </button>
-        ))}
+          <button
+            className="history-btn"
+            title={`Redo (${SHIFT_MOD}Z)`}
+            aria-label="Redo"
+            disabled={state.future.length === 0}
+            onClick={() => dispatch({ type: "redo" })}
+          >
+            <RedoIcon />
+          </button>
+        </div>
+
+        <div className="tools" role="radiogroup" aria-label="Drawing tool">
+          {TOOLS.map((t) => (
+            <button
+              key={t.tool}
+              className={`tool${tool === t.tool ? " is-active" : ""}`}
+              role="radio"
+              aria-checked={tool === t.tool}
+              title={`${t.label} (${t.hint})`}
+              onClick={() => dispatch({ type: "setTool", tool: t.tool })}
+            >
+              {t.icon}
+              <span>{t.label}</span>
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="zoom">
@@ -126,6 +149,50 @@ function NodeIcon() {
   return (
     <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden>
       <circle cx="8" cy="8" r="4" fill="none" stroke="currentColor" strokeWidth="2" />
+    </svg>
+  );
+}
+
+function UndoIcon() {
+  return (
+    <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden>
+      <path
+        d="M6 3L3 6l3 3"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M3 6h6a3.5 3.5 0 0 1 0 7H7"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function RedoIcon() {
+  return (
+    <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden>
+      <path
+        d="M10 3l3 3-3 3"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M13 6H7a3.5 3.5 0 0 0 0 7h2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
