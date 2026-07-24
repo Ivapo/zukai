@@ -31,3 +31,40 @@ bun run build                  # tsc typecheck + vite build (frontend)
 cd src-tauri && cargo check    # type-check the Rust backend
 cd src-tauri && cargo build    # build the Rust backend
 ```
+
+## Development flow
+
+Zukai uses a two-tier documentation system, adapted from Assimilator and sized for
+this project.
+
+**`specs/` — design plans (the *why* and the how).** Before building a non-trivial
+feature, write a spec: a frontmatter header (`status`, `last_updated`,
+`implemented`/`not_implemented`), a Goal anchored to a concrete usage example, the
+design, open questions, and **numbered implementation phases**. Each phase is
+strictly sequential and sized to **one plan-mode pass** with a concrete exit gate
+(build + tests green, plus a behavioural check). To implement, run "implement Phase
+N of `specs/<spec>.md`". Conventions live in `specs/spec-authoring.md`; start new
+specs from `specs/_template.md`.
+
+**Standing plan-mode rule:** when planning a phase of a spec, always include, as
+explicit plan steps, (1) a **commit plan** (what gets committed, the message,
+whether to push) and (2) a **reconciliation step** (which `rules/`, `CLAUDE.md`, or
+project-memory roadmap entries the phase changes — or "none needed"). These are
+default steps, not things to request each time.
+
+- `specs/spec-authoring.md` — how to write specs (read before drafting one)
+- `specs/_template.md` — copy this to start a new spec
+- *(no feature specs yet — the next one is save/load; see project roadmap)*
+
+**`rules/` — current-state reference (the *what is*).** Terse, authoritative maps
+of subsystems, read on demand. Unlike specs, rules describe the code as it is now;
+keep them current when the code changes (hand-maintained — no `/sync-rules` skill
+yet; add one if the rules corpus grows enough to regenerate). Seed rules only when
+there's real cross-file knowledge worth extracting, not for every file.
+
+- `rules/document-model.md` — the three-part `Document`, the geometry-free/
+  presentation split, and the Rust↔TypeScript mirror discipline
+
+Specs are authoritative for *intent and plan*; `rules/`, this file, and the code
+are authoritative for *current state*. When a shipped phase changes what a rule
+documents, update the rule (and the roadmap in project memory) in the same pass.

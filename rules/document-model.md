@@ -1,0 +1,46 @@
+# Document Model
+
+Authoritative map of Zukai's document model. Terse by design — read the rustdoc in
+`src-tauri/src/model/` for field-level detail. Hand-maintained: update this when
+the model changes.
+
+## Three parts, one `Document`
+
+A `Document` (`src-tauri/src/model/mod.rs`) has three deliberately-separated parts:
+
+| Part | Files | Exports to Assimilator? |
+|------|-------|------------------------|
+| **Semantic graph** | `graph.rs` — `Node`, `Link`, `Lane`, `Junction`, `Movement`, `SignalPlan`, `Phase` | ✅ yes — this is the `network.yaml`-compatible subset |
+| **Layout** (presentation) | `layout.rs` — `Vec2`, `NodeView`, `LinkView`, `JunctionView`, `JunctionGlyph`, `LinkStyle` | ❌ dropped on export |
+| **Decorations** (Zukai-native) | `decoration.rs` — `Marking`, `Sign` | ❌ never — Assimilator has no equivalent |
+
+Ids are string newtypes (`ids.rs`) so ids imported from Assimilator survive a
+round-trip. Lane index is `u32`.
+
+## Invariants
+
+- The **semantic graph is geometry-free** — no coordinates live in `graph.rs`.
+  Positions live only in `layout`, keyed by entity id (`BTreeMap` for stable
+  diffs). A missing layout entry is not an error → the renderer auto-places.
+- **Presentation never round-trips through Assimilator.** Export serializes the
+  graph and synthesizes placeholder geometry; import rebuilds layout from a naive
+  seed. This is why the split is physical, not just conceptual.
+- A **junction is a plain graph node** (`type: junction`) plus a `Junction` record
+  and a `JunctionView { glyph, rotation, scale }`. The glyph (roundabout /
+  signalized_cross / …) is a render hint; the arms are the incident links. There
+  is no composite "roundabout object".
+
+## Rust ↔ TypeScript mirror
+
+`src/model/types.ts` is a **hand-kept mirror** of the Rust model. The Rust side is
+authoritative; keep them in sync by hand until `ts-rs` codegen is introduced.
+String-literal unions in TS match serde's `snake_case` output exactly (e.g.
+`NodeKind = "endpoint" | "junction" | "waypoint"`, `MovementKind` uses
+`"u-turn"`), so a document built in the frontend serializes to the same YAML the
+Rust side reads. When you change a Rust type, change its TS twin in the same pass.
+
+## Serialization
+
+Zukai saves its own YAML (schema keyed by `SCHEMA_VERSION` in `mod.rs`, distinct
+from Assimilator's `network.yaml` `schema_version`), via `serde_yaml`. The model
+round-trips — see the tests in `mod.rs`.
