@@ -50,11 +50,13 @@ specs from `specs/_template.md`.
 explicit plan steps, (1) a **commit plan** (what gets committed, the message,
 whether to push) and (2) a **reconciliation step** (which `rules/`, `CLAUDE.md`, or
 project-memory roadmap entries the phase changes — or "none needed"). These are
-default steps, not things to request each time.
+default steps, not things to request each time. And **never plan or implement a
+phase from a spec still `status: draft`** — it must pass the review loop
+(`specs/spec-authoring.md §7`) first.
 
 - `specs/spec-authoring.md` — how to write specs (read before drafting one)
 - `specs/_template.md` — copy this to start a new spec
-- *(no feature specs yet — the next one is save/load; see project roadmap)*
+- `specs/save_load_spec.md` — save/open `.zkai` documents (draft; 4 phases)
 
 **`rules/` — current-state reference (the *what is*).** Terse, authoritative maps
 of subsystems, read on demand. Unlike specs, rules describe the code as it is now;

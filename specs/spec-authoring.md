@@ -93,7 +93,41 @@ A spec converges over rounds. Stay `status: draft` until it does.
 
 ## 6. Lifecycle
 
-`draft` → `in-progress` / `partial` → `implemented` → `superseded`. Bump
-`last_updated` and keep `implemented` / `not_implemented` current as phases land.
-When a shipped phase changes what a rule documents, update that `rules/` file (and
-the roadmap in project memory) in the same pass — that's the close-out habit.
+`draft` → `reviewed` (passes §7) → `in-progress` / `partial` → `implemented` →
+`superseded`. Bump `last_updated` and keep `implemented` / `not_implemented`
+current as phases land. When a shipped phase changes what a rule documents, update
+that `rules/` file (and the roadmap in project memory) in the same pass — that's
+the close-out habit.
+
+## 7. Review process
+
+A spec passes a review loop before it is built. **Don't plan or implement a phase
+from a spec still `status: draft`** — review is the gate between drafting and
+building. (Validated on `save_load_spec.md`, which converged in two rounds.)
+
+1. **Round 1 — fresh reviewer with repo access.** Spawn a clean-context agent that
+   can **read the repo**, not just the spec text — its highest-value job is catching
+   design claims that don't match the code (verify the `file:symbol` citations and
+   the spec's assumptions about existing code). Ask it the right question: *"is this
+   ready to implement **as scoped**?"* — never "how would you improve it". That
+   framing is what prevents an endless scope-creep loop.
+2. **Classify + verdict.** The reviewer tags every comment `[BLOCKING]` /
+   `[NON-BLOCKING]` and ends with `READY` / `NOT READY`. *Blocking* = can't be
+   implemented correctly as written (contradicts the code, ambiguity that forces a
+   guess, a phase that isn't self-contained, a vague/unverifiable exit gate).
+   Everything else is non-blocking.
+3. **Author adjudicates every comment** — accept (fold in) / reject (with a recorded
+   reason; the reviewer isn't always right) / defer (to an OQ or non-goal). Recording
+   the call is what stops the next round re-raising it.
+4. **Re-review — resume the *same* agent**, not a fresh one. Give it a changelog of
+   what changed and how each finding was handled; ask it to confirm the blockers are
+   resolved and raise **only** newly-introduced or newly-found blocking issues. (Round
+   1 fresh gives fresh eyes; same-agent re-review gives convergence — it can verify
+   its own concerns were addressed.)
+5. **Converge at zero blocking.** A round with no `[BLOCKING]` findings is READY.
+   Non-blocking leftovers become OQs or "won't do" notes; they don't block.
+6. **Cap at 3 rounds.** If blocking issues remain after three, **escalate to the
+   human** — don't loop.
+7. **Record it.** Keep a `## Review log` in the spec: per round, the verdict, blockers
+   fixed, notable rejections. On convergence, move `status` off `draft` (to
+   `reviewed`).
