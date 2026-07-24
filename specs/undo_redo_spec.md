@@ -1,9 +1,9 @@
 ---
-status: reviewed
+status: partial (Phase 1 landed; reviewed in 2 rounds, 2026-07-24)
 last_updated: 2026-07-24
 note: Linear undo/redo for document edits — snapshot history in the reducer, with drag coalescing, wired to keyboard, toolbar, and the native Edit menu.
-implemented: []
-not_implemented: ["Phase 1", "Phase 2"]
+implemented: ["Phase 1"]
+not_implemented: ["Phase 2"]
 related: [specs/save_load_spec.md]
 reference: null   # Not an Assimilator-coupled feature; Zukai-internal only.
 ---

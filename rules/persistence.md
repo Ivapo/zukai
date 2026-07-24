@@ -26,9 +26,12 @@ in Rust (`std::fs` + `serde_yaml`) so the on-disk shape has one owner. No
   the reducer normalizes it. Do not normalize in `files.ts` too, and never consume
   a raw payload elsewhere — the frontend assumes `doc.links`/`doc.layout.nodes`
   always exist.
-- **`dirty` is set by document identity**, not action type (`reducer` in
-  `state.ts`); the three persistence actions are the carve-out and set it
-  explicitly. A new editing action needs no dirty bookkeeping.
+- **`dirty` is set by document identity**, not action type — for editing actions,
+  inside `recordHistory` (`state.ts`), which decides the undo snapshot and the
+  dirty flag in one pass. The carve-outs set it explicitly: the four persistence
+  actions, plus `undo`/`redo`, which always dirty (undoing back to the saved
+  document still reads as dirty — see `specs/undo_redo_spec.md` §2.5). A new
+  editing action still needs no dirty bookkeeping.
 - **Dialogs need the Tauri runtime.** Under plain `bun run dev` every command in
   `files.ts` fails; each is wrapped so the failure is reported (dialog `message()`,
   falling back to `console.error`) instead of leaving an unhandled rejection. The

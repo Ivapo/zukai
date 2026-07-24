@@ -3,6 +3,8 @@
 import {
   defaultLane,
   emptyDocument,
+  findLink,
+  findNode,
   nextId,
   normalizeDocument,
   RawDocument,
@@ -41,10 +43,22 @@ export interface EditorState {
   currentPath: string | null;
   /** Recently opened/saved paths, most recent first; owned by the Rust store. */
   recents: string[];
+  /** Snapshots older than `doc`, oldest first; the last is one undo back. */
+  past: Document[];
+  /** Snapshots undone from, newest-undo first; the first is one redo forward. */
+  future: Document[];
+  /**
+   * The gesture the current top-of-`past` belongs to, so a continuous drag
+   * collapses to one entry; `null` = no open gesture. See {@link recordHistory}.
+   */
+  coalesceKey: string | null;
 }
 
 /** Lane count a freshly drawn link starts with. */
 const NEW_LINK_LANES = 1;
+
+/** How many snapshots `past` keeps; the oldest is dropped past this. */
+const HISTORY_LIMIT = 100;
 
 /** The initial state: one empty, unnamed schematic. */
 export function initialState(): EditorState {
@@ -57,6 +71,9 @@ export function initialState(): EditorState {
     dirty: false,
     currentPath: null,
     recents: [],
+    past: [],
+    future: [],
+    coalesceKey: null,
   };
 }
 
@@ -84,19 +101,26 @@ export type PersistAction =
   | { type: "markSaved"; path: string }
   | { type: "setRecents"; recents: string[] };
 
+/** Undo/redo over the document; a third arm so {@link editReducer} still narrows. */
+export type HistoryAction = { type: "undo" } | { type: "redo" };
+
 /** Every action the UI can dispatch. */
-export type Action = EditAction | PersistAction;
+export type Action = EditAction | PersistAction | HistoryAction;
 
 /**
  * Apply an action, returning the next state (never mutates `state`).
  *
- * Persistence actions set `dirty`/`currentPath` explicitly; editing actions run
- * through {@link editReducer} and then have `dirty` set by **document identity** —
- * the reducer's immutable updates change `doc`'s reference iff it actually changed,
- * so no-op actions (`setTool`, a `moveNode` on a missing node, …) never dirty.
+ * Persistence actions set `dirty`/`currentPath` explicitly, as do `undo`/`redo`
+ * (§2.5 of the undo spec). Editing actions run through {@link editReducer} and
+ * then {@link recordHistory}, which sets `dirty` by **document identity** — the
+ * reducer's immutable updates change `doc`'s reference iff it actually changed,
+ * so no-op actions (`setTool`, a `moveNode` on a missing node, …) never dirty —
+ * and pushes the undo snapshot in the same decision.
  */
 export function reducer(state: EditorState, action: Action): EditorState {
   switch (action.type) {
+    // Installing a whole document resets history: there is nothing to undo
+    // across a file boundary.
     case "loadDocument":
       return {
         ...state,
@@ -106,6 +130,9 @@ export function reducer(state: EditorState, action: Action): EditorState {
         selection: null,
         linkFrom: null,
         view: IDENTITY_VIEW,
+        past: [],
+        future: [],
+        coalesceKey: null,
       };
 
     case "newDocument":
@@ -117,8 +144,13 @@ export function reducer(state: EditorState, action: Action): EditorState {
         selection: null,
         linkFrom: null,
         view: IDENTITY_VIEW,
+        past: [],
+        future: [],
+        coalesceKey: null,
       };
 
+    // `markSaved`/`setRecents` say nothing about document content, so they leave
+    // all three history fields — `coalesceKey` included — untouched.
     case "markSaved":
       return { ...state, dirty: false, currentPath: action.path };
 
@@ -130,9 +162,29 @@ export function reducer(state: EditorState, action: Action): EditorState {
         ? state
         : { ...state, recents: action.recents };
 
+    case "undo":
+      return state.past.length === 0
+        ? state
+        : restore(
+            state,
+            state.past[state.past.length - 1],
+            state.past.slice(0, -1),
+            [state.doc, ...state.future],
+          );
+
+    case "redo":
+      return state.future.length === 0
+        ? state
+        : restore(
+            state,
+            state.future[0],
+            pushPast(state.past, state.doc),
+            state.future.slice(1),
+          );
+
     default: {
       const next = editReducer(state, action);
-      return next.doc !== state.doc ? { ...next, dirty: true } : next;
+      return recordHistory(state, next, coalesceKeyFor(action));
     }
   }
 }
@@ -140,6 +192,89 @@ export function reducer(state: EditorState, action: Action): EditorState {
 /** Element-wise equality of two path lists. */
 function sameList(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((p, i) => p === b[i]);
+}
+
+/**
+ * The gesture an editing action belongs to, or `null` for a discrete edit that
+ * must never merge with its neighbours. A node drag dispatches one `moveNode`
+ * per pointer-move, so those collapse per node; deliberate clicks (a ±1 lane
+ * stepper, say) are separate edits and each get their own undo step.
+ */
+function coalesceKeyFor(action: EditAction): string | null {
+  return action.type === "moveNode" ? `moveNode:${action.id}` : null;
+}
+
+/**
+ * Fold the result of an editing action into the history stacks.
+ *
+ * A change to `doc` either **replaces** the current entry (the gesture named by
+ * `key` is still open) or **pushes** a new one; either way it dirties the state
+ * and drops any redo future. An action that leaves `doc` alone records nothing
+ * but still closes an open gesture, so the next change starts a fresh entry.
+ */
+function recordHistory(
+  prev: EditorState,
+  next: EditorState,
+  key: string | null,
+): EditorState {
+  if (next.doc === prev.doc) {
+    // Nothing to record. Preserve the identity-stable no-op (`moveNode` on a
+    // node with no layout entry, `deleteSelection` with nothing selected) when
+    // there is also no gesture to close, so `useReducer` skips the re-render.
+    if (next === prev && prev.coalesceKey === null) return prev;
+    return { ...next, coalesceKey: null };
+  }
+
+  const continuing = key !== null && key === prev.coalesceKey;
+  return {
+    ...next,
+    dirty: true,
+    // While a gesture is open `past` already holds its pre-gesture snapshot.
+    past: continuing ? prev.past : pushPast(prev.past, prev.doc),
+    future: [],
+    coalesceKey: key,
+  };
+}
+
+/** Append a snapshot, dropping the oldest once the stack is full. */
+function pushPast(past: Document[], doc: Document): Document[] {
+  const grown = [...past, doc];
+  return grown.length > HISTORY_LIMIT
+    ? grown.slice(grown.length - HISTORY_LIMIT)
+    : grown;
+}
+
+/**
+ * Install a snapshot from either history stack. Clears `linkFrom` (a half-drawn
+ * link may start at a node this just removed) and revalidates the selection,
+ * which survives an undo that only changed the selected element's properties.
+ * Dirty is set unconditionally: undoing back to the last-saved document still
+ * reads as dirty, which over-reports safely (OQ-1).
+ */
+function restore(
+  state: EditorState,
+  doc: Document,
+  past: Document[],
+  future: Document[],
+): EditorState {
+  return {
+    ...state,
+    doc,
+    past,
+    future,
+    coalesceKey: null,
+    linkFrom: null,
+    dirty: true,
+    selection: selectionValid(doc, state.selection) ? state.selection : null,
+  };
+}
+
+/** Whether a selection still refers to something present in `doc`. */
+function selectionValid(doc: Document, sel: Selection | null): boolean {
+  if (!sel) return false;
+  return sel.kind === "node"
+    ? findNode(doc, sel.id) !== undefined
+    : findLink(doc, sel.id) !== undefined;
 }
 
 /** Apply an editing action; leaves `dirty`/`currentPath` to {@link reducer}. */
