@@ -1,9 +1,9 @@
 ---
-status: reviewed
+status: partial (Phase 1 landed; reviewed in 2 rounds, 2026-07-24)
 last_updated: 2026-07-24
 note: Export the schematic as a standalone SVG (and PNG) — the picture leaves the app, chrome-free, at its own scale.
-implemented: []
-not_implemented: ["Phase 1", "Phase 2", "Phase 3", "Phase 4"]
+implemented: ["Phase 1"]
+not_implemented: ["Phase 2", "Phase 3", "Phase 4"]
 related: [specs/save_load_spec.md]
 reference: "Standalone SVG 1.1 as browsers, Inkscape, and Figma consume it — `xmlns`, explicit `width`/`height`/`viewBox`, and no external references (no linked stylesheet, no web font, no remote image). PDF, multi-page output, and print CSS are out of scope."
 ---

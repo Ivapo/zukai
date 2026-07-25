@@ -4,7 +4,7 @@ import { defineConfig } from "vitest/config";
 // The units under test are pure TS, so the default `node` environment suffices.
 export default defineConfig({
   test: {
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.{ts,tsx}"],
     environment: "node",
   },
 });
