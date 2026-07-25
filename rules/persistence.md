@@ -45,7 +45,14 @@ in Rust (`std::fs` + `serde_yaml`) so the on-disk shape has one owner. No
   `core:default`. A missing permission fails at runtime, not at build time.
 - Save with no `currentPath` falls through to the Save As picker;
   `ensureZkaiExtension` (`src/model/document.ts`) adds `.zkai` when the platform
-  dialog does not.
+  dialog does not — a thin wrapper over `ensureExtension(path, ext)`, which export
+  shares.
+- **Export is a sibling of `write()`, not a caller.** `exportDiagram` (`files.ts`,
+  `rules/diagram-export.md`) writes a picture, not a document: no `rememberRecent`
+  — the recent list opens `.zkai` files — no `markSaved`, and no change to
+  `dirty`/`currentPath`, which is why it takes no `dispatch`. It writes through
+  its own command (`src-tauri/src/export.rs`), so nothing in the save path needs
+  to know about it.
 
 ## Menu and recents
 

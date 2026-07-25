@@ -4,6 +4,7 @@ import { Canvas } from "./components/Canvas";
 import { Inspector } from "./components/Inspector";
 import { FileActions, Toolbar } from "./components/Toolbar";
 import {
+  exportDiagram,
   installCloseGuard,
   newDocument,
   openDocument,
@@ -35,6 +36,8 @@ function App() {
       onOpen: () => void openDocument(stateRef.current, dispatch),
       onSave: () => void saveDocument(stateRef.current, dispatch),
       onSaveAs: () => void saveDocumentAs(stateRef.current, dispatch),
+      // No `dispatch`: writing a picture changes nothing about the document.
+      onExport: () => void exportDiagram(stateRef.current),
     }),
     [],
   );
@@ -99,6 +102,10 @@ function App() {
           case "n":
             e.preventDefault();
             files.onNew();
+            break;
+          case "e":
+            e.preventDefault();
+            files.onExport();
             break;
           case "z":
             e.preventDefault();

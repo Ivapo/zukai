@@ -3,6 +3,7 @@ import { Document } from "../model/types";
 import {
   EXPORT_PAD,
   diagramSvg,
+  exportFormat,
   strokeAllowance,
 } from "./export";
 import { roadWidth } from "./geometry";
@@ -138,5 +139,22 @@ describe("diagramSvg", () => {
     // margin = 24 + roadWidth(6)/2 = 52.5, rounded to 2dp so measurement noise
     // never reaches the file.
     expect(svg).toContain('viewBox="-64.85 -44.61 105 105"');
+  });
+});
+
+describe("exportFormat", () => {
+  it("reads PNG from the extension, whatever its case", () => {
+    expect(exportFormat("x.png")).toBe("png");
+    expect(exportFormat("/home/ivan/Roads/INTERCHANGE.PNG")).toBe("png");
+  });
+
+  it("treats everything else — including no extension — as SVG", () => {
+    expect(exportFormat("x.svg")).toBe("svg");
+    expect(exportFormat("x.SVG")).toBe("svg");
+    expect(exportFormat("drawing")).toBe("svg");
+    // Not a raster just because the *name* mentions one.
+    expect(exportFormat("png")).toBe("svg");
+    expect(exportFormat("x.png.svg")).toBe("svg");
+    expect(exportFormat("/home/ivan/png/drawing")).toBe("svg");
   });
 });

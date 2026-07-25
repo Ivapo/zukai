@@ -76,14 +76,34 @@ export function fileLabel(currentPath: string | null): string {
 export const ZKAI_EXTENSION = "zkai";
 
 /**
- * Add the `.zkai` extension to a path that has none. Save dialogs vary by
- * platform in whether they append the filter's extension, so a name typed as
- * `foo` still lands as `foo.zkai`; a name with any other extension is left alone
- * (the user asked for it).
+ * Add an extension to a path that has none. Save dialogs vary by platform in
+ * whether they append the filter's extension, so a name typed as `foo` still
+ * lands as `foo.zkai`; a name with any other extension is left alone (the user
+ * asked for it — an export named `drawing.jpg` is written as `drawing.jpg`).
  */
-export function ensureZkaiExtension(path: string): string {
+export function ensureExtension(path: string, ext: string): string {
   const base = path.split(/[\\/]/).pop() ?? "";
-  return base.includes(".") ? path : `${path}.${ZKAI_EXTENSION}`;
+  return base.includes(".") ? path : `${path}.${ext}`;
+}
+
+/** {@link ensureExtension} for the `.zkai` document format. */
+export function ensureZkaiExtension(path: string): string {
+  return ensureExtension(path, ZKAI_EXTENSION);
+}
+
+/**
+ * The path with its extension *replaced* (or added). For a dialog's default
+ * name, where `ensureExtension` is the wrong tool: exporting `interchange.zkai`
+ * should propose `interchange.svg`, not leave the `.zkai` in place.
+ *
+ * A leading dot is part of the name, not an extension, so `.hidden` gains the
+ * extension rather than losing its name.
+ */
+export function withExtension(path: string, ext: string): string {
+  const start = path.length - (path.split(/[\\/]/).pop() ?? "").length;
+  const dot = path.lastIndexOf(".");
+  // `dot > start` keeps a dotted *directory* and a leading-dot basename alone.
+  return `${dot > start ? path.slice(0, dot) : path}.${ext}`;
 }
 
 /** A lane with default width/speed and the given index. */

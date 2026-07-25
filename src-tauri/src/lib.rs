@@ -1,3 +1,4 @@
+mod export;
 pub mod model;
 mod persist;
 mod recent;
@@ -17,6 +18,7 @@ pub fn run() {
             greet,
             persist::save_document,
             persist::load_document,
+            export::write_text_file,
             recent::recent_files,
             recent::push_recent_file
         ])

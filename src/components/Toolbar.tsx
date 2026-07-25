@@ -11,6 +11,7 @@ export interface FileActions {
   onOpen: () => void;
   onSave: () => void;
   onSaveAs: () => void;
+  onExport: () => void;
 }
 
 interface ToolbarProps {
@@ -37,6 +38,7 @@ const FILE_COMMANDS: { label: string; hint: string; key: keyof FileActions }[] =
     { label: "Open…", hint: `${MOD}O`, key: "onOpen" },
     { label: "Save", hint: `${MOD}S`, key: "onSave" },
     { label: "Save As…", hint: `${SHIFT_MOD}S`, key: "onSaveAs" },
+    { label: "Export…", hint: `${MOD}E`, key: "onExport" },
   ];
 
 export function Toolbar({ state, dispatch, files }: ToolbarProps) {

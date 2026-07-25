@@ -131,6 +131,12 @@ async function fileCommands(
       accelerator: "CmdOrCtrl+Shift+S",
       action: () => files.onSaveAs(),
     }),
+    await MenuItem.new({
+      id: "zukai-export",
+      text: "Export…",
+      accelerator: "CmdOrCtrl+E",
+      action: () => files.onExport(),
+    }),
   ];
 }
 

@@ -11,8 +11,8 @@
  * or zoom cannot change what an export looks like.
  *
  * `.tsx`, not `.ts`, because it renders JSX. Everything here is pure and
- * DOM-free; measuring the drawing (`measureDiagram`) and rasterizing it need a
- * DOM and land in later phases.
+ * DOM-free except `measureDiagram`, which mounts the markup to measure it;
+ * rasterizing to PNG also needs a DOM and lands in a later phase.
  */
 
 import { renderToStaticMarkup } from "react-dom/server";
@@ -57,6 +57,59 @@ export function strokeAllowance(doc: Document): number {
 /** The drawing alone, chrome-free: `<g class="diagram">…</g>`. */
 export function diagramInner(doc: Document): string {
   return renderToStaticMarkup(<Diagram doc={doc} />);
+}
+
+/**
+ * The drawing's own extent in world units, or `null` when there is nothing to
+ * measure.
+ *
+ * Measured rather than derived: `getBBox` on the very tree that gets written
+ * cannot drift from it, whereas a union of node positions and link polylines
+ * would have to re-derive every glyph's radius and would clip silently the first
+ * time a new glyph forgot to update it. Measuring the *export* tree rather than
+ * the live canvas group also keeps the result independent of the selection — a
+ * halo is several world units of extra bbox, and "the exported image is bigger
+ * when something is selected" is not a thing anyone would think to test.
+ *
+ * The only DOM-touching function in this module. The host is hidden but
+ * *rendered*: `getBBox` returns zeros inside a `display: none` subtree.
+ */
+export function measureDiagram(doc: Document): Rect | null {
+  const host = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  host.setAttribute(
+    "style",
+    "position:absolute; left:-10000px; top:0; visibility:hidden; pointer-events:none",
+  );
+  try {
+    // Assigning to an SVG element's `innerHTML` parses the fragment in the SVG
+    // namespace. Safe for this markup, which carries no case-sensitive attribute
+    // name (export mode emits neither `viewBox` nor `vector-effect`).
+    host.innerHTML = diagramInner(doc);
+    document.body.appendChild(host);
+    const g = host.firstElementChild as SVGGraphicsElement | null;
+    if (!g) return null;
+    const box = g.getBBox();
+    // An empty document has no geometry: `diagramSvg` frames `null` as a small
+    // blank sheet rather than a zero-size — or `NaN` — viewBox.
+    if (box.width === 0 && box.height === 0) return null;
+    return { x: box.x, y: box.y, width: box.width, height: box.height };
+  } finally {
+    host.remove();
+  }
+}
+
+/** The file formats export can write; the extension chooses between them. */
+export type ExportFormat = "svg" | "png";
+
+/**
+ * Which format a chosen path asks for (spec §2.10). The save dialog hands back a
+ * path, not which filter produced it, and the user may type any name — so the
+ * rule is exhaustive: `.png` means PNG, and everything else, extension or not,
+ * means SVG. Honour the name that was typed; never write PNG bytes into a file
+ * the user called something else.
+ */
+export function exportFormat(path: string): ExportFormat {
+  return /\.png$/i.test(path) ? "png" : "svg";
 }
 
 /** Drop measurement noise, so `width`/`height` and `viewBox` stay consistent. */

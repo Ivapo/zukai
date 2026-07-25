@@ -1,6 +1,6 @@
 /**
- * The New / Open / Save / Save As commands: native file dialogs plus the IPC
- * calls to the Rust persistence commands, the recent-files list, and the
+ * The New / Open / Save / Save As / Export commands: native file dialogs plus
+ * the IPC calls to the Rust persistence commands, the recent-files list, and the
  * window's unsaved-changes guard.
  *
  * With `menu.ts` this is one of only two modules that touch the Tauri runtime,
@@ -16,15 +16,21 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask, message, open, save } from "@tauri-apps/plugin-dialog";
 import {
+  ensureExtension,
   ensureZkaiExtension,
   RawDocument,
+  withExtension,
   ZKAI_EXTENSION,
 } from "../model/document";
+import { diagramSvg, exportFormat, measureDiagram } from "./export";
 import { Action, EditorState } from "./state";
 
 type Dispatch = (action: Action) => void;
 
 const FILTERS = [{ name: "Zukai schematic", extensions: [ZKAI_EXTENSION] }];
+
+/** Image formats the export dialog offers. PNG joins this in a later phase. */
+const EXPORT_FILTERS = [{ name: "SVG image", extensions: ["svg"] }];
 
 /** Discard the current document for a fresh one, guarding unsaved changes. */
 export async function newDocument(
@@ -100,6 +106,46 @@ export async function saveDocumentAs(
     await write(path, state, dispatch);
   } catch (err) {
     await report("Couldn't save the file", err);
+  }
+}
+
+/**
+ * Write the drawing out as a picture — chrome-free, cropped to the diagram, and
+ * independent of where the canvas happens to be scrolled.
+ *
+ * **An export is not a document.** It is a sibling of {@link write}, never a
+ * caller: it must not remember the path as a recent *document*, must not clear
+ * `dirty`, and must not adopt the file as the one being edited — which is why it
+ * takes no `dispatch` at all. Nothing about the editor changes because a picture
+ * was written.
+ */
+export async function exportDiagram(state: EditorState): Promise<void> {
+  try {
+    const chosen = await save({
+      title: "Export diagram",
+      defaultPath: withExtension(
+        state.currentPath ?? state.doc.metadata.name,
+        "svg",
+      ),
+      filters: EXPORT_FILTERS,
+    });
+    if (chosen === null) return;
+
+    if (exportFormat(chosen) === "png") {
+      // Writing SVG into a name the user chose for a raster would be worse than
+      // saying so; the raster path arrives in the next phase.
+      await message(
+        "PNG export isn't available yet — give the file a .svg name.",
+        { title: "Can't export as PNG", kind: "warning" },
+      );
+      return;
+    }
+
+    const path = ensureExtension(chosen, "svg");
+    const svg = diagramSvg(state.doc, measureDiagram(state.doc));
+    await invoke("write_text_file", { path, contents: svg });
+  } catch (err) {
+    await report("Couldn't export the diagram", err);
   }
 }
 

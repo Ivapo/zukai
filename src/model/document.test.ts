@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  ensureExtension,
   ensureZkaiExtension,
   fileLabel,
   normalizeDocument,
   RawDocument,
+  withExtension,
 } from "./document";
 import { SCHEMA_VERSION } from "./types";
 
@@ -71,5 +73,39 @@ describe("ensureZkaiExtension", () => {
     expect(ensureZkaiExtension("/home/ivan/road.work/foo")).toBe(
       "/home/ivan/road.work/foo.zkai",
     );
+  });
+});
+
+describe("ensureExtension", () => {
+  it("adds the given extension, and honours any name the user typed", () => {
+    expect(ensureExtension("drawing", "svg")).toBe("drawing.svg");
+    // The deliberate one: an export named `.jpg` is written as `.jpg`, holding
+    // SVG, rather than being renamed behind the user's back.
+    expect(ensureExtension("drawing.jpg", "svg")).toBe("drawing.jpg");
+    expect(ensureExtension("drawing.svg", "svg")).toBe("drawing.svg");
+  });
+});
+
+describe("withExtension", () => {
+  it("replaces an existing extension", () => {
+    expect(withExtension("interchange.zkai", "svg")).toBe("interchange.svg");
+    expect(withExtension("/home/ivan/roads/interchange.zkai", "svg")).toBe(
+      "/home/ivan/roads/interchange.svg",
+    );
+  });
+
+  it("adds one when there is none", () => {
+    expect(withExtension("Untitled", "svg")).toBe("Untitled.svg");
+    expect(withExtension("/home/ivan/road.work/foo", "svg")).toBe(
+      "/home/ivan/road.work/foo.svg",
+    );
+  });
+
+  it("treats a leading dot as part of the name, not an extension", () => {
+    expect(withExtension(".hidden", "svg")).toBe(".hidden.svg");
+  });
+
+  it("replaces only the last extension of a multi-dotted name", () => {
+    expect(withExtension("roads.v2.zkai", "svg")).toBe("roads.v2.svg");
   });
 });

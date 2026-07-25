@@ -1,9 +1,9 @@
 ---
-status: partial (Phases 1–2 landed; reviewed in 2 rounds, 2026-07-24)
+status: partial (Phases 1–3 landed; reviewed in 2 rounds, 2026-07-24)
 last_updated: 2026-07-24
 note: Export the schematic as a standalone SVG (and PNG) — the picture leaves the app, chrome-free, at its own scale.
-implemented: ["Phase 1", "Phase 2"]
-not_implemented: ["Phase 3", "Phase 4"]
+implemented: ["Phase 1", "Phase 2", "Phase 3"]
+not_implemented: ["Phase 4"]
 related: [specs/save_load_spec.md]
 reference: "Standalone SVG 1.1 as browsers, Inkscape, and Figma consume it — `xmlns`, explicit `width`/`height`/`viewBox`, and no external references (no linked stylesheet, no web font, no remote image). PDF, multi-page output, and print CSS are out of scope."
 ---
@@ -465,7 +465,9 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
   `invoke("write_text_file", …)`; new `src-tauri/src/export.rs` with
   `write_text_file`, registered in `lib.rs`; File-menu item + accelerator in
   `menu.ts`, toolbar button, and the `App.tsx` browser-path `e` case (§2.10).
-  PNG not yet — the dialog offers `.svg` only in this phase.
+  PNG not yet — the dialog offers `.svg` only in this phase, and a hand-typed
+  `.png` name is refused with a message rather than quietly given SVG bytes
+  (Phase 4 replaces that branch with the raster call).
 - **Exit gate:** `bun run build` + `bun run test` + `cargo test` green, plus
   `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings` clean
   (`CLAUDE.md`; the pre-commit hook enforces them anyway); the Rust test writes and

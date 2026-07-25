@@ -1,0 +1,149 @@
+# Diagram export (SVG)
+
+How the drawing leaves Zukai as a standalone picture. Spans React, CSS, and a
+Rust write command; the design rationale lives in
+`specs/diagram_export_spec.md`. Hand-maintained.
+
+## One render tree, two consumers
+
+`Diagram` (`src/components/Diagram.tsx`) is the whole drawing — roads, nodes,
+junction glyphs — under one `<g class="diagram">`. It has exactly two callers:
+
+| Consumer | How |
+|---|---|
+| Live canvas | `Canvas.tsx` renders `<Diagram doc interaction={…} />` inside its `<g transform>`; `Canvas` keeps the `<svg>` root, the grid, pan/zoom, and all pointer routing |
+| Exporter | `diagramInner(doc)` (`src/editor/export.tsx`) renders the same component through `renderToStaticMarkup`, with **`interaction` omitted** |
+
+**The absent `interaction` prop is the whole of "export mode."** It switches off
+`.road-hit`/`.jn-hit`, every `*-halo` and `is-selected`, `.link-preview`, the
+pointer handlers, and `vector-effect="non-scaling-stroke"` (a canvas affordance:
+in a file the stroke would resolve against the viewport scale, so the same
+picture rendered twice as large would carry half the relative paint weight).
+
+The consequence that matters: **a new glyph exports for free**. Draw it in
+`Diagram` and it is in the file, with no second implementation to keep in sync
+and no prune pass to re-audit. The rejected alternative — clone the live `<svg>`
+and delete the chrome — silently ships chrome the day someone adds an affordance
+and forgets. `export.test.ts` asserts the class tokens are absent, matching on
+`road-hit|jn-hit|-halo|is-selected|link-preview|grid|cursor` — **tokens, not bare
+words**, because `--paint-white` contains the substring `hit`.
+
+## The paint travels inside the file
+
+A standalone `.svg` reaches no external stylesheet, so `src/styles/diagram.css`
+is the single definition site of the road palette and every `.road*`/`.node*`/
+`.jn-*` rule, with two importers: `styles.css` `@import`s it for the app, and
+`export.tsx` embeds the same text verbatim via `?raw`. One source of truth, so a
+file on disk cannot disagree with the picture on screen.
+
+Three rules about that file, each asserted in `src/editor/export.test.ts`:
+
+- **A rule that paints belongs in `diagram.css`; a rule that serves interaction
+  stays in `styles.css`** (hit targets, halos, `cursor`, `.link-preview`,
+  `.grid-dot`, `.canvas`). Added to `diagram.css`, chrome ships in every export.
+- **`diagram.css` owns its variables outright.** `styles.css` must not redeclare
+  `--asphalt`/`--paper`/`--paint-white`/`--paint-yellow`: the later declaration
+  wins in the app, so a duplicate would let an edit to `diagram.css` change the
+  export and *not* the canvas — the exact drift the split exists to prevent.
+  Chrome-only variables (`--desk`, `--grid-dot`, `--chrome-*`, the font stack)
+  stay in `styles.css`.
+- **No `<` or `&` anywhere in `diagram.css`, comments included.** It is embedded
+  raw inside an XML document, where either would end the style element.
+
+Vitest stubs CSS imports with `""` by default, which would make every assertion
+about the embedded stylesheet vacuously true — hence `test.css: true` in
+`vitest.config.ts`.
+
+## Pure, DOM, Tauri — the three layers
+
+| Piece | Where | Needs |
+|---|---|---|
+| `diagramInner`, `diagramSvg`, `strokeAllowance`, `exportFormat` | `src/editor/export.tsx` | nothing — unit-tested under vitest's node environment |
+| `measureDiagram` | `src/editor/export.tsx` | a DOM |
+| `exportDiagram` (dialog + `invoke`) | `src/editor/files.ts` | the Tauri runtime |
+| `write_text_file` | `src-tauri/src/export.rs`, registered in `lib.rs` | — |
+
+`export.tsx` is **`.tsx`, not `.ts`**: it renders `<Diagram/>`, and `tsc` rejects
+JSX in a `.ts` file. `files.ts` stays `.ts` — it calls the builders and never
+touches a component.
+
+`write_text_file` is our own command using `std::fs`, exactly as
+`persist::save_document` is, so **no new permission**:
+`src-tauri/capabilities/default.json` is unchanged and `dialog:default` already
+covers the picker.
+
+## Bounds are measured, and the margin is derived
+
+`measureDiagram(doc)` mounts `diagramInner(doc)` into a host `<svg>` on
+`document.body` (`position:absolute; left:-10000px; visibility:hidden` — a
+`display:none` subtree returns a zero `getBBox` in WebKit), reads the
+`<g class="diagram">`, and removes the host in a `finally`. It is the only
+DOM-touching function in the module, and it has no unit test by construction:
+the project has no jsdom. Verify it in a browser (`bun run dev`, then
+`await import('/src/editor/export.tsx')` from the console).
+
+Measured, not derived from node positions and polylines, for two reasons: it
+cannot drift from what is drawn, and it measures the *export* tree, so the extent
+does not change when something happens to be selected.
+
+`getBBox` **excludes stroke width**, so the margin must absorb the widest
+half-stroke:
+
+```
+margin = EXPORT_PAD (24) + strokeAllowance(doc)
+strokeAllowance = max(2, …roadWidth(lanes) / 2)
+```
+
+The road casing is drawn at `stroke-width: roadWidth(lanes)` with a round
+linecap, so it overhangs each polyline end by half that — **37.5 units at 8
+lanes**, which is why a flat 24 clipped the end-cap off every road of 5 lanes or
+more. Deriving from `roadWidth` means a change to `LANE_PX` or the 1–8 lane clamp
+cannot reintroduce that silently. `.jn-ring` is the one stroke not modelled and
+needs no allowance: it is centred so its outer edge lands exactly on the
+coincident `.jn-edge` circle, which is pure geometry `getBBox` already includes.
+
+A document with nothing to measure yields `null` bounds, which `diagramSvg`
+frames as `viewBox="-26 -26 52 52"` — a blank diagram is a blank picture, never
+an error or a `NaN`.
+
+## An export is not a document
+
+`exportDiagram(state)` is a **sibling of `write()`, never a caller**
+(`rules/persistence.md`). It must not `rememberRecent` (that list opens `.zkai`
+files), must not `markSaved`, and must not touch `dirty`/`currentPath` — which is
+why it takes no `dispatch` at all. Nothing about the editor changes because a
+picture was written.
+
+The view transform never enters the file either: world units are emitted as SVG
+user units, so a 1× export matches the canvas at 100% zoom and pan/zoom cannot
+change what an export looks like.
+
+## Format by extension
+
+The save dialog hands back a path, not which filter produced it, and the user may
+type any name. `exportFormat(path)` (pure, tested) is the whole rule: `.png`
+means PNG, everything else — extension or not — means SVG, and
+`ensureExtension(path, "svg")` only appends when the basename has no dot. So
+`drawing` → `drawing.svg`, while `drawing.jpg` is written as-is holding SVG.
+Honour the name the user typed; never write bytes of one format into a file named
+for another. PNG is not implemented yet: a `.png` name is refused with a message
+rather than quietly given SVG.
+
+## Triggers
+
+Same three surfaces as save/open and undo/redo:
+
+| Surface | Where |
+|---|---|
+| Toolbar | `Export…` in `.file-actions` (`src/components/Toolbar.tsx`) |
+| Native menu | File submenu, below Save As, `CmdOrCtrl+E` (`src/editor/menu.ts`) |
+| Keyboard | `src/App.tsx` keydown `case "e"` — **browser path only**, since the handler returns early on every chord once `menuInstalled` |
+
+## Standing constraints (they stop being true silently)
+
+- **No external references.** Styles are inline and there are no images. This is
+  what keeps a `<canvas>` from being tainted when the raster path rasterizes the
+  SVG, and what makes the file self-contained anywhere it is opened.
+- **No text, no fonts.** The diagram renders zero `<text>` today. The moment a
+  marking or sign renders glyphs, an exported file needs the font embedded as a
+  data-URI `@font-face` in `diagram.css`, or a raster silently substitutes one.
