@@ -101,6 +101,12 @@ default lanes**, which is why a flat 24 clipped the end-cap off every road of 5
 lanes or more. `roadWidth` sums each `Lane.width` rather than multiplying a lane
 count, so the allowance follows a document whose lanes are wider than the
 default, and a change to `LANE_PX` cannot reintroduce the clipping silently.
+
+**Measure each road at its own road class.** `strokeAllowance` passes
+`linkStyle(doc, l.id)` because `classWidthFactor` is part of the drawn width
+(`rules/road-rendering.md`). Every factor is ≤ 1 today, so a miss would only
+over-pad — but a class that ever drew *wider* than the default would reintroduce
+exactly the clipping this function exists to prevent.
 `.jn-ring` is the one stroke not modelled and
 needs no allowance: it is centred so its outer edge lands exactly on the
 coincident `.jn-edge` circle, which is pure geometry `getBBox` already includes.
@@ -192,6 +198,14 @@ Same three surfaces as save/open and undo/redo:
   that reaches outside itself taints the `<canvas>` it is drawn into — it is the
   precondition for PNG working at all. Add one linked asset and `toBlob` starts
   returning `null`.
+  - **The shoulder hatch is not a violation of this, and must not be "fixed".**
+    A hatched document carries one `url(#road-hatch)` — an **in-document fragment
+    reference** to a `<pattern>` emitted inside the same `<g class="diagram">`,
+    the only paint the class-in-CSS rule cannot carry (`rules/road-rendering.md`
+    explains why neither half of it can live in `diagram.css`). It resolves
+    inside the file, does not taint the canvas, and rasterizes — verified against
+    a real PNG. The stylesheet assertions that forbid `url(` still apply to
+    `diagram.css` in full; this reference lives in the markup.
 - **No text, no fonts.** The diagram renders zero `<text>` today. The moment a
   marking or sign renders glyphs, an exported file needs the font embedded as a
   data-URI `@font-face` in `diagram.css`, or the SVG falls back to whatever the

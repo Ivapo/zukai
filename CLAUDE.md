@@ -72,6 +72,8 @@ phase from a spec still `status: draft`** — it must pass the review loop
 - `specs/save_load_spec.md` — save/open `.zkai` documents (implemented; 4 phases)
 - `specs/undo_redo_spec.md` — undo/redo over document edits (implemented; 2 phases)
 - `specs/diagram_export_spec.md` — export the schematic as SVG/PNG (implemented; 4 phases)
+- `specs/road_rendering_spec.md` — make the drawn road honour the road model:
+  lane widths, road class, two-way carriageways, lane kinds (implemented; 4 phases)
 
 **`rules/` — current-state reference (the *what is*).** Terse, authoritative maps
 of subsystems, read on demand. Unlike specs, rules describe the code as it is now;
@@ -88,6 +90,10 @@ there's real cross-file knowledge worth extracting, not for every file.
 - `rules/diagram-export.md` — SVG export: the `Diagram`/`Canvas` split, the
   two-importer CSS rule, the pure/DOM/Tauri layers, and why an export is not a
   document
+- `rules/road-rendering.md` — how a link becomes a road: the one lane-width
+  derivation everything descends from, class-as-token, the carriageway pairing
+  rule and its positive-offset trap, lane kinds, and the one hatch `<pattern>`
+  that cannot be a CSS rule
 
 Specs are authoritative for *intent and plan*; `rules/`, this file, and the code
 are authoritative for *current state*. When a shipped phase changes what a rule

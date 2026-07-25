@@ -1,9 +1,9 @@
 ---
-status: in-progress
+status: implemented (all 4 phases; reviewed in 4 rounds, 2026-07-25)
 last_updated: 2026-07-25
 note: Make the drawn road honour the road model — class, lane widths, lane kinds, and two-way carriageways that don't sit on top of each other.
-implemented: ["Phase 1", "Phase 2", "Phase 3"]
-not_implemented: ["Phase 4"]
+implemented: ["Phase 1", "Phase 2", "Phase 3", "Phase 4"]
+not_implemented: []
 related: [specs/diagram_export_spec.md, specs/save_load_spec.md]
 reference: "Schematic road-diagram convention as road atlases and motorway signage use it — solid edge lines, dashed lane dividers, hatched shoulders, separated carriageways. Not to-scale surveyed geometry (that is Assimilator's job), not a map style like OSM Carto."
 ---
@@ -868,3 +868,54 @@ it. The same is true of the **node dots**, which now sit in the median of a
 divided road rather than on either carriageway. Same cause — the glyphs are
 drawn from the node position, and `Arm` carries no lateral offset — and the same
 disposition: OQ-6, the ramps/junction spec.
+
+### Phase 4 implementation note — 2026-07-25 — two readings recorded
+
+Not a review round: two things settled while implementing Phase 4, recorded so a
+later pass does not read either as a deviation. The spec converged cleanly here —
+neither is a design change, and no gate moved.
+
+**The band is a stroked path, so the hatch is referenced by `stroke`, not
+`fill`.** §2.5 says "referenced by an **inline `fill`** attribute on the band".
+A lane band can be drawn two ways: a path stroked at the lane's width along the
+band centreline, or a filled quad between its two boundary offsets. The stroked
+form is the one implemented — it is the same mechanism the casing and the
+dividers already use, it reuses `offsetPolyline` rather than building a polygon
+that self-intersects at bends, and SVG accepts a paint server on `stroke` as
+readily as on `fill`. §2.5's intent is untouched and is what the constraint was
+actually about: **the `url()` lives in markup, never in `diagram.css`**, because
+`export.test.ts` forbids both `url(` and `<` there. Only the attribute differs.
+
+A related trap found in the same pass, worth recording because it is invisible
+until a test runs: **the pattern's stroke cannot be an inline `var()` either.**
+CSS custom properties do not resolve inside a *presentation attribute*, so the
+pattern's own line takes a class (`.road-hatch-line`) whose rule lives in
+`diagram.css` and travels inside an exported file like every other. The pattern
+is still self-contained; it just reaches the palette the same way the rest of the
+drawing does. And a second one: an explanatory comment mentioning the forbidden
+construct *by name* fails `export.test.ts`'s `not.toContain("url(")` on sight —
+the assertion reads the file, not its CSS. `diagram.css` cannot discuss the rule
+it is subject to using the literal token.
+
+**Motorway and arterial still draw identically without a shoulder lane.** Phase
+2's gate said they were "identical until Phase 4 adds the hard-shoulder line",
+which reads as a promise that Phase 4 separates the two classes outright. It does
+not, and §2.3/§2.5 together are why: §2.3's table gives motorway the *same*
+solid white edge as arterial and defers its one distinguishing mark to §2.5,
+where the hard-shoulder line is a property of the **lane**, not the class. So a
+motorway carrying a `shoulder` lane draws its solid shoulder line and an arterial
+without one does not — and a motorway without one is an arterial to look at.
+Confirmed as the intended reading with the human before implementing rather than
+resolved by inventing a class-driven motorway treatment the spec never took
+through review. Recorded here because "the Road class buttons still do nothing
+for motorway" is the kind of thing a later pass would otherwise file as a bug.
+
+**Verified in the running app, not only under vitest.** The two DOM-bound export
+functions have no unit test by construction (no jsdom), and a paint-server
+reference is exactly the sort of thing that passes a string assertion and fails
+in a browser. A 5-lane road with lane 0 = shoulder and lane 2 = bus was drawn,
+exported, and **rasterized to real PNG bytes** — the hatch renders, the file's
+only `url()` is the in-document fragment, and `toBlob` does not return `null`, so
+an internal fragment reference does not taint the canvas the way an external one
+would. `rules/diagram-export.md` now records that under its standing constraints
+so the reference is not "fixed" away later.
