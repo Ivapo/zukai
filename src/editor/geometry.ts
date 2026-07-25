@@ -246,7 +246,7 @@ export const SCHEMATIC_MEDIAN = 6;
 export function carriageways(doc: Document): Record<LinkId, number> {
   const offsets: Record<LinkId, number> = {};
   // Grouped by *unordered* node pair, so a link and its reversed twin collide
-  // here; ` ` cannot occur in an id, so the key cannot alias.
+  // here; `\0` cannot occur in an id, so the key cannot alias.
   const byPair = new Map<string, Link[]>();
 
   for (const link of doc.links) {
@@ -255,7 +255,7 @@ export function carriageways(doc: Document): Record<LinkId, number> {
       link.from_node < link.to_node
         ? [link.from_node, link.to_node]
         : [link.to_node, link.from_node];
-    const key = `${a} ${b}`;
+    const key = `${a}\0${b}`;
     const group = byPair.get(key);
     if (group) group.push(link);
     else byPair.set(key, [link]);
