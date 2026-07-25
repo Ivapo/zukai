@@ -14,6 +14,8 @@ import {
   Document,
   Junction,
   JunctionGlyph,
+  LaneIdx,
+  LaneKind,
   LinkId,
   LinkStyle,
   NodeId,
@@ -91,6 +93,7 @@ export type EditAction =
   | { type: "completeLink"; to: NodeId }
   | { type: "cancelLink" }
   | { type: "setLinkLanes"; id: LinkId; count: number }
+  | { type: "setLaneKind"; id: LinkId; lane: LaneIdx; kind: LaneKind }
   | { type: "setLinkStyle"; id: LinkId; style: LinkStyle }
   | { type: "select"; selection: Selection | null }
   | { type: "deleteSelection" };
@@ -317,6 +320,9 @@ function editReducer(state: EditorState, action: EditAction): EditorState {
     case "setLinkLanes":
       return setLinkLanes(state, action.id, action.count);
 
+    case "setLaneKind":
+      return setLaneKind(state, action.id, action.lane, action.kind);
+
     case "setLinkStyle":
       return setLinkStyle(state, action.id, action.style);
 
@@ -454,6 +460,21 @@ function completeLink(state: EditorState, to: NodeId): EditorState {
   };
 }
 
+/**
+ * Resize a link's lane array, **keeping the lanes that survive**.
+ *
+ * A lane carries more than its existence — `kind` (a hard shoulder, a bus lane),
+ * `width`, its speed limit. Rebuilding the whole array from `defaultLane` on
+ * every ±1 click, as this once did, meant one press of the Lanes stepper
+ * silently discarded a shoulder the user had just set two controls above; a
+ * control whose value an adjacent control destroys is not a working feature
+ * (road spec §2.5).
+ *
+ * Surviving indices keep their existing `Lane` **by identity**, so a snapshot
+ * shares them with its predecessor the way `rules/history.md` assumes. Only
+ * genuinely new indices get a default lane — and a lane the user shrank past is
+ * gone for good, which is the honest reading of having removed it.
+ */
 function setLinkLanes(
   state: EditorState,
   id: LinkId,
@@ -467,9 +488,53 @@ function setLinkLanes(
       ...doc,
       links: doc.links.map((l) =>
         l.id === id
-          ? { ...l, lanes: Array.from({ length: n }, (_, i) => defaultLane(i)) }
+          ? {
+              ...l,
+              lanes: Array.from(
+                { length: n },
+                (_, i) => l.lanes[i] ?? defaultLane(i),
+              ),
+            }
           : l,
       ),
+    },
+  };
+}
+
+/**
+ * Classify one lane of one link — the only way `Lane.kind` is reachable from the
+ * UI, and so the only reason anything keyed on it renders.
+ *
+ * **`general` is stored as an absent `kind`, not as the string.** That keeps one
+ * representation of a plain lane: the one `defaultLane` produces, and the one
+ * Rust writes back (`skip_serializing_if = "Option::is_none"`). Two encodings of
+ * the same lane would differ by document identity and so dirty the file for no
+ * visible change.
+ *
+ * An unknown link or an out-of-range index returns `state` itself, so
+ * {@link recordHistory} records nothing and `dirty` stays put.
+ */
+function setLaneKind(
+  state: EditorState,
+  id: LinkId,
+  lane: LaneIdx,
+  kind: LaneKind,
+): EditorState {
+  const { doc } = state;
+  const link = findLink(doc, id);
+  if (!link || lane < 0 || lane >= link.lanes.length) return state;
+
+  const lanes = link.lanes.map((l, i) => {
+    if (i !== lane) return l;
+    const { kind: _dropped, ...rest } = l;
+    return kind === "general" ? rest : { ...rest, kind };
+  });
+
+  return {
+    ...state,
+    doc: {
+      ...doc,
+      links: doc.links.map((l) => (l.id === id ? { ...l, lanes } : l)),
     },
   };
 }

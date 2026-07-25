@@ -6,7 +6,7 @@ import {
   classWidthFactor,
 } from "../editor/geometry";
 import { Action, EditorState, initialState, reducer } from "../editor/state";
-import { Document, LinkStyle } from "../model/types";
+import { Document, LaneKind, LinkStyle } from "../model/types";
 import { Diagram, Interaction } from "./Diagram";
 
 /** Every road class the Inspector offers. */
@@ -226,6 +226,133 @@ describe("road class", () => {
     };
 
     expect(pad("ramp")).toBeLessThan(pad("arterial"));
+  });
+});
+
+describe("lane kinds", () => {
+  /** A 4-lane road due east, with `kinds` applied by lane index. */
+  function withKinds(...kinds: [number, LaneKind][]): Document {
+    return run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "addNode", pos: { x: 120, y: 0 } },
+      { type: "startLink", from: "N1" },
+      { type: "completeLink", to: "N2" },
+      { type: "setLinkLanes", id: "L1", count: 4 },
+      ...kinds.map(
+        ([lane, kind]): Action => ({ type: "setLaneKind", id: "L1", lane, kind }),
+      ),
+    ).doc;
+  }
+
+  /** Attributes of every `<path>` carrying `cls`, in document order. */
+  function bands(svg: string, cls: string): string[] {
+    return [...svg.matchAll(new RegExp(`<path class="${cls}"[^>]*>`, "g"))].map(
+      (m) => m[0],
+    );
+  }
+
+  it("paints a band for a shoulder lane and none for a general one", () => {
+    // Four lanes, none classified: the markup is what it was before lane kinds.
+    expect(renderToStaticMarkup(<Diagram doc={withKinds()} />)).not.toContain(
+      "lane-band",
+    );
+
+    const shoulder = renderToStaticMarkup(
+      <Diagram doc={withKinds([0, "shoulder"])} />,
+    );
+    expect(bands(shoulder, "lane-band lane-band-shoulder")).toHaveLength(1);
+  });
+
+  /**
+   * Lane 0 is the nearside (kerb) lane, so its band takes the most positive
+   * offset — `+y` for a road drawn due east. A shoulder that renders in the
+   * median instead of on the outside is the failure this pins (spec §2.2), and
+   * no count-of-bands assertion catches it.
+   */
+  it("puts lane 0's band on the nearside, at that lane's own width", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={withKinds([0, "shoulder"])} />);
+    const band = bands(svg, "lane-band lane-band-shoulder")[0];
+
+    // 4 default lanes: bands at +13.5, +4.5, -4.5, -13.5, each 9 wide.
+    expect(band).toContain('d="M 0 13.5 L 120 13.5"');
+    expect(band).toContain('stroke-width="9"');
+  });
+
+  it("tints a bus lane rather than hatching it", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={withKinds([1, "bus"])} />);
+
+    expect(bands(svg, "lane-band lane-band-bus")).toHaveLength(1);
+    expect(svg).not.toContain("url(");
+    expect(svg).not.toContain("lane-band-shoulder");
+  });
+
+  it("leaves a turn pocket plain, like a general lane", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={withKinds([2, "turn"])} />);
+
+    expect(svg).not.toContain("lane-band");
+  });
+
+  /**
+   * The hatch is the one piece of paint that cannot travel as a CSS rule, so it
+   * is a `<pattern>` in the markup — which must be **conditional**: the empty
+   * document renders as exactly `<g class="diagram"></g>` (asserted above), and
+   * an unconditional `<defs>` breaks that.
+   */
+  it("emits the hatch pattern only when a shoulder is actually drawn", () => {
+    const plain = renderToStaticMarkup(<Diagram doc={withKinds([1, "bus"])} />);
+    expect(plain).not.toContain("<defs>");
+    expect(plain).not.toContain("pattern");
+
+    const hatched = renderToStaticMarkup(
+      <Diagram doc={withKinds([0, "shoulder"])} />,
+    );
+    expect(hatched).toContain('<pattern id="road-hatch"');
+    expect(hatched).toContain('stroke="url(#road-hatch)"');
+    // The pattern's own line takes its colour from the stylesheet, so nothing
+    // here reaches outside the file.
+    expect(hatched).toContain('class="road-hatch-line"');
+    expect(hatched).not.toMatch(/href|http/);
+  });
+
+  /**
+   * §2.5's line table: a dashed divider means "lanes, same direction, cross
+   * freely", which a hard-shoulder boundary does not. It is also the whole of
+   * what makes a motorway read differently from an arterial.
+   */
+  it("draws a shoulder boundary solid, and the rest still dashed", () => {
+    const plain = renderToStaticMarkup(<Diagram doc={withKinds()} />);
+    expect(plain.match(/road-divider/g)).toHaveLength(3);
+    expect(plain).not.toContain("road-shoulder-line");
+
+    const svg = renderToStaticMarkup(<Diagram doc={withKinds([0, "shoulder"])} />);
+    // The boundary between lane 0 and lane 1 changes hands: 2 dividers, 1
+    // shoulder line, still three boundaries for four lanes.
+    expect(svg.match(/road-divider/g)).toHaveLength(2);
+    expect(svg.match(/road-shoulder-line/g)).toHaveLength(1);
+    expect(svg).toContain('class="road-shoulder-line" d="M 0 9 L 120 9"');
+  });
+
+  /** A shoulder either side of a boundary still yields one solid line. */
+  it("draws a boundary between two shoulders solid too", () => {
+    const svg = renderToStaticMarkup(
+      <Diagram doc={withKinds([0, "shoulder"], [1, "shoulder"])} />,
+    );
+
+    expect(svg.match(/road-shoulder-line/g)).toHaveLength(2);
+    expect(svg.match(/road-divider/g)).toHaveLength(1);
+  });
+
+  /**
+   * OQ-4, resolved: nothing in the model can tell "one link the user thinks of
+   * as two-way" from "one carriageway of a pair", so a lone link gets edge lines
+   * and dividers and no centreline invented for it.
+   */
+  it("gives a lone road no centreline", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={withKinds()} />);
+
+    expect(svg).not.toContain("centre");
+    expect(svg.match(/road-edge/g)).toHaveLength(2);
   });
 });
 

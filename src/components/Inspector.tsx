@@ -2,7 +2,15 @@
 
 import type { ReactNode } from "react";
 import { findLink, findNode, linkStyle } from "../model/document";
-import { JunctionGlyph, LinkStyle, Node, NodeKind } from "../model/types";
+import {
+  JunctionGlyph,
+  Lane,
+  LaneKind,
+  LinkId,
+  LinkStyle,
+  Node,
+  NodeKind,
+} from "../model/types";
 import { Action, EditorState } from "../editor/state";
 
 interface InspectorProps {
@@ -12,6 +20,14 @@ interface InspectorProps {
 
 const NODE_KINDS: NodeKind[] = ["endpoint", "junction", "waypoint"];
 const LINK_STYLES: LinkStyle[] = ["motorway", "arterial", "local", "ramp"];
+/** Lane kinds, in the order the dropdown offers them; `general` is the default. */
+const LANE_KINDS: { value: LaneKind; label: string }[] = [
+  { value: "general", label: "General" },
+  { value: "shoulder", label: "Hard shoulder" },
+  { value: "bus", label: "Bus lane" },
+  { value: "cycle", label: "Cycle lane" },
+  { value: "turn", label: "Turn pocket" },
+];
 const GLYPHS: { value: JunctionGlyph; label: string }[] = [
   { value: "generic", label: "Plain" },
   { value: "roundabout", label: "Roundabout" },
@@ -114,6 +130,10 @@ export function Inspector({ state, dispatch }: InspectorProps) {
         </div>
       </Field>
 
+      <Field label="Lane kinds">
+        <LaneKinds link={link.id} lanes={link.lanes} dispatch={dispatch} />
+      </Field>
+
       <Field label="Road class">
         <div className="segmented segmented-wrap">
           {LINK_STYLES.map((s) => (
@@ -135,6 +155,53 @@ export function Inspector({ state, dispatch }: InspectorProps) {
         Delete link
       </button>
     </aside>
+  );
+}
+
+/**
+ * One dropdown per lane, in array order — the whole cross-section of the road,
+ * readable at a glance rather than a lane at a time.
+ *
+ * The row order *is* the road's order, and the first row is labelled: lane 0 is
+ * the nearside (kerb) lane, which is why a hard shoulder set there draws on the
+ * outside rather than in the median. Nothing else in the UI says so.
+ */
+function LaneKinds({
+  link,
+  lanes,
+  dispatch,
+}: {
+  link: LinkId;
+  lanes: Lane[];
+  dispatch: (action: Action) => void;
+}) {
+  return (
+    <div className="lane-kinds">
+      {lanes.map((lane, i) => (
+        <div className="lane-kind-row" key={i}>
+          <span className="lane-kind-idx">{i}</span>
+          <select
+            className="lane-kind-select"
+            value={lane.kind ?? "general"}
+            onChange={(e) =>
+              dispatch({
+                type: "setLaneKind",
+                id: link,
+                lane: i,
+                kind: e.target.value as LaneKind,
+              })
+            }
+          >
+            {LANE_KINDS.map((k) => (
+              <option key={k.value} value={k.value}>
+                {k.label}
+              </option>
+            ))}
+          </select>
+          {i === 0 && <span className="lane-kind-note">nearside</span>}
+        </div>
+      ))}
+    </div>
   );
 }
 

@@ -109,6 +109,159 @@ describe("dirty tracking (document identity)", () => {
   });
 });
 
+describe("lane kinds", () => {
+  /** `L1` with `n` lanes, lane 0 marked a hard shoulder. */
+  function shouldered(n: number): EditorState {
+    return run(
+      twoNodesLinked(),
+      { type: "setLinkLanes", id: "L1", count: n },
+      { type: "setLaneKind", id: "L1", lane: 0, kind: "shoulder" },
+    );
+  }
+
+  it("classifies one lane and leaves every other alone", () => {
+    const state = run(
+      twoNodesLinked(),
+      { type: "setLinkLanes", id: "L1", count: 3 },
+      { type: "setLaneKind", id: "L1", lane: 1, kind: "bus" },
+    );
+    const lanes = findLink(state.doc, "L1")!.lanes;
+
+    expect(lanes.map((l) => l.kind)).toEqual([undefined, "bus", undefined]);
+    // Nothing else about the lane moved.
+    expect(lanes[1].id).toBe(1);
+    expect(lanes[1].width).toBe(3.5);
+  });
+
+  /**
+   * `general` is stored as an *absent* `kind`, not as the string: that is the
+   * one representation `defaultLane` produces and the one Rust writes back
+   * (`skip_serializing_if = "Option::is_none"`). Two encodings of a plain lane
+   * would differ by document identity and dirty a file for no visible change.
+   */
+  it("stores general as no kind at all, not as a string", () => {
+    const back = reducer(shouldered(2), {
+      type: "setLaneKind",
+      id: "L1",
+      lane: 0,
+      kind: "general",
+    });
+    const lane = findLink(back.doc, "L1")!.lanes[0];
+
+    expect(lane.kind).toBeUndefined();
+    // Absent, not present-and-undefined: what serializes is the key, not the value.
+    expect("kind" in lane).toBe(false);
+  });
+
+  it("is a no-op, by identity, for an unknown link or a lane out of range", () => {
+    const start = twoNodesLinked();
+
+    for (const action of [
+      { type: "setLaneKind", id: "L9", lane: 0, kind: "bus" },
+      { type: "setLaneKind", id: "L1", lane: 4, kind: "bus" },
+      { type: "setLaneKind", id: "L1", lane: -1, kind: "bus" },
+    ] as Action[]) {
+      const next = reducer(start, action);
+      expect(next.doc).toBe(start.doc);
+      expect(next.dirty).toBe(start.dirty);
+    }
+  });
+
+  it("is one undo step, restoring the kind the lane had before", () => {
+    const bus = run(
+      shouldered(2),
+      { type: "setLaneKind", id: "L1", lane: 1, kind: "bus" },
+    );
+    expect(findLink(bus.doc, "L1")!.lanes.map((l) => l.kind)).toEqual([
+      "shoulder",
+      "bus",
+    ]);
+
+    const once = reducer(bus, { type: "undo" });
+    expect(findLink(once.doc, "L1")!.lanes.map((l) => l.kind)).toEqual([
+      "shoulder",
+      undefined,
+    ]);
+
+    const twice = reducer(once, { type: "undo" });
+    expect(findLink(twice.doc, "L1")!.lanes.map((l) => l.kind)).toEqual([
+      undefined,
+      undefined,
+    ]);
+  });
+
+  /**
+   * The reason this belongs to the same phase as the control. `setLinkLanes`
+   * used to rebuild the array from `defaultLane` on every ±1 click, so the
+   * moment a kind was settable, the Lanes stepper two controls above silently
+   * discarded it (road spec §2.5).
+   */
+  it("survives the Lanes stepper growing the count", () => {
+    const grown = reducer(shouldered(2), {
+      type: "setLinkLanes",
+      id: "L1",
+      count: 4,
+    });
+    const lanes = findLink(grown.doc, "L1")!.lanes;
+
+    expect(lanes).toHaveLength(4);
+    expect(lanes[0].kind).toBe("shoulder");
+    // The lanes appended are ordinary ones, indexed on from the survivors.
+    expect(lanes.slice(1).map((l) => l.kind)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+    ]);
+    expect(lanes.map((l) => l.id)).toEqual([0, 1, 2, 3]);
+  });
+
+  it("survives the count shrinking past the lanes above it", () => {
+    const shrunk = reducer(shouldered(4), {
+      type: "setLinkLanes",
+      id: "L1",
+      count: 1,
+    });
+    const lanes = findLink(shrunk.doc, "L1")!.lanes;
+
+    expect(lanes).toHaveLength(1);
+    expect(lanes[0].kind).toBe("shoulder");
+  });
+
+  /** A hand-edited or imported width rides along with the kind. */
+  it("preserves a non-default lane width across a count change", () => {
+    const wide = twoNodesLinked();
+    const doc = {
+      ...wide.doc,
+      links: wide.doc.links.map((l) => ({
+        ...l,
+        lanes: [{ ...l.lanes[0], width: 5.25 }],
+      })),
+    };
+
+    const grown = reducer(
+      { ...wide, doc },
+      { type: "setLinkLanes", id: "L1", count: 3 },
+    );
+    const lanes = findLink(grown.doc, "L1")!.lanes;
+
+    expect(lanes[0].width).toBe(5.25);
+    expect(lanes.slice(1).map((l) => l.width)).toEqual([3.5, 3.5]);
+  });
+
+  /** Removing a lane removes its data; growing back does not resurrect it. */
+  it("does not bring back a lane the user actually removed", () => {
+    const gone = run(
+      twoNodesLinked(),
+      { type: "setLinkLanes", id: "L1", count: 2 },
+      { type: "setLaneKind", id: "L1", lane: 1, kind: "bus" },
+      { type: "setLinkLanes", id: "L1", count: 1 },
+      { type: "setLinkLanes", id: "L1", count: 2 },
+    );
+
+    expect(findLink(gone.doc, "L1")!.lanes[1].kind).toBeUndefined();
+  });
+});
+
 describe("undo / redo", () => {
   it("undo restores the previous document and redo reinstates it", () => {
     const start = initialState();

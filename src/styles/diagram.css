@@ -30,6 +30,11 @@
   --paint-white: #f5f7f8;
   --paint-yellow: #f5c518;
 
+  /* Lane-kind surfaces. Lifted off the asphalt just enough to read as a
+     different surface under the same white paint, never as a highlight. */
+  --tint-bus: #4c382f;
+  --tint-cycle: #2c4536;
+
   --ink: #12161b;
 }
 
@@ -67,6 +72,49 @@
   fill: var(--paint-white);
 }
 
+/* ----- lane kinds ----- */
+
+/* A band is one lane's slice of the road, drawn as a path stroked at the lane's
+   own width. Butt caps, not the casing's round ones: a band ends where its lane
+   ends, and a rounded cap would bulge past the asphalt it sits on. */
+
+.lane-band {
+  fill: none;
+  stroke-linecap: butt;
+}
+
+.lane-band-bus {
+  stroke: var(--tint-bus);
+}
+
+.lane-band-cycle {
+  stroke: var(--tint-cycle);
+}
+
+/* The shoulder band takes its paint from the hatch pattern, which is markup in
+   `Diagram.tsx` and reaches the band as an inline attribute: a paint-server
+   reference here would fail `export.test.ts`, and the pattern element itself
+   cannot live in a file that may not contain an angle bracket. This is the
+   pattern's own line, which can - an ordinary rule, travelling inside an
+   exported file like every other. */
+.road-hatch-line {
+  stroke: var(--paint-white);
+  stroke-width: 1.1;
+  opacity: 0.5;
+}
+
+/* The line between a hard shoulder and the running lanes. Solid, and wider than
+   the dashed divider it replaces: a dashed line says "same direction, cross
+   freely", which is the one thing a shoulder boundary does not mean. This is
+   also the whole of what makes a motorway read differently from an arterial -
+   the class itself paints alike (road spec 2.3, 2.5). */
+.road-shoulder-line {
+  fill: none;
+  stroke: var(--paint-white);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
 /* ----- road class ----- */
 
 /* Motorway and arterial take the base treatment above; the local pair is the
@@ -83,6 +131,11 @@
 .road-local .road-edge,
 .road-ramp .road-edge {
   stroke-width: 1.2;
+}
+
+.road-local .road-shoulder-line,
+.road-ramp .road-shoulder-line {
+  stroke-width: 1.5;
 }
 
 /* ----- nodes ----- */

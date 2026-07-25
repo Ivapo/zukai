@@ -13,6 +13,7 @@ import { linkPolyline, linkStyle, nodePos } from "../model/document";
 import {
   Document,
   JunctionGlyph,
+  LaneKind,
   Link,
   LinkId,
   LinkStyle,
@@ -58,6 +59,8 @@ export function Diagram({
 
   return (
     <g className="diagram">
+      {hasShoulder(doc) && <HatchPattern />}
+
       {doc.links.map((link) => {
         const pts = drawnPolyline(doc, link, offsets);
         if (!pts) return null;
@@ -110,6 +113,49 @@ export function Diagram({
         );
       })}
     </g>
+  );
+}
+
+/** Id of the hard-shoulder hatch, referenced by {@link RoadShape}'s bands. */
+const HATCH_ID = "road-hatch";
+
+/** Whether any lane anywhere in the document is a hard shoulder. */
+function hasShoulder(doc: Document): boolean {
+  return doc.links.some((l) => l.lanes.some((lane) => lane.kind === "shoulder"));
+}
+
+/**
+ * The diagonal hatch a hard shoulder is filled with.
+ *
+ * **The one thing in the drawing that cannot travel as a CSS rule** (road spec
+ * §2.5). `export.test.ts` asserts the embedded stylesheet contains no `url(` —
+ * an unresolvable external reference is the classic way to break a standalone
+ * SVG — and that `diagram.css` contains no `<` or `&` anywhere, comments
+ * included, since it is embedded raw inside XML. So neither the `fill: url(…)`
+ * nor the `<pattern>` element itself is legal there: the pattern is markup here
+ * and the reference is an inline attribute on the band.
+ *
+ * Emitted **only when a shoulder exists**, because an empty document must render
+ * as exactly `<g class="diagram"></g>` — asserted in `Diagram.test.tsx`.
+ *
+ * The stroke comes from a class rather than an inline colour so the hatch tracks
+ * the palette: `var()` does not resolve inside a *presentation attribute*, and
+ * the rule travels inside an exported file like every other, so the pattern is
+ * still self-contained.
+ */
+function HatchPattern() {
+  return (
+    <defs>
+      <pattern
+        id={HATCH_ID}
+        width="7"
+        height="7"
+        patternUnits="userSpaceOnUse"
+        patternTransform="rotate(45)"
+      >
+        <path className="road-hatch-line" d="M 3.5 0 L 3.5 7" />
+      </pattern>
+    </defs>
   );
 }
 
@@ -185,7 +231,15 @@ function isSelected(sel: Selection | null, kind: "node" | "link", id: string) {
 }
 
 /**
- * A schematic road: asphalt casing, painted edge lines, lane dividers, arrow.
+ * A schematic road: asphalt casing, lane bands, painted edge lines, lane
+ * dividers, arrow.
+ *
+ * **No centreline.** An undivided two-way road would carry one in a road atlas,
+ * but nothing in the model distinguishes "one link the user thinks of as
+ * two-way" from "one carriageway of a pair" — `Link` carries no direction flag
+ * and `median_gap` is default-valued on every link ever created, so it holds no
+ * signal. Drawing one would be a guess. Recorded as road spec OQ-4, and a
+ * modelling gap for the ramps/junction spec rather than a rendering one.
  *
  * The road class reaches the paint as a class token rather than a computed
  * attribute, so `diagram.css` carries the colour and line treatment and an
@@ -212,12 +266,34 @@ function RoadShape({
   const leftEdge = polylinePath(offsetPolyline(points, edgeInset));
   const rightEdge = polylinePath(offsetPolyline(points, -edgeInset));
 
+  // `laneBands` treats an empty array as one default lane, so it can return a
+  // band with no `Lane` behind it. Such a lane has no kind, and draws plain.
+  const kindOf = (i: number): LaneKind | undefined => link.lanes[i]?.kind;
+
+  // A band is painted only where the kind says something. `general` and `turn`
+  // are the plain road, so a document that has never set a kind emits no band at
+  // all and its markup is what it was before lane kinds existed (§2.5).
+  const painted = bands.flatMap((b, i) => {
+    const kind = kindOf(i);
+    if (kind === undefined || kind === "general" || kind === "turn") return [];
+    return [{ kind, width: b.width, d: polylinePath(offsetPolyline(points, b.offset)) }];
+  });
+
   // A divider sits on the boundary between two adjacent lanes, which is each
   // band's far edge from the nearside — so every band but the first contributes
   // one. The two outermost boundaries are the edge lines above, not dividers.
-  const dividers = bands
-    .slice(1)
-    .map((b) => polylinePath(offsetPolyline(points, b.offset + b.width / 2)));
+  //
+  // *What* the line means is the boundary's own business: dashed says "lanes,
+  // same direction, cross freely", and a hard shoulder is not one of those. So a
+  // boundary touching a shoulder draws solid — the hard-shoulder line of §2.5,
+  // and the whole of what distinguishes a motorway from an arterial.
+  const dividers = bands.slice(1).map((b, i) => ({
+    cls:
+      kindOf(i) === "shoulder" || kindOf(i + 1) === "shoulder"
+        ? "road-shoulder-line"
+        : "road-divider",
+    d: polylinePath(offsetPolyline(points, b.offset + b.width / 2)),
+  }));
 
   const dir = endDirection(points);
   const end = points[points.length - 1];
@@ -242,10 +318,21 @@ function RoadShape({
         <path className="road-halo" d={casing} strokeWidth={w + 6} />
       )}
       <path className="road-casing" d={casing} strokeWidth={w} />
+      {/* Lane bands sit on the asphalt and under every painted line, so a
+          shoulder's hatch and a bus lane's tint read as surface, not marking. */}
+      {painted.map((b, i) => (
+        <path
+          key={i}
+          className={`lane-band lane-band-${b.kind}`}
+          d={b.d}
+          strokeWidth={b.width}
+          stroke={b.kind === "shoulder" ? `url(#${HATCH_ID})` : undefined}
+        />
+      ))}
       <path className="road-edge" d={leftEdge} vectorEffect={nse} />
       <path className="road-edge" d={rightEdge} vectorEffect={nse} />
       {dividers.map((d, i) => (
-        <path key={i} className="road-divider" d={d} vectorEffect={nse} />
+        <path key={i} className={d.cls} d={d.d} vectorEffect={nse} />
       ))}
       {arrow && <polygon className="road-arrow" points={arrow} />}
     </g>

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Document, LinkStyle } from "../model/types";
 import {
   EXPORT_PAD,
+  diagramInner,
   diagramSvg,
   exportFormat,
   strokeAllowance,
@@ -134,6 +135,50 @@ describe("diagramSvg", () => {
     expect(embeddedCss(svg)).toContain("--asphalt-2");
     expect(embeddedCss(svg)).not.toContain("url(");
     expect(embeddedCss(svg)).not.toMatch(/[<&]/);
+  });
+
+  /**
+   * The hatch is the single exception to "the paint travels as CSS": neither
+   * half of it can live in `diagram.css`, because a paint-server reference would
+   * fail the no-external-reference rule above and the `<pattern>` element itself
+   * would end the `<style>` element it was embedded in. So it is markup inside
+   * the `Diagram` tree the exporter already renders — which means the exception
+   * costs the export path nothing, and the two rules it was carved out of still
+   * hold in full (road spec §2.5).
+   */
+  it("carries the shoulder hatch as markup, leaving the stylesheet rules intact", () => {
+    const doc = run({ ...initialState(), doc: road(4) }, {
+      type: "setLaneKind",
+      id: "L1",
+      lane: 0,
+      kind: "shoulder",
+    }).doc;
+    const svg = diagramSvg(doc, { x: 0, y: 0, width: 120, height: 40 });
+    const css = embeddedCss(svg);
+
+    // The stylesheet is unchanged in kind: still no paint-server reference and
+    // still XML-safe, hatched document or not.
+    expect(css).not.toContain("url(");
+    expect(css).not.toMatch(/[<&]/);
+    // It does carry the flat rules — the pattern's own line and the band tints.
+    expect(css).toContain(".road-hatch-line");
+    expect(css).toContain(".road-shoulder-line");
+    expect(css).toContain("--tint-bus");
+
+    // And the pattern round-trips into the file, referencing nothing outside it.
+    expect(svg).toContain('<pattern id="road-hatch"');
+    expect(svg).toContain('class="lane-band lane-band-shoulder"');
+    // The file's *only* paint-server reference is this in-document fragment.
+    // A `url()` that resolved anywhere else would taint the canvas the PNG path
+    // draws into, which is the failure the no-external-reference rule prevents.
+    expect([...svg.matchAll(/url\([^)]*\)/g)].map((m) => m[0])).toEqual([
+      "url(#road-hatch)",
+    ]);
+    // The drawing itself links to nothing at all; the root `xmlns` above is the
+    // file's one URL, and it is a namespace, not a fetch.
+    expect(diagramInner(doc)).not.toMatch(/xlink|href|https?:/);
+    expect(svg).not.toMatch(CHROME);
+    expect(svg).not.toMatch(/vector-effect/);
   });
 
   it("keeps the embedded stylesheet XML-safe", () => {
