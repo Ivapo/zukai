@@ -262,6 +262,72 @@ describe("lane kinds", () => {
   });
 });
 
+describe("link alignment", () => {
+  /** `L1`'s layout entry, which alignment is stored on. */
+  function view(state: EditorState) {
+    return state.doc.layout.links.L1;
+  }
+
+  it("sets an alignment without disturbing the road class", () => {
+    const set = reducer(twoNodesLinked(), {
+      type: "setLinkAlign",
+      id: "L1",
+      align: "offside",
+    });
+
+    expect(view(set)).toEqual({ style: "arterial", align: "offside" });
+    expect(set.dirty).toBe(true);
+  });
+
+  /**
+   * `centre` is stored as an *absent* `align`, the same rule `setLaneKind`
+   * follows for `general`: it is what a fresh link carries and what Rust writes
+   * back (`skip_serializing_if = "LinkAlign::is_centre"`), so a second encoding
+   * of a centred link would differ by document identity while saving to the
+   * same bytes.
+   */
+  it("stores centre as no key at all, not as a string", () => {
+    const back = run(
+      twoNodesLinked(),
+      { type: "setLinkAlign", id: "L1", align: "nearside" },
+      { type: "setLinkAlign", id: "L1", align: "centre" },
+    );
+
+    expect(view(back).align).toBeUndefined();
+    expect("align" in view(back)).toBe(false);
+    // …and the rest of the entry survives the round trip untouched.
+    expect(view(back)).toEqual({ style: "arterial" });
+  });
+
+  it("is one undo step, restoring the alignment the link had before", () => {
+    const flipped = run(
+      twoNodesLinked(),
+      { type: "setLinkAlign", id: "L1", align: "nearside" },
+      { type: "setLinkAlign", id: "L1", align: "offside" },
+    );
+    expect(view(flipped).align).toBe("offside");
+
+    const once = reducer(flipped, { type: "undo" });
+    expect(view(once).align).toBe("nearside");
+
+    const twice = reducer(once, { type: "undo" });
+    expect(view(twice).align).toBeUndefined();
+  });
+
+  /** A link with no layout entry — imported, or hand-edited — still aligns. */
+  it("creates a layout entry for a link that has none", () => {
+    const linked = twoNodesLinked();
+    const bare = {
+      ...linked,
+      doc: { ...linked.doc, layout: { ...linked.doc.layout, links: {} } },
+    };
+
+    const set = reducer(bare, { type: "setLinkAlign", id: "L1", align: "offside" });
+
+    expect(view(set)).toEqual({ style: "arterial", align: "offside" });
+  });
+});
+
 describe("undo / redo", () => {
   it("undo restores the previous document and redo reinstates it", () => {
     const start = initialState();

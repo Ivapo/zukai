@@ -9,7 +9,7 @@
  */
 
 import type React from "react";
-import { linkPolyline, linkStyle, nodePos } from "../model/document";
+import { linkAlign, linkPolyline, linkStyle, nodePos } from "../model/document";
 import {
   Document,
   JunctionGlyph,
@@ -23,6 +23,7 @@ import {
 } from "../model/types";
 import {
   MIN_ROAD_WIDTH,
+  alignmentShift,
   carriageways,
   distance,
   endDirection,
@@ -173,11 +174,15 @@ function hairline(interaction?: Interaction): "non-scaling-stroke" | undefined {
 
 /**
  * The polyline a link is *drawn* along: its layout polyline, stepped sideways by
- * the carriageway offset of a divided road. Identical to the layout polyline —
- * the same array, not a copy — for every link that has no opposing twin.
+ * **two** lateral terms — the carriageway offset of a divided road, and the
+ * shift that holds an aligned link's own edge on the polyline. Identical to the
+ * layout polyline — the same array, not a copy — for a centred link with no
+ * opposing twin, which is every link in a document that has set neither.
  *
- * One helper so the roads and the junction arms cannot come to disagree about
- * where a road runs.
+ * **They compose by addition, and this is the only site that knows it.** The
+ * roads, the junction arms and (through `Arm.origin`) the junction interiors all
+ * inherit both from here, so nothing else has to learn about alignment — and the
+ * roads and the arms cannot come to disagree about where a road runs.
  */
 function drawnPolyline(
   doc: Document,
@@ -185,7 +190,13 @@ function drawnPolyline(
   offsets: Record<LinkId, number>,
 ): Vec2[] | undefined {
   const pts = linkPolyline(doc, link);
-  const d = offsets[link.id] ?? 0;
+  const d =
+    (offsets[link.id] ?? 0) +
+    alignmentShift(
+      link.lanes,
+      linkStyle(doc, link.id),
+      linkAlign(doc, link.id),
+    );
   if (!pts || d === 0) return pts;
   return offsetPolyline(pts, d);
 }

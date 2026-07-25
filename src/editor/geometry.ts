@@ -9,6 +9,7 @@ import {
   Document,
   Lane,
   Link,
+  LinkAlign,
   LinkId,
   LinkStyle,
   Vec2,
@@ -209,6 +210,34 @@ export function roadWidth(
   style: LinkStyle = DEFAULT_LINK_STYLE,
 ): number {
   return laneWidths(lanes, style).reduce((s, w) => s + w, 0) + ROAD_MARGIN;
+}
+
+/**
+ * How far a link steps sideways to hold one of its own edges on its polyline,
+ * in the same signed frame {@link offsetPolyline} takes — so it *adds* to the
+ * carriageway offset rather than competing with it.
+ *
+ * **It is the lane region's half-span, not `roadWidth / 2`.** `ROAD_MARGIN` is
+ * the casing lip, not a lane, so aligning "to an edge" means aligning the edge a
+ * reader sees: the outermost painted line. Using the full width instead leaves a
+ * half-lip step at every joint — 1.5 units of casing, small enough to look like
+ * an antialiasing artefact and never be diagnosed.
+ *
+ * **The sign is derived, not chosen.** Lane 0 is the nearside lane and
+ * {@link laneBands} gives it the most *positive* offset, so the nearside edge of
+ * an unaligned road is at `+(roadWidth - ROAD_MARGIN) / 2`. Holding an edge *on*
+ * the polyline means shifting the road by whatever brings that edge to zero — so
+ * `offside` shifts **positive** and an offside-aligned road hangs to the
+ * nearside of its own polyline, with `nearside` the mirror.
+ */
+export function alignmentShift(
+  lanes: Lane[],
+  style: LinkStyle,
+  align: LinkAlign,
+): number {
+  if (align === "centre") return 0;
+  const half = (roadWidth(lanes, style) - ROAD_MARGIN) / 2;
+  return align === "offside" ? half : -half;
 }
 
 /**

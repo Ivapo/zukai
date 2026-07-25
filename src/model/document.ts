@@ -5,6 +5,7 @@ import {
   Lane,
   Layout,
   Link,
+  LinkAlign,
   LinkId,
   LinkStyle,
   Node,
@@ -21,6 +22,8 @@ export const DEFAULT_LANE_WIDTH = 3.5;
 export const DEFAULT_MEDIAN_GAP = 0.5;
 /** The road class a link is created as, and drawn as when it has no layout entry. */
 export const DEFAULT_LINK_STYLE: LinkStyle = "arterial";
+/** How a link is drawn when nothing says otherwise: centred on its polyline. */
+export const DEFAULT_LINK_ALIGN: LinkAlign = "centre";
 
 /** An empty document at the current schema version. */
 export function emptyDocument(name: string): Document {
@@ -153,6 +156,15 @@ export function linkPolyline(doc: Document, link: Link): Vec2[] | undefined {
  */
 export function linkStyle(doc: Document, id: LinkId): LinkStyle {
   return doc.layout.links[id]?.style ?? DEFAULT_LINK_STYLE;
+}
+
+/**
+ * Which of a link's edges stays on its polyline. Absent means centred — the way
+ * every road was drawn before alignment existed, and the way Rust writes a
+ * centred link back (the `align` key is elided).
+ */
+export function linkAlign(doc: Document, id: LinkId): LinkAlign {
+  return doc.layout.links[id]?.align ?? DEFAULT_LINK_ALIGN;
 }
 
 /** Look up a node by id. */

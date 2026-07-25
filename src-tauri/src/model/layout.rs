@@ -66,11 +66,47 @@ pub struct LinkView {
     /// Road class, driving stroke width/colour.
     #[serde(default)]
     pub style: LinkStyle,
+    /// Which of the link's own edges stays put on its polyline.
+    ///
+    /// Elided when centred, so a document that has never set an alignment
+    /// serializes byte-for-byte as it did before the field existed. `bends`'
+    /// `Vec::is_empty` trick has no equivalent for a plain enum, hence
+    /// [`LinkAlign::is_centre`].
+    #[serde(default, skip_serializing_if = "LinkAlign::is_centre")]
+    pub align: LinkAlign,
     /// Intermediate waypoints the link bends through, between its end nodes.
     /// Empty draws a straight connector. This is what lets a schematic route a
     /// road cleanly regardless of the real geometry.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bends: Vec<Vec2>,
+}
+
+/// Which of a link's own edges stays put on its polyline.
+///
+/// Presentation, not topology: Assimilator's links carry real polylines, from
+/// which alignment is a *consequence* rather than an input, so a field in
+/// [`graph`](super::graph) would be a Zukai-native concept in the layer whose
+/// whole promise is a 1:1 `network.yaml` mapping. It is what lets two links of
+/// different widths meet at a node sharing an **edge** instead of a centre —
+/// which is what a lane drop looks like on a real road.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LinkAlign {
+    /// Drawn centred on its polyline (the default, and every older document).
+    #[default]
+    Centre,
+    /// The nearside (kerb-side) edge of the lane region stays on the polyline.
+    Nearside,
+    /// The offside edge of the lane region stays on the polyline.
+    Offside,
+}
+
+impl LinkAlign {
+    /// Whether this is the default centre alignment — the `skip_serializing_if`
+    /// predicate for [`LinkView::align`].
+    fn is_centre(&self) -> bool {
+        matches!(self, Self::Centre)
+    }
 }
 
 /// Road class of a link, a rendering hint only.
@@ -134,4 +170,48 @@ pub enum JunctionGlyph {
 
 fn default_scale() -> f64 {
     1.0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A link view carrying the given alignment and nothing else unusual.
+    fn view(align: LinkAlign) -> LinkView {
+        LinkView {
+            style: LinkStyle::Motorway,
+            align,
+            bends: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn an_alignment_survives_a_yaml_round_trip() {
+        for align in [LinkAlign::Nearside, LinkAlign::Offside] {
+            let yaml = serde_yaml::to_string(&view(align)).expect("serialize");
+            let back: LinkView = serde_yaml::from_str(&yaml).expect("deserialize");
+            assert_eq!(view(align), back);
+        }
+        // …written in the same snake_case the TypeScript mirror spells.
+        assert!(serde_yaml::to_string(&view(LinkAlign::Offside))
+            .expect("serialize")
+            .contains("align: offside"));
+    }
+
+    /// The whole point of the `skip_serializing_if` predicate: a document that
+    /// has never set an alignment must save exactly as it did before the field
+    /// existed, so adding it needs no `SCHEMA_VERSION` bump.
+    #[test]
+    fn a_centred_link_writes_no_align_key_at_all() {
+        let yaml = serde_yaml::to_string(&view(LinkAlign::Centre)).expect("serialize");
+
+        assert!(!yaml.contains("align"), "unexpected align key in {yaml:?}");
+    }
+
+    #[test]
+    fn a_file_without_the_field_loads_as_centre() {
+        let view: LinkView = serde_yaml::from_str("style: motorway\n").expect("deserialize");
+
+        assert_eq!(view.align, LinkAlign::Centre);
+    }
 }

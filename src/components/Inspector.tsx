@@ -1,11 +1,12 @@
 /** Right panel: properties of the current selection, or a getting-started hint. */
 
 import type { ReactNode } from "react";
-import { findLink, findNode, linkStyle } from "../model/document";
+import { findLink, findNode, linkAlign, linkStyle } from "../model/document";
 import {
   JunctionGlyph,
   Lane,
   LaneKind,
+  LinkAlign,
   LinkId,
   LinkStyle,
   Node,
@@ -20,6 +21,13 @@ interface InspectorProps {
 
 const NODE_KINDS: NodeKind[] = ["endpoint", "junction", "waypoint"];
 const LINK_STYLES: LinkStyle[] = ["motorway", "arterial", "local", "ramp"];
+/**
+ * Which edge of the road stays on its polyline. `nearside` and `offside` name
+ * the road's own sides, the same way the lane rows below do — the point of the
+ * control is to hold one edge still across a lane change, so it is spelled in
+ * the road's frame rather than as left/right on the screen.
+ */
+const LINK_ALIGNS: LinkAlign[] = ["centre", "nearside", "offside"];
 /** Lane kinds, in the order the dropdown offers them; `general` is the default. */
 const LANE_KINDS: { value: LaneKind; label: string }[] = [
   { value: "general", label: "General" },
@@ -95,6 +103,7 @@ export function Inspector({ state, dispatch }: InspectorProps) {
   if (!link) return <aside className="inspector" />;
   const laneCount = link.lanes.length;
   const style = linkStyle(doc, link.id);
+  const align = linkAlign(doc, link.id);
   return (
     <aside className="inspector">
       <div className="inspector-head">
@@ -143,6 +152,20 @@ export function Inspector({ state, dispatch }: InspectorProps) {
               onClick={() => dispatch({ type: "setLinkStyle", id: link.id, style: s })}
             >
               {s}
+            </button>
+          ))}
+        </div>
+      </Field>
+
+      <Field label="Alignment">
+        <div className="segmented segmented-wrap">
+          {LINK_ALIGNS.map((a) => (
+            <button
+              key={a}
+              className={`seg${align === a ? " is-active" : ""}`}
+              onClick={() => dispatch({ type: "setLinkAlign", id: link.id, align: a })}
+            >
+              {a}
             </button>
           ))}
         </div>

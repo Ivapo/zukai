@@ -96,7 +96,9 @@ mod tests {
         Junction, JunctionControl, Lane, Link, Movement, MovementKind, Node, NodeKind, Phase,
         SignalPlan,
     };
-    use super::layout::{JunctionGlyph, JunctionView, Layout, LinkStyle, LinkView, NodeView, Vec2};
+    use super::layout::{
+        JunctionGlyph, JunctionView, Layout, LinkAlign, LinkStyle, LinkView, NodeView, Vec2,
+    };
     use super::*;
 
     /// A small but non-trivial document exercising every part of the model:
@@ -195,6 +197,7 @@ mod tests {
                 "L1".into(),
                 LinkView {
                     style: LinkStyle::Arterial,
+                    align: LinkAlign::Offside,
                     bends: vec![Vec2::new(50.0, 10.0)],
                 },
             )]

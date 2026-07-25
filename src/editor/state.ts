@@ -16,6 +16,7 @@ import {
   JunctionGlyph,
   LaneIdx,
   LaneKind,
+  LinkAlign,
   LinkId,
   LinkStyle,
   NodeId,
@@ -95,6 +96,7 @@ export type EditAction =
   | { type: "setLinkLanes"; id: LinkId; count: number }
   | { type: "setLaneKind"; id: LinkId; lane: LaneIdx; kind: LaneKind }
   | { type: "setLinkStyle"; id: LinkId; style: LinkStyle }
+  | { type: "setLinkAlign"; id: LinkId; align: LinkAlign }
   | { type: "select"; selection: Selection | null }
   | { type: "deleteSelection" };
 
@@ -326,6 +328,9 @@ function editReducer(state: EditorState, action: EditAction): EditorState {
     case "setLinkStyle":
       return setLinkStyle(state, action.id, action.style);
 
+    case "setLinkAlign":
+      return setLinkAlign(state, action.id, action.align);
+
     case "select":
       return { ...state, selection: action.selection };
 
@@ -553,6 +558,39 @@ function setLinkStyle(
       layout: {
         ...doc.layout,
         links: { ...doc.layout.links, [id]: { ...view, style } },
+      },
+    },
+  };
+}
+
+/**
+ * Hold one of a link's edges on its polyline, or put it back on the centreline.
+ *
+ * **`centre` is stored as an *absent* `align`, not as the string** — the same
+ * rule {@link setLaneKind} follows for `general`, and for the same reason: a
+ * centred link is what every link starts as and what Rust writes back
+ * (`skip_serializing_if = "LinkAlign::is_centre"`), so a second encoding of it
+ * would differ by document identity while saving to the same bytes.
+ */
+function setLinkAlign(
+  state: EditorState,
+  id: LinkId,
+  align: LinkAlign,
+): EditorState {
+  const { doc } = state;
+  const { align: _dropped, ...view } = doc.layout.links[id] ?? {
+    style: DEFAULT_LINK_STYLE,
+  };
+  return {
+    ...state,
+    doc: {
+      ...doc,
+      layout: {
+        ...doc.layout,
+        links: {
+          ...doc.layout.links,
+          [id]: align === "centre" ? view : { ...view, align },
+        },
       },
     },
   };

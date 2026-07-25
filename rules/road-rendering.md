@@ -1,18 +1,26 @@
 # Road rendering
 
 How a link becomes a picture of a road: lane geometry, road class, two-way
-carriageways, lane kinds, and the junction arms derived from them. Frontend only
-— nothing here crosses IPC, reaches disk, or changes the schema. The design
-rationale lives in `specs/road_rendering_spec.md`, and from `Arm.origin` onward in
+carriageways, alignment, lane kinds, and the junction arms derived from them.
+Frontend only apart from the single `LinkView.align` field — nothing else here
+crosses IPC, reaches disk, or changes the schema. The design rationale lives in
+`specs/road_rendering_spec.md`, and from `Arm.origin` onward in
 `specs/ramps_and_tapers_spec.md`; hand-maintained.
 
 ## The rule the whole subsystem follows
 
 **The model already describes the road; the renderer's job is to stop ignoring
-it.** Every quantity below comes from a field the document already carried —
-`Lane.width`, `Lane.kind`, `Link.median_gap`, `LinkView.style` — and this spec
-added none. When something looks wrong, the question is which field is not being
-read, not which constant to tune.
+it.** Almost every quantity below comes from a field the document already carried
+— `Lane.width`, `Lane.kind`, `Link.median_gap`, `LinkView.style`. When something
+looks wrong, the first question is which field is not being read, not which
+constant to tune.
+
+`LinkView.align` is the one thing genuinely added, and it is worth knowing why:
+nothing in the model distinguishes "4 lanes becomes 3 by losing the nearside
+lane" from "…by losing the offside lane" — `Link` carries an ordered `lanes`
+array and no statement about how two links' lanes correspond across a shared
+node. Which side a lane goes is a drawing decision, so it is a **presentation**
+field, not a graph one, and nothing a future Assimilator export would carry.
 
 ## Lane geometry: one derivation, everything downstream
 
@@ -132,6 +140,42 @@ endpoint or waypoint on a divided road sits in the median rather than on either
 carriageway. `Arm.origin` makes "one dot per carriageway" cheap; whether that is
 what a divided endpoint should show is the open question.
 
+## Alignment: the second lateral term, and it composes by addition
+
+`drawnPolyline` shifts a link by `carriagewayOffset + alignmentShift`, and that
+sum is the whole of what any consumer sees. A link is drawn **centred** on its
+polyline unless `LinkView.align` says otherwise; aligning to an edge is what lets
+two links of different widths meet at a node sharing that edge, which is what a
+lane drop looks like on a real road (a centred pair steps symmetrically, losing
+half the lane from each side at a point).
+
+- **It is the lane region's half-span, `(roadWidth - ROAD_MARGIN) / 2`, not
+  `roadWidth / 2`.** `ROAD_MARGIN` is the casing lip, not a lane, so the edge
+  being aligned is the outermost painted line. The full width instead leaves a
+  1.5-unit casing step at every joint — small enough to read as an antialiasing
+  artefact and never be diagnosed.
+- **The sign follows from lane 0, and is not a choice.** Lane 0 is nearside at
+  the most *positive* offset, so an unaligned road's nearside edge is at
+  `+(roadWidth - ROAD_MARGIN) / 2`; holding an edge *on* the polyline means
+  shifting by whatever brings it to zero. So `offside` shifts **positive** and an
+  offside-aligned road hangs to the *nearside* of its own polyline. A magnitude
+  assertion passes under an inversion — pin the drawn `y`.
+- **Addition, at one site.** Nothing else learns about alignment: the roads, the
+  junction arms and (through `Arm.origin`) the junction interiors all inherit it,
+  exactly as they inherited `classWidthFactor`. `drawnPolyline` still returns the
+  *same array* when the sum is zero, so a document that has set neither emits
+  byte-identical markup.
+- **On a divided road it is per-carriageway, not per-road.** `carriageways` knows
+  nothing about alignment, and the pair's two offsets are measured in opposing
+  frames, so aligning one twin moves it relative to the **median** rather than
+  relative to the road — the halves close up or spread apart. That is the honest
+  drawing (an aligned carriageway *has* moved), not a defect to fix.
+
+`centre` is stored as an **absent** `align`, the same rule `Lane.kind` follows
+for `general`: one representation of the default, matching what Rust writes back
+(`skip_serializing_if = "LinkAlign::is_centre"`). Adding the field needed no
+`SCHEMA_VERSION` bump — see `rules/document-model.md`.
+
 ## Lane kinds, and what a line means
 
 `Lane.kind` drives two things, both from `laneBands`:
@@ -208,13 +252,18 @@ spec, not a rendering one — the fix is a field, which this spec ruled out.
 
 | Piece | Where | Tested by |
 |---|---|---|
-| `laneBands`, `roadWidth`, `classWidthFactor`, `carriageways`, `rayCircleExit`, `UNITS_PER_METRE`, `MIN_ROAD_WIDTH`, `DRIVE_SIDE`, `SCHEMATIC_MEDIAN` | `src/editor/geometry.ts` | `geometry.test.ts` (pure) |
+| `laneBands`, `roadWidth`, `classWidthFactor`, `carriageways`, `alignmentShift`, `rayCircleExit`, `UNITS_PER_METRE`, `MIN_ROAD_WIDTH`, `DRIVE_SIDE`, `SCHEMATIC_MEDIAN` | `src/editor/geometry.ts` | `geometry.test.ts` (pure) |
 | `RoadShape`, `HatchPattern`, `drawnPolyline`, `junctionArms`, `JunctionGlyphShape` | `src/components/Diagram.tsx` | `Diagram.test.tsx` via `renderToStaticMarkup` |
 | Colour, tints, line treatments | `src/styles/diagram.css` | `export.test.ts` — reaches exports free |
-| `setLaneKind`, `setLinkLanes` | `src/editor/state.ts` | `state.test.ts` |
-| The lane-kind control | `src/components/Inspector.tsx`, chrome CSS in `src/styles.css` | — |
+| `setLaneKind`, `setLinkLanes`, `setLinkAlign` | `src/editor/state.ts` | `state.test.ts` |
+| `LinkAlign` and `LinkView.align` — the one mirrored field | `src/model/types.ts` **and** `src-tauri/src/model/layout.rs`; read through `linkAlign`/`linkStyle` in `src/model/document.ts` | `layout.rs` serde tests |
+| The lane-kind and alignment controls | `src/components/Inspector.tsx`, chrome CSS in `src/styles.css` | — |
 
-Nothing here touches Rust, `src-tauri/`, or the schema version. The one
-cross-subsystem obligation is `strokeAllowance` (`src/editor/export.tsx`), which
-must keep measuring roads at their own lane widths **and their own class** or
-wide roads clip in exports.
+Almost all of this is frontend-only. The **one** exception is `LinkView.align`,
+which is a real model field and so obeys `rules/document-model.md`'s Rust↔TS
+mirror discipline — it did not need a `SCHEMA_VERSION` bump, but it did need
+`cargo fmt`/`clippy`. The one cross-subsystem obligation is `strokeAllowance`
+(`src/editor/export.tsx`), which must keep measuring roads at their own lane
+widths **and their own class** or wide roads clip in exports; alignment needs
+nothing from it, since `measureDiagram` frames the *drawn* tree and a shifted
+road is already inside the box.

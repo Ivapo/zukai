@@ -1,12 +1,13 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
+  LANE_PX,
   ROAD_MARGIN,
   SCHEMATIC_MEDIAN,
   classWidthFactor,
 } from "../editor/geometry";
 import { Action, EditorState, initialState, reducer } from "../editor/state";
-import { Document, LaneKind, LinkStyle } from "../model/types";
+import { Document, LaneKind, LinkAlign, LinkStyle } from "../model/types";
 import { Diagram, Interaction } from "./Diagram";
 
 /** Every road class the Inspector offers. */
@@ -410,6 +411,128 @@ describe("two-way carriageways", () => {
 
     expect(svg).toContain('class="road-casing" d="M 0 0 L 120 0"');
     expect(svg).not.toContain("13.5");
+  });
+});
+
+describe("link alignment", () => {
+  /** A 4-lane arterial drawn due east from the origin, aligned `align`. */
+  function aligned(align: LinkAlign): Document {
+    return run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "addNode", pos: { x: 120, y: 0 } },
+      { type: "startLink", from: "N1" },
+      { type: "completeLink", to: "N2" },
+      { type: "setLinkLanes", id: "L1", count: 4 },
+      { type: "setLinkAlign", id: "L1", align },
+    ).doc;
+  }
+
+  /** Every `y` a road drawn due east paints its `cls` lines at, ascending. */
+  function offsets(svg: string, cls: string): number[] {
+    return [...svg.matchAll(new RegExp(`class="${cls}" d="M 0 (\\S+) L`, "g"))]
+      .map((m) => Number(m[1]))
+      .sort((a, b) => a - b);
+  }
+
+  it("draws a centred link exactly where an unaligned one goes", () => {
+    const centred = renderToStaticMarkup(<Diagram doc={aligned("centre")} />);
+
+    // The 4-lane pin from `RoadShape geometry`, unmoved: setting `centre`
+    // explicitly is the same drawing as never setting anything.
+    expect(centred).toContain('class="road-casing" d="M 0 0 L 120 0"');
+    expect(offsets(centred, "road-edge")).toEqual([-18, 18]);
+  });
+
+  /**
+   * The sign, in the direction §2.3 derives rather than as a magnitude — a
+   * magnitude test passes under an inversion, which is the trap the road spec
+   * hit four times.
+   *
+   * Lane 0 is the nearside lane at the most *positive* offset, so an
+   * `offside`-aligned eastbound road puts its **offside edge on `y = 0`** and
+   * its whole lane region at **positive** `y`: it hangs to the nearside of its
+   * own polyline. 4 default lanes give a 36-unit lane region, so the shift is
+   * 18 and the far (nearside) edge lands at 36.
+   */
+  it("puts an offside-aligned road's offside edge on its polyline", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={aligned("offside")} />);
+
+    expect(svg).toContain('class="road-casing" d="M 0 18 L 120 18"');
+    expect(offsets(svg, "road-edge")).toEqual([0, 36]);
+    // Every lane-derived line at or below the polyline, none above it.
+    for (const y of offsets(svg, "road-divider")) {
+      expect(y).toBeGreaterThan(0);
+    }
+  });
+
+  it("mirrors it exactly for nearside", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={aligned("nearside")} />);
+
+    expect(svg).toContain('class="road-casing" d="M 0 -18 L 120 -18"');
+    expect(offsets(svg, "road-edge")).toEqual([-36, 0]);
+    for (const y of offsets(svg, "road-divider")) {
+      expect(y).toBeLessThan(0);
+    }
+  });
+
+  /**
+   * The two lateral terms **compose by addition**; neither wins. A 2-lane
+   * carriageway steps 13.5 off the shared centreline and an `offside` alignment
+   * adds its own 9 — so the aligned half moves to 22.5 while its twin stays put.
+   *
+   * That the pair's halves no longer straddle the median symmetrically is the
+   * named consequence of composing (spec §2.3), not a defect: alignment is a
+   * per-carriageway control on a divided road.
+   */
+  it("adds alignment to a carriageway offset rather than replacing it", () => {
+    const doc = run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "addNode", pos: { x: 120, y: 0 } },
+      { type: "startLink", from: "N1" },
+      { type: "completeLink", to: "N2" },
+      { type: "startLink", from: "N2" },
+      { type: "completeLink", to: "N1" },
+      { type: "setLinkLanes", id: "L1", count: 2 },
+      { type: "setLinkLanes", id: "L2", count: 2 },
+      { type: "setLinkAlign", id: "L1", align: "offside" },
+    ).doc;
+    const svg = renderToStaticMarkup(<Diagram doc={doc} />);
+
+    expect(svg).toContain('class="road-casing" d="M 0 22.5 L 120 22.5"');
+    expect(svg).toContain('class="road-casing" d="M 120 -13.5 L 0 -13.5"');
+    // 13.5 (the carriageway step) + 9 (half a 2-lane road's 18-unit lane region).
+    expect(22.5).toBe(13.5 + (2 * LANE_PX) / 2);
+  });
+
+  /**
+   * Alignment reaches the junction glyph for free, because `junctionArms` reads
+   * the *drawn* polyline: the arm's `origin` moves with the road, and Phase 1's
+   * reach floor grows the pad to meet it.
+   */
+  it("carries a junction's arms along with the road", () => {
+    const doc = run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "addNode", pos: { x: 120, y: 0 } },
+      { type: "startLink", from: "N1" },
+      { type: "completeLink", to: "N2" },
+      { type: "setLinkLanes", id: "L1", count: 2 },
+      { type: "setNodeKind", id: "N2", kind: "junction" },
+      { type: "setJunctionGlyph", id: "N2", glyph: "signalized_cross" },
+      { type: "setLinkAlign", id: "L1", align: "offside" },
+    ).doc;
+    const svg = renderToStaticMarkup(<Diagram doc={doc} />);
+
+    // The one carriageway is drawn 9 off the centreline…
+    expect(svg).toContain('class="road-casing" d="M 0 9 L 120 9"');
+    // …so its stop bar is too, and the pad reaches its outer edge (9 + 21/2).
+    const bar = svg.match(
+      /class="jn-stopbar" x1="\S+" y1="(\S+)" x2="\S+" y2="(\S+)"/,
+    )!;
+    expect((Number(bar[1]) + Number(bar[2])) / 2).toBeCloseTo(9);
+    expect(Number(svg.match(/class="jn-pad" r="(\S+?)"/)![1])).toBeCloseTo(19.5);
   });
 });
 

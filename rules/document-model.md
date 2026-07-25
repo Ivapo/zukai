@@ -11,7 +11,7 @@ A `Document` (`src-tauri/src/model/mod.rs`) has three deliberately-separated par
 | Part | Files | Exports to Assimilator? |
 |------|-------|------------------------|
 | **Semantic graph** | `graph.rs` — `Node`, `Link`, `Lane`, `Junction`, `Movement`, `SignalPlan`, `Phase` | ✅ yes — this is the `network.yaml`-compatible subset |
-| **Layout** (presentation) | `layout.rs` — `Vec2`, `NodeView`, `LinkView`, `JunctionView`, `JunctionGlyph`, `LinkStyle` | ❌ dropped on export |
+| **Layout** (presentation) | `layout.rs` — `Vec2`, `NodeView`, `LinkView`, `JunctionView`, `JunctionGlyph`, `LinkStyle`, `LinkAlign` | ❌ dropped on export |
 | **Decorations** (Zukai-native) | `decoration.rs` — `Marking`, `Sign` | ❌ never — Assimilator has no equivalent |
 
 Ids are string newtypes (`ids.rs`) so ids imported from Assimilator survive a
@@ -44,6 +44,20 @@ Rust side reads. When you change a Rust type, change its TS twin in the same pas
 Zukai saves its own YAML (schema keyed by `SCHEMA_VERSION` in `mod.rs`, distinct
 from Assimilator's `network.yaml` `schema_version`), via `serde_yaml`. The model
 round-trips — see the tests in `mod.rs`.
+
+**A new optional field costs no `SCHEMA_VERSION` bump; a new enum *variant*
+does.** Nothing in `src-tauri/` uses `deny_unknown_fields`, so an older build
+ignores a field it does not know, and `#[serde(default)]` covers the other
+direction — which is why `LinkView.align` was added at `SCHEMA_VERSION = 1`. A
+new variant of an existing enum is not symmetric: an older build fails to
+deserialize the *whole document*, and `persist.rs`'s version probe only rejects
+files declaring a **newer** version, so it cannot turn that into a useful message
+unless the version moves with the variant.
+
+Pair every defaulted field with a `skip_serializing_if` so a document that never
+set it saves byte-for-byte as before — `Vec::is_empty` for `bends`,
+`Option::is_none` for `Lane.kind`, and a hand-written predicate
+(`LinkAlign::is_centre`) for a plain enum, which has no such helper.
 
 On-disk files use the **`.zkai`** extension and are read/written by the
 `save_document` / `load_document` Tauri commands in `src-tauri/src/persist.rs`.

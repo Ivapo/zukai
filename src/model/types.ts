@@ -162,6 +162,14 @@ export interface Vec2 {
 /** Road class of a link, a rendering hint only. */
 export type LinkStyle = "motorway" | "arterial" | "local" | "ramp";
 
+/**
+ * Which of a link's own edges stays put on its polyline — `centre` (the
+ * default) draws the road centred on it, as every road was drawn before this
+ * existed. Aligning to an edge is what lets two links of different widths meet
+ * at a node sharing that edge, which is what a lane drop looks like.
+ */
+export type LinkAlign = "centre" | "nearside" | "offside";
+
 /** The symbol used to render a junction. */
 export type JunctionGlyph =
   | "generic"
@@ -178,6 +186,8 @@ export interface NodeView {
 /** How a link is drawn and routed. */
 export interface LinkView {
   style: LinkStyle;
+  /** Absent means `centre`; Rust elides the key for a centred link. */
+  align?: LinkAlign;
   bends?: Vec2[];
 }
 

@@ -10,6 +10,7 @@ import {
   Document,
   Lane,
   Link,
+  LinkAlign,
   LinkId,
   LinkStyle,
   LinkView,
@@ -22,6 +23,7 @@ import {
   ROAD_MARGIN,
   SCHEMATIC_MEDIAN,
   UNITS_PER_METRE,
+  alignmentShift,
   carriageways,
   classWidthFactor,
   distance,
@@ -259,6 +261,81 @@ describe("classWidthFactor", () => {
     for (let i = 1; i < bands.length; i++) {
       expect(bands[i].offset + bands[i].width / 2).toBeCloseTo(
         bands[i - 1].offset - bands[i - 1].width / 2,
+      );
+    }
+  });
+});
+
+describe("alignmentShift", () => {
+  const ALIGNED: LinkAlign[] = ["nearside", "offside"];
+  const STYLES: LinkStyle[] = ["motorway", "arterial", "local", "ramp"];
+
+  it("leaves a centred link exactly where it was, whatever it carries", () => {
+    for (const style of STYLES) {
+      for (let n = 1; n <= 8; n++) {
+        expect(alignmentShift(defaults(n), style, "centre")).toBe(0);
+      }
+    }
+    // An empty lane array is one default lane everywhere else, and here too.
+    expect(alignmentShift([], DEFAULT_LINK_STYLE, "centre")).toBe(0);
+  });
+
+  /**
+   * The shift is the **lane region's** half-span, not `roadWidth / 2`:
+   * `ROAD_MARGIN` is the casing lip, not a lane, so aligning to an edge means
+   * aligning the outermost painted line. The difference is `ROAD_MARGIN / 2` —
+   * 1.5 units of casing at every joint, small enough to read as an antialiasing
+   * artefact and never be diagnosed, which is why this is asserted exactly.
+   */
+  it("shifts by the lane region's half-span, not half the road width", () => {
+    for (const style of STYLES) {
+      for (let n = 1; n <= 8; n++) {
+        const lanes = defaults(n);
+        const w = roadWidth(lanes, style);
+        const half = (w - ROAD_MARGIN) / 2;
+
+        expect(alignmentShift(lanes, style, "offside")).toBe(half);
+        expect(half).not.toBe(w / 2);
+        expect(w / 2 - half).toBeCloseTo(ROAD_MARGIN / 2);
+      }
+    }
+  });
+
+  /**
+   * Lane 0 is the nearside lane at the most *positive* `laneBands` offset, so
+   * holding the **offside** edge on the polyline shifts the road **positive**
+   * — the road hangs to the nearside of its own polyline. Asserted as a signed
+   * value and as an exact negation: a magnitude test passes under an inversion,
+   * which is the trap the road spec hit four times.
+   */
+  it("sends offside positive and nearside its exact negation", () => {
+    for (const style of STYLES) {
+      for (let n = 1; n <= 8; n++) {
+        const lanes = defaults(n);
+        const off = alignmentShift(lanes, style, "offside");
+        const near = alignmentShift(lanes, style, "nearside");
+
+        expect(off).toBeGreaterThan(0);
+        expect(near).toBe(-off);
+        // Which is to say: the aligned edge lands on the polyline. Lane 0's own
+        // outer boundary is the nearside edge, and the shift cancels it.
+        const bands = laneBands(lanes, style);
+        const nearsideEdge = bands[0].offset + bands[0].width / 2;
+        expect(nearsideEdge + near).toBeCloseTo(0);
+        expect(nearsideEdge - off).toBeCloseTo(0);
+      }
+    }
+  });
+
+  /** It is a width, so it carries the road class like every other width. */
+  it("shifts a ramp less far than an arterial of the same lane count", () => {
+    for (const align of ALIGNED) {
+      const arterial = alignmentShift(defaults(4), "arterial", align);
+      const ramp = alignmentShift(defaults(4), "ramp", align);
+
+      expect(Math.abs(ramp)).toBeLessThan(Math.abs(arterial));
+      expect(Math.abs(ramp)).toBeCloseTo(
+        classWidthFactor("ramp") * Math.abs(arterial),
       );
     }
   });
