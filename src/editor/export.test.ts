@@ -136,9 +136,32 @@ describe("diagramSvg", () => {
     const svg = diagramSvg(road(6), { x: -12.3456, y: 7.891, width: 0, height: 0 });
 
     expect(svg).not.toMatch(/NaN|undefined|Infinity/);
-    // margin = 24 + roadWidth(6)/2 = 52.5, rounded to 2dp so measurement noise
-    // never reaches the file.
-    expect(svg).toContain('viewBox="-64.85 -44.61 105 105"');
+    // margin = 24 + roadWidth(6)/2 = 52.5, so the padded box is
+    // (-64.85, -44.61) to (40.15, 60.39) — snapped outwards to whole units.
+    expect(svg).toContain('viewBox="-65 -45 106 106"');
+  });
+
+  it("snaps the frame to whole units, only ever outwards", () => {
+    // `width`/`height` must be integral: a browser rounds an image's intrinsic
+    // size to whole pixels, so a fractional width letterboxes the viewBox inside
+    // its own viewport and leaves a semi-transparent gap at the frame — which a
+    // PNG then bakes in. Snapping outwards also keeps §2.6's clipping guarantee:
+    // the margin can grow, never shrink.
+    const bounds = { x: -12.3456, y: 7.891, width: 30.7, height: 12.02 };
+    const svg = diagramSvg(road(6), bounds);
+
+    const [x, y, w, h] = svg
+      .match(/viewBox="([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+)"/)!
+      .slice(1)
+      .map(Number);
+    expect([x, y, w, h].every(Number.isInteger)).toBe(true);
+    expect(svg).toContain(`width="${w}" height="${h}"`);
+
+    const margin = EXPORT_PAD + strokeAllowance(road(6));
+    expect(x).toBeLessThanOrEqual(bounds.x - margin);
+    expect(y).toBeLessThanOrEqual(bounds.y - margin);
+    expect(x + w).toBeGreaterThanOrEqual(bounds.x + bounds.width + margin);
+    expect(y + h).toBeGreaterThanOrEqual(bounds.y + bounds.height + margin);
   });
 });
 

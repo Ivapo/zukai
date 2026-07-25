@@ -19,6 +19,7 @@ pub fn run() {
             persist::save_document,
             persist::load_document,
             export::write_text_file,
+            export::write_binary_file,
             recent::recent_files,
             recent::push_recent_file
         ])

@@ -71,7 +71,7 @@ phase from a spec still `status: draft`** — it must pass the review loop
 - `specs/_template.md` — copy this to start a new spec
 - `specs/save_load_spec.md` — save/open `.zkai` documents (implemented; 4 phases)
 - `specs/undo_redo_spec.md` — undo/redo over document edits (implemented; 2 phases)
-- `specs/diagram_export_spec.md` — export the schematic as SVG/PNG (partial: Phases 1–3 of 4)
+- `specs/diagram_export_spec.md` — export the schematic as SVG/PNG (implemented; 4 phases)
 
 **`rules/` — current-state reference (the *what is*).** Terse, authoritative maps
 of subsystems, read on demand. Unlike specs, rules describe the code as it is now;

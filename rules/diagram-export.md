@@ -1,7 +1,7 @@
-# Diagram export (SVG)
+# Diagram export (SVG, PNG)
 
-How the drawing leaves Zukai as a standalone picture. Spans React, CSS, and a
-Rust write command; the design rationale lives in
+How the drawing leaves Zukai as a standalone picture. Spans React, CSS, and two
+Rust write commands; the design rationale lives in
 `specs/diagram_export_spec.md`. Hand-maintained.
 
 ## One render tree, two consumers
@@ -59,18 +59,19 @@ about the embedded stylesheet vacuously true — hence `test.css: true` in
 | Piece | Where | Needs |
 |---|---|---|
 | `diagramInner`, `diagramSvg`, `strokeAllowance`, `exportFormat` | `src/editor/export.tsx` | nothing — unit-tested under vitest's node environment |
-| `measureDiagram` | `src/editor/export.tsx` | a DOM |
+| `measureDiagram`, `rasterizePng` | `src/editor/export.tsx` | a DOM |
 | `exportDiagram` (dialog + `invoke`) | `src/editor/files.ts` | the Tauri runtime |
-| `write_text_file` | `src-tauri/src/export.rs`, registered in `lib.rs` | — |
+| `write_text_file`, `write_binary_file` | `src-tauri/src/export.rs`, registered in `lib.rs` | — |
 
 `export.tsx` is **`.tsx`, not `.ts`**: it renders `<Diagram/>`, and `tsc` rejects
 JSX in a `.ts` file. `files.ts` stays `.ts` — it calls the builders and never
 touches a component.
 
-`write_text_file` is our own command using `std::fs`, exactly as
-`persist::save_document` is, so **no new permission**:
+Both write commands are our own, using `std::fs` exactly as
+`persist::save_document` does, so **no new permission**:
 `src-tauri/capabilities/default.json` is unchanged and `dialog:default` already
-covers the picker.
+covers the picker. Neither command knows what an export is — one takes a
+`String`, the other a `Vec<u8>`.
 
 ## Bounds are measured, and the margin is derived
 
@@ -106,6 +107,47 @@ A document with nothing to measure yields `null` bounds, which `diagramSvg`
 frames as `viewBox="-26 -26 52 52"` — a blank diagram is a blank picture, never
 an error or a `NaN`.
 
+**The padded frame is snapped outwards to whole world units** (`frame()`,
+`floor`/`ceil`, never `round`). Two reasons, and the second is not obvious: a
+browser rounds an image's *intrinsic* size to whole pixels, so a fractional
+`width="265.77"` gets a 266-px viewport, the viewBox letterboxes inside its own
+frame, and the picture picks up a sub-pixel transparent gap at the edge — paper
+that is not quite opaque, and a raster not quite `scale`× the SVG. Outwards-only
+keeps the derived margin a clipping *guarantee*: snapping can grow the frame,
+never shave it.
+
+## PNG is the same SVG, rasterized by the webview
+
+`rasterizePng(svg, scale)` takes the string `diagramSvg` just built and runs it
+through the engine the user was looking at: `Blob` → object URL → `Image` →
+`<canvas>` → `toBlob("image/png")` → `Uint8Array`. `PNG_SCALE` is **2** — a 1×
+raster of a line drawing reads as soft on a retina display or in print.
+
+No Rust rasterizer. `resvg` would be a second renderer to keep in sync with the
+one that draws the app, plus a dependency; this way there is exactly one
+renderer, and PNG inherits every future glyph the same way SVG does.
+
+Three things that are easy to undo by accident:
+
+- **The target size comes from `img.naturalWidth`/`naturalHeight`**, never from
+  re-parsing our own SVG. That makes "the PNG is exactly `scale`× the SVG" true
+  by construction rather than by two agreeing calculations — and it is why the
+  root `<svg>` must keep explicit `width`/`height`: WebKit gives a viewBox-only
+  SVG *no* intrinsic size, which would rasterize nothing. A zero size throws
+  rather than writing a blank file.
+- **`toBlob` returning `null` is rejected with a named error**, not swallowed.
+  That is the tainted-canvas signal (spec OQ-6), and the standing constraints
+  below are what keep it from firing.
+- **The raster paints no background of its own.** The opaque sheet comes from the
+  SVG's own `.diagram-bg` rect, so the raster path never learns the palette.
+
+`Array.from(bytes)` at the `invoke` call is load-bearing: nested in the argument
+object a `Uint8Array` stringifies to `{"0":…,"1":…}`, which serde will not read
+back as a `Vec<u8>`.
+
+Like `measureDiagram`, `rasterizePng` has no unit test by construction — the
+project has no jsdom. It is verified in the app.
+
 ## An export is not a document
 
 `exportDiagram(state)` is a **sibling of `write()`, never a caller**
@@ -126,8 +168,10 @@ means PNG, everything else — extension or not — means SVG, and
 `ensureExtension(path, "svg")` only appends when the basename has no dot. So
 `drawing` → `drawing.svg`, while `drawing.jpg` is written as-is holding SVG.
 Honour the name the user typed; never write bytes of one format into a file named
-for another. PNG is not implemented yet: a `.png` name is refused with a message
-rather than quietly given SVG.
+for another. A `.png` name is written **exactly as given** — `exportFormat` only
+says `"png"` for a name that already ends in it, so there is nothing to append.
+The dialog offers both filters and still proposes `.svg`: vector is the default,
+raster is opt-in.
 
 ## Triggers
 
@@ -142,8 +186,11 @@ Same three surfaces as save/open and undo/redo:
 ## Standing constraints (they stop being true silently)
 
 - **No external references.** Styles are inline and there are no images. This is
-  what keeps a `<canvas>` from being tainted when the raster path rasterizes the
-  SVG, and what makes the file self-contained anywhere it is opened.
+  what makes the file self-contained anywhere it is opened, and — since a `<svg>`
+  that reaches outside itself taints the `<canvas>` it is drawn into — it is the
+  precondition for PNG working at all. Add one linked asset and `toBlob` starts
+  returning `null`.
 - **No text, no fonts.** The diagram renders zero `<text>` today. The moment a
   marking or sign renders glyphs, an exported file needs the font embedded as a
-  data-URI `@font-face` in `diagram.css`, or a raster silently substitutes one.
+  data-URI `@font-face` in `diagram.css`, or the SVG falls back to whatever the
+  viewer has and the PNG bakes that substitution in permanently.

@@ -12,10 +12,20 @@ use std::fs;
 /// Write UTF-8 text to `path`, replacing any existing file.
 ///
 /// Deliberately format-agnostic: the caller decides what an export is and what
-/// it is called (`exportDiagram`, `src/editor/files.ts`). The binary sibling for
-/// PNG lands with the raster path.
+/// it is called (`exportDiagram`, `src/editor/files.ts`).
 #[tauri::command]
 pub fn write_text_file(path: String, contents: String) -> Result<(), String> {
+    fs::write(&path, contents).map_err(|e| e.to_string())
+}
+
+/// Write raw bytes to `path`, replacing any existing file.
+///
+/// The binary sibling of [`write_text_file`], for the PNG the webview rasterizes
+/// (`rasterizePng`, `src/editor/export.tsx`). Bytes cross the IPC boundary as a
+/// JSON array of numbers, which serde reads back as a `Vec<u8>`; nothing here
+/// interprets them, so a future binary export format needs no new command.
+#[tauri::command]
+pub fn write_binary_file(path: String, contents: Vec<u8>) -> Result<(), String> {
     fs::write(&path, contents).map_err(|e| e.to_string())
 }
 
@@ -52,6 +62,20 @@ mod tests {
     }
 
     #[test]
+    fn writes_bytes_that_read_back_unchanged() {
+        // A raster is not text: the bytes must land byte-exact, never coerced
+        // through UTF-8. The payload below is deliberately not valid UTF-8.
+        let dir = tempdir().expect("temp dir");
+        let path = dir.path().join("diagram.png");
+        let path_str = path.to_str().expect("utf-8 path").to_string();
+
+        let png = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0xff];
+        write_binary_file(path_str, png.clone()).expect("write");
+
+        assert_eq!(fs::read(&path).expect("read"), png);
+    }
+
+    #[test]
     fn reports_an_unwritable_path() {
         // A directory that does not exist is the everyday failure (a stale path
         // from the dialog's remembered folder); it must surface as an `Err`
@@ -61,5 +85,15 @@ mod tests {
         let path_str = path.to_str().expect("utf-8 path").to_string();
 
         assert!(write_text_file(path_str, "x".to_string()).is_err());
+    }
+
+    #[test]
+    fn reports_an_unwritable_binary_path() {
+        // Same everyday failure as above, on the path a PNG export takes.
+        let dir = tempdir().expect("temp dir");
+        let path = dir.path().join("no-such-dir").join("diagram.png");
+        let path_str = path.to_str().expect("utf-8 path").to_string();
+
+        assert!(write_binary_file(path_str, vec![0x89]).is_err());
     }
 }

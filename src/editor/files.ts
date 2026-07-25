@@ -22,15 +22,24 @@ import {
   withExtension,
   ZKAI_EXTENSION,
 } from "../model/document";
-import { diagramSvg, exportFormat, measureDiagram } from "./export";
+import {
+  diagramSvg,
+  exportFormat,
+  measureDiagram,
+  PNG_SCALE,
+  rasterizePng,
+} from "./export";
 import { Action, EditorState } from "./state";
 
 type Dispatch = (action: Action) => void;
 
 const FILTERS = [{ name: "Zukai schematic", extensions: [ZKAI_EXTENSION] }];
 
-/** Image formats the export dialog offers. PNG joins this in a later phase. */
-const EXPORT_FILTERS = [{ name: "SVG image", extensions: ["svg"] }];
+/** Image formats the export dialog offers; the chosen extension picks between them. */
+const EXPORT_FILTERS = [
+  { name: "SVG image", extensions: ["svg"] },
+  { name: "PNG image", extensions: ["png"] },
+];
 
 /** Discard the current document for a fresh one, guarding unsaved changes. */
 export async function newDocument(
@@ -131,19 +140,28 @@ export async function exportDiagram(state: EditorState): Promise<void> {
     });
     if (chosen === null) return;
 
+    // Built once: both formats frame the same drawing, and the raster is this
+    // very file rendered by the webview rather than a second drawing of it.
+    const svg = diagramSvg(state.doc, measureDiagram(state.doc));
+
     if (exportFormat(chosen) === "png") {
-      // Writing SVG into a name the user chose for a raster would be worse than
-      // saying so; the raster path arrives in the next phase.
-      await message(
-        "PNG export isn't available yet — give the file a .svg name.",
-        { title: "Can't export as PNG", kind: "warning" },
-      );
+      const bytes = await rasterizePng(svg, PNG_SCALE);
+      // `Array.from` is load-bearing: nested in the argument object a
+      // `Uint8Array` stringifies to `{"0":…,"1":…}`, which serde will not read
+      // back as a `Vec<u8>`. A plain number array it does.
+      // The path is written exactly as chosen — `exportFormat` only says "png"
+      // for a name that already ends in it, so there is nothing to append.
+      await invoke("write_binary_file", {
+        path: chosen,
+        contents: Array.from(bytes),
+      });
       return;
     }
 
-    const path = ensureExtension(chosen, "svg");
-    const svg = diagramSvg(state.doc, measureDiagram(state.doc));
-    await invoke("write_text_file", { path, contents: svg });
+    await invoke("write_text_file", {
+      path: ensureExtension(chosen, "svg"),
+      contents: svg,
+    });
   } catch (err) {
     await report("Couldn't export the diagram", err);
   }

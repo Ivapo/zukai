@@ -11,8 +11,8 @@
  * or zoom cannot change what an export looks like.
  *
  * `.tsx`, not `.ts`, because it renders JSX. Everything here is pure and
- * DOM-free except `measureDiagram`, which mounts the markup to measure it;
- * rasterizing to PNG also needs a DOM and lands in a later phase.
+ * DOM-free except `measureDiagram`, which mounts the markup to measure it, and
+ * `rasterizePng`, which draws it into a canvas.
  */
 
 import { renderToStaticMarkup } from "react-dom/server";
@@ -34,6 +34,16 @@ export interface Rect {
 
 /** Breathing room around the drawing, in world units. */
 export const EXPORT_PAD = 24;
+
+/**
+ * How many pixels a raster export puts on each world unit.
+ *
+ * 2× so a PNG stays crisp on a retina display and in a printed document, where a
+ * 1× raster of a line drawing reads as soft. Fixed rather than offered: the
+ * format is chosen by the extension and there is no options panel (spec §2.8,
+ * OQ-2). SVG, being resolution-independent, needs no equivalent.
+ */
+export const PNG_SCALE = 2;
 
 /**
  * Half the widest stroke in the document, so no cap or edge is clipped.
@@ -112,27 +122,44 @@ export function exportFormat(path: string): ExportFormat {
   return /\.png$/i.test(path) ? "png" : "svg";
 }
 
-/** Drop measurement noise, so `width`/`height` and `viewBox` stay consistent. */
-function num(n: number): string {
-  return String(Math.round(n * 100) / 100);
+/**
+ * The padded drawing, snapped outwards to whole world units.
+ *
+ * Whole units for two reasons. It drops the measurement noise `getBBox` returns,
+ * so a file's numbers are readable. And more importantly it keeps `width`/
+ * `height` **integral**, which the raster path depends on: a browser rounds an
+ * image's intrinsic size to whole pixels, so a fractional `width="265.77"` gets a
+ * 266-px viewport, the viewBox letterboxes inside it, and the picture ends up
+ * with a sub-pixel transparent gap at the frame — a paper background that is not
+ * quite opaque, and a PNG not quite `scale`× the SVG.
+ *
+ * `floor`/`ceil` rather than `round`, so snapping can only ever *grow* the frame:
+ * the derived margin of §2.6 is a clipping guarantee, and rounding could shave it.
+ */
+function frame(doc: Document, bounds: Rect | null): Rect {
+  const margin = EXPORT_PAD + strokeAllowance(doc);
+  const b = bounds ?? { x: 0, y: 0, width: 0, height: 0 };
+  const x = Math.floor(b.x - margin);
+  const y = Math.floor(b.y - margin);
+  return {
+    x,
+    y,
+    width: Math.ceil(b.x + b.width + margin) - x,
+    height: Math.ceil(b.y + b.height + margin) - y,
+  };
 }
 
 /**
  * The whole standalone file: root `<svg>`, the embedded stylesheet, an opaque
  * sheet of paper, and the drawing.
  *
- * `bounds` is the drawing's own extent (Phase 3 measures it); `null` means there
+ * `bounds` is the drawing's own extent (`measureDiagram`); `null` means there
  * was nothing to measure, and falls through the same arithmetic as a zero-size
  * box at the origin — a blank document exports as a small blank picture rather
  * than an error or a `NaN` viewBox.
  */
 export function diagramSvg(doc: Document, bounds: Rect | null): string {
-  const margin = EXPORT_PAD + strokeAllowance(doc);
-  const b = bounds ?? { x: 0, y: 0, width: 0, height: 0 };
-  const x = num(b.x - margin);
-  const y = num(b.y - margin);
-  const w = num(b.width + 2 * margin);
-  const h = num(b.height + 2 * margin);
+  const { x, y, width: w, height: h } = frame(doc, bounds);
 
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" class="zukai-diagram"` +
@@ -142,4 +169,85 @@ export function diagramSvg(doc: Document, bounds: Rect | null): string {
     diagramInner(doc),
     `</svg>`,
   ].join("\n");
+}
+
+/**
+ * The same picture as PNG bytes, rasterized at `scale` by the webview.
+ *
+ * The webview, not a Rust rasterizer (spec §2.8): `resvg` would be a second
+ * renderer to keep in sync with the one that draws the app, and a dependency to
+ * carry. Here the bytes come out of the exact engine the user was just looking
+ * at.
+ *
+ * The target size comes from the image's *intrinsic* dimensions rather than from
+ * re-parsing the SVG we just built — so "the PNG is `scale`× the SVG" holds by
+ * construction, with no second place to keep the arithmetic. That is why §2.4
+ * insists the root `<svg>` carry explicit `width`/`height`: WebKit gives a
+ * viewBox-only SVG no intrinsic size at all, and this would silently rasterize
+ * nothing.
+ *
+ * No background is painted here. The SVG carries its own opaque sheet of paper
+ * (`.diagram-bg`, §2.7), so the raster path never needs to know the palette.
+ */
+export async function rasterizePng(
+  svg: string,
+  scale: number,
+): Promise<Uint8Array> {
+  const url = URL.createObjectURL(
+    new Blob([svg], { type: "image/svg+xml;charset=utf-8" }),
+  );
+  try {
+    const img = await loadImage(url);
+    const width = Math.round(img.naturalWidth * scale);
+    const height = Math.round(img.naturalHeight * scale);
+    if (width === 0 || height === 0) {
+      throw new Error(
+        "The webview gave the diagram no intrinsic size, so there is nothing to rasterize.",
+      );
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (ctx === null) throw new Error("This webview has no 2D canvas context.");
+    ctx.drawImage(img, 0, 0, width, height);
+
+    const blob = await canvasBlob(canvas);
+    return new Uint8Array(await blob.arrayBuffer());
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+/** An `<img>` that has finished loading `url`, or a rejection saying it didn't. */
+function loadImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () =>
+      reject(new Error("The webview could not read the diagram as an image."));
+    img.src = url;
+  });
+}
+
+/**
+ * The canvas encoded as PNG.
+ *
+ * `toBlob` hands back `null` when the canvas is tainted or the encoder fails —
+ * the failure spec OQ-6 asks this phase to detect. It should not happen: the
+ * diagram references nothing outside itself (no linked stylesheet, no web font,
+ * no remote image), which is exactly what keeps the canvas clean. If it ever
+ * does, this error is the signal, not a blank file.
+ */
+function canvasBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob === null) {
+        reject(new Error("The webview could not encode the diagram as PNG."));
+        return;
+      }
+      resolve(blob);
+    }, "image/png");
+  });
 }

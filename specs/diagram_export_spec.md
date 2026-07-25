@@ -1,9 +1,9 @@
 ---
-status: partial (Phases 1–3 landed; reviewed in 2 rounds, 2026-07-24)
+status: implemented (all 4 phases; reviewed in 2 rounds, 2026-07-24)
 last_updated: 2026-07-24
 note: Export the schematic as a standalone SVG (and PNG) — the picture leaves the app, chrome-free, at its own scale.
-implemented: ["Phase 1", "Phase 2", "Phase 3"]
-not_implemented: ["Phase 4"]
+implemented: ["Phase 1", "Phase 2", "Phase 3", "Phase 4"]
+not_implemented: []
 related: [specs/save_load_spec.md]
 reference: "Standalone SVG 1.1 as browsers, Inkscape, and Figma consume it — `xmlns`, explicit `width`/`height`/`viewBox`, and no external references (no linked stylesheet, no web font, no remote image). PDF, multi-page output, and print CSS are out of scope."
 ---
@@ -266,6 +266,17 @@ the fattest non-casing rule in `styles.css`). Deriving from `roadWidth` rather
 than hard-coding 37.5 means a future change to `LANE_PX` or the 8-lane clamp
 cannot silently reintroduce clipping. Phase 2 pins this with a unit test.
 
+#### The padded frame is snapped outwards to whole units (added in Phase 4)
+
+`diagramSvg` emits `floor`/`ceil` of the padded box, not the raw fractional
+numbers `getBBox` returns. Found while implementing Phase 4: a browser rounds an
+image's *intrinsic* size to whole pixels, so a fractional `width="265.77"` is
+given a 266-px viewport, the viewBox letterboxes inside its own frame, and the
+picture gains a sub-pixel transparent gap at the edge — measured as alpha 252 on
+every border pixel of the raster, i.e. a `--paper` background that is not quite
+opaque and a PNG not quite 2× the SVG. `floor`/`ceil` rather than `round` keeps
+§2.6's margin a clipping *guarantee*: snapping may grow the frame, never shave it.
+
 **Degenerate/empty documents.** A document with no nodes or links has no geometry
 to measure. `measureDiagram` returns `null` in that case (a zero-area or absent
 bbox), and `diagramSvg` treats `null` bounds as the origin-centred empty rect —
@@ -394,13 +405,19 @@ a file the user named something else.
   export — drift in the one direction §2.4 exists to prevent. Landed in §2.4
   ("Palette ownership"); Phase 2 scope and gate.
 
-- **OQ-6** — If `canvas.toBlob` proves unreliable in Tauri's macOS WKWebView
-  (drawing an SVG `Image` into a canvas is the historically fragile path, though
-  the explicit `width`/`height` of §2.4 is the documented precondition and we
-  supply it), the fallback is a Rust rasterizer (`resvg`) behind the same
-  `write_binary_file` command. (design-call, deferred; **blocks nothing** — Phase
-  4's exit gate is precisely the detector, and SVG export from Phase 3 is
-  unaffected either way.)
+- **OQ-6** — **RESOLVED (Phase 4): no fallback needed.** `canvas.toBlob` is
+  reliable in Tauri's macOS WKWebView. Confirmed by a `tauri dev` export of a
+  2-link drawing (one at 8 lanes, `stroke-width="75"`): a 352×311 SVG produced a
+  704×622 PNG — exactly 2× — decoding as 8-bit RGBA with **zero** non-opaque
+  pixels and `--paper` (`#e7ebee`) in both corners, with no tainting error and no
+  `null` from `toBlob`. The same path was verified in Chromium beforehand, so
+  both engines agree. `resvg` stays unneeded, and no Rust rasterizer dependency
+  enters the project. Had it failed, the ladder was (1) a
+  `data:image/svg+xml;charset=utf-8,…` URI in place of the blob URL, then (2)
+  `resvg` behind the same `write_binary_file` command.
+
+  The Chromium run also surfaced the sub-pixel transparent frame now fixed in
+  §2.6 — the raster is what made a fractional `width` visible as a defect.
 
 ## 4. Implementation phases
 
@@ -487,7 +504,10 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
 
 - **Scope:** `rasterizePng(svg, scale)` in `export.tsx` (§2.8),
   `write_binary_file` in `export.rs` taking `Vec<u8>`, and the `.png` branch of the
-  §2.10 table wired up; PNG at 2×.
+  §2.10 table wired up; PNG at 2×. **Plus one fix the raster surfaced**: the
+  padded frame is snapped outwards to whole world units (§2.6, "The padded frame
+  is snapped outwards"), without which a fractional `width` leaves a
+  semi-transparent border in every PNG.
 - **Exit gate:** `bun run build` + `bun run test` + `cargo test` green, plus
   `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings` clean; a
   `tauri dev` run exporting the same drawing to `.png`, verified to be a valid PNG
