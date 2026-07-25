@@ -66,6 +66,52 @@ describe("Diagram in export mode", () => {
   });
 });
 
+describe("RoadShape geometry", () => {
+  /** Two nodes 120 units apart on the x axis, joined by a `lanes`-lane link. */
+  function straight(lanes: number): Document {
+    return run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "addNode", pos: { x: 120, y: 0 } },
+      { type: "startLink", from: "N1" },
+      { type: "completeLink", to: "N2" },
+      { type: "setLinkLanes", id: "L1", count: lanes },
+    ).doc;
+  }
+
+  /**
+   * The drawn width, edge lines, and lane dividers of a 4-lane road, pinned to
+   * exact numbers.
+   *
+   * A regression pin, not a restatement: the road spec's Phase 1 replaced a
+   * fixed 9-units-per-lane pitch with a derivation from each `Lane.width`, and
+   * a default document has to keep drawing *identically*. These are the numbers
+   * the fixed-pitch code emitted — casing `4 * 9 + 3`, edge lines inset 1.5
+   * from its rim, dividers on the 9-unit lane boundaries. A road drawn due east
+   * offsets purely in y, so every offset reads off the path directly.
+   */
+  it("draws a 4-lane road at the same width, insets, and lane pitch as ever", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={straight(4)} />);
+
+    expect(svg).toContain('class="road-casing" d="M 0 0 L 120 0" stroke-width="39"');
+    expect(svg).toContain('class="road-edge" d="M 0 18 L 120 18"');
+    expect(svg).toContain('class="road-edge" d="M 0 -18 L 120 -18"');
+    for (const y of [9, 0, -9]) {
+      expect(svg).toContain(`class="road-divider" d="M 0 ${y} L 120 ${y}"`);
+    }
+    // Three dividers for four lanes: the outermost boundaries are the edge lines.
+    expect(svg.match(/road-divider/g)).toHaveLength(3);
+  });
+
+  it("draws a 1-lane road with no dividers at all", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={straight(1)} />);
+
+    expect(svg).toContain('class="road-casing" d="M 0 0 L 120 0" stroke-width="12"');
+    expect(svg).toContain('class="road-edge" d="M 0 4.5 L 120 4.5"');
+    expect(svg).not.toContain("road-divider");
+  });
+});
+
 describe("Diagram on the live canvas", () => {
   // Guards against gating the chrome the wrong way round: the assertions above
   // would also pass if `interaction` never rendered anything.

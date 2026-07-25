@@ -1,6 +1,7 @@
 /** Canvas geometry: the pan/zoom transform and road-drawing math. */
 
-import { Vec2 } from "../model/types";
+import { DEFAULT_LANE_WIDTH } from "../model/document";
+import { Lane, Vec2 } from "../model/types";
 
 /**
  * The canvas view transform. A world point `p` maps to screen coordinates as
@@ -53,14 +54,86 @@ export function polylinePath(points: Vec2[]): string {
     .join(" ");
 }
 
-/** World-space width of one lane, chosen for schematic legibility (not to scale). */
+/**
+ * World-space width of one *default* lane, chosen for schematic legibility (not
+ * to scale). Also the canvas grid pitch (`Canvas.tsx`), and the peg that fixes
+ * `UNITS_PER_METRE` — a lane the model gives some other width draws in
+ * proportion to this one.
+ */
 export const LANE_PX = 9;
 /** Extra world-space padding added around the lanes for the road casing. */
-const ROAD_MARGIN = 3;
+export const ROAD_MARGIN = 3;
 
-/** Total drawn road width for a given lane count, in world units. */
-export function roadWidth(laneCount: number): number {
-  return Math.max(1, laneCount) * LANE_PX + ROAD_MARGIN;
+/**
+ * World units per model metre.
+ *
+ * Pinned to `LANE_PX / DEFAULT_LANE_WIDTH` so a document of default lanes draws
+ * exactly as it did when every lane was hardcoded to `LANE_PX`: n default lanes
+ * give `n * 3.5 * (9/3.5) + 3 = n * 9 + 3`. A wider lane then draws wider —
+ * ordinally faithful, still not to scale (road spec §2.2).
+ */
+export const UNITS_PER_METRE = LANE_PX / DEFAULT_LANE_WIDTH;
+
+/** Drawn width of a road of one default lane — what an empty `lanes` array gets. */
+export const MIN_ROAD_WIDTH = DEFAULT_LANE_WIDTH * UNITS_PER_METRE + ROAD_MARGIN;
+
+/**
+ * One lane's slice of the road, in **world units** — the metre conversion has
+ * already happened, so every consumer is in drawing space. `offset` is the band
+ * centre, signed as `offsetPolyline` takes it.
+ */
+export interface LaneBand {
+  offset: number;
+  width: number;
+}
+
+/**
+ * Each lane's drawn width, in world units — the single place the metre
+ * conversion and the lane-count floor live.
+ *
+ * **Converts per lane rather than summing metres first.** `UNITS_PER_METRE` is
+ * `9/3.5`, which has no exact binary form, so `sum(width) * UNITS_PER_METRE`
+ * lands on 30.000000000000004 for 3 default lanes and 57.00000000000001 for 6 —
+ * the drift is visible in an exported file and breaks the exactness this
+ * conversion exists to guarantee.
+ *
+ * **An empty `lanes` array is treated as one default lane** — a floor on the
+ * lane *count*, deliberately not a `Math.max(MIN_ROAD_WIDTH, …)` clamp on the
+ * resulting width. The two differ once a road class narrows its lanes: a 1-lane
+ * ramp is 10.2 units, which an output clamp would round back up to a 1-lane
+ * arterial's 12 and so cancel the class distinction it was meant to show. Only a
+ * hand-edited or imported document can get here — the Inspector clamps the count
+ * to 1..8 — which is why it needs a floor rather than an assertion.
+ */
+function laneWidths(lanes: Lane[]): number[] {
+  if (lanes.length === 0) return [DEFAULT_LANE_WIDTH * UNITS_PER_METRE];
+  return lanes.map((l) => l.width * UNITS_PER_METRE);
+}
+
+/**
+ * Where each lane sits across the road, in array order.
+ *
+ * **Lane 0 is the nearside (kerb) lane**, so it comes back with the most
+ * positive offset — the side a positive `offsetPolyline` distance draws on under
+ * right-hand traffic. That convention is what makes a `shoulder` at index 0 an
+ * outside hard shoulder rather than one hiding in the median.
+ *
+ * The boundary between two adjacent bands is a lane divider; the outermost two
+ * are the carriageway edges.
+ */
+export function laneBands(lanes: Lane[]): LaneBand[] {
+  const widths = laneWidths(lanes);
+  let edge = widths.reduce((s, w) => s + w, 0) / 2;
+  return widths.map((width) => {
+    const offset = edge - width / 2;
+    edge -= width;
+    return { offset, width };
+  });
+}
+
+/** Total drawn road width in world units: every lane, plus the casing lip. */
+export function roadWidth(lanes: Lane[]): number {
+  return laneWidths(lanes).reduce((s, w) => s + w, 0) + ROAD_MARGIN;
 }
 
 /**

@@ -92,14 +92,16 @@ half-stroke:
 
 ```
 margin = EXPORT_PAD (24) + strokeAllowance(doc)
-strokeAllowance = max(2, …roadWidth(lanes) / 2)
+strokeAllowance = max(2, …roadWidth(link.lanes) / 2)
 ```
 
-The road casing is drawn at `stroke-width: roadWidth(lanes)` with a round
+The road casing is drawn at `stroke-width: roadWidth(link.lanes)` with a round
 linecap, so it overhangs each polyline end by half that — **37.5 units at 8
-lanes**, which is why a flat 24 clipped the end-cap off every road of 5 lanes or
-more. Deriving from `roadWidth` means a change to `LANE_PX` or the 1–8 lane clamp
-cannot reintroduce that silently. `.jn-ring` is the one stroke not modelled and
+default lanes**, which is why a flat 24 clipped the end-cap off every road of 5
+lanes or more. `roadWidth` sums each `Lane.width` rather than multiplying a lane
+count, so the allowance follows a document whose lanes are wider than the
+default, and a change to `LANE_PX` cannot reintroduce the clipping silently.
+`.jn-ring` is the one stroke not modelled and
 needs no allowance: it is centred so its outer edge lands exactly on the
 coincident `.jn-edge` circle, which is pure geometry `getBBox` already includes.
 

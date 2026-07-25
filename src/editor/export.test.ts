@@ -52,11 +52,13 @@ describe("strokeAllowance", () => {
     // The regression this exists for: a flat 24-unit margin clipped the cap off
     // every road of 5 lanes or more.
     for (let lanes = 1; lanes <= 8; lanes++) {
-      const margin = EXPORT_PAD + strokeAllowance(road(lanes));
-      expect(margin).toBeGreaterThanOrEqual(roadWidth(lanes) / 2);
+      const doc = road(lanes);
+      const margin = EXPORT_PAD + strokeAllowance(doc);
+      expect(margin).toBeGreaterThanOrEqual(roadWidth(doc.links[0].lanes) / 2);
     }
-    expect(EXPORT_PAD + strokeAllowance(road(8))).toBeGreaterThanOrEqual(
-      roadWidth(8) / 2,
+    const widest = road(8);
+    expect(EXPORT_PAD + strokeAllowance(widest)).toBeGreaterThanOrEqual(
+      roadWidth(widest.links[0].lanes) / 2,
     );
   });
 });
@@ -67,7 +69,7 @@ describe("diagramSvg", () => {
 
     expect(svg.startsWith('<svg xmlns="http://www.w3.org/2000/svg"')).toBe(true);
     expect(svg).toContain('class="zukai-diagram"');
-    // margin = EXPORT_PAD 24 + roadWidth(3)/2 = 39.
+    // margin = EXPORT_PAD 24 + (3 default lanes = 30)/2 = 39.
     expect(svg).toContain('viewBox="-39 -39 198 118"');
     // 1 world unit = 1 px at 1×, so width/height match the viewBox extent.
     expect(svg).toContain('width="198" height="118"');
@@ -136,7 +138,7 @@ describe("diagramSvg", () => {
     const svg = diagramSvg(road(6), { x: -12.3456, y: 7.891, width: 0, height: 0 });
 
     expect(svg).not.toMatch(/NaN|undefined|Infinity/);
-    // margin = 24 + roadWidth(6)/2 = 52.5, so the padded box is
+    // margin = 24 + (6 default lanes = 57)/2 = 52.5, so the padded box is
     // (-64.85, -44.61) to (40.15, 60.39) — snapped outwards to whole units.
     expect(svg).toContain('viewBox="-65 -45 106 106"');
   });

@@ -1,9 +1,9 @@
 ---
-status: reviewed
+status: in-progress
 last_updated: 2026-07-25
 note: Make the drawn road honour the road model — class, lane widths, lane kinds, and two-way carriageways that don't sit on top of each other.
-implemented: []
-not_implemented: ["Phase 1", "Phase 2", "Phase 3", "Phase 4"]
+implemented: ["Phase 1"]
+not_implemented: ["Phase 2", "Phase 3", "Phase 4"]
 related: [specs/diagram_export_spec.md, specs/save_load_spec.md]
 reference: "Schematic road-diagram convention as road atlases and motorway signage use it — solid edge lines, dashed lane dividers, hatched shoulders, separated carriageways. Not to-scale surveyed geometry (that is Assimilator's job), not a map style like OSM Carto."
 ---

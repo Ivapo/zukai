@@ -51,17 +51,18 @@ export const PNG_SCALE = 2;
  * Bounds come from `getBBox`, which measures path geometry and **excludes**
  * stroke width. The dominant overhang is the road casing: drawn at
  * `roadWidth(lanes)` with a round linecap, it extends half that past each
- * polyline end — 37.5 world units for an 8-lane road, so a flat 24-unit margin
- * would have sliced the end-cap off every road of 5 lanes or more. Deriving the
- * allowance from `roadWidth` means a later change to `LANE_PX` or the 1–8 lane
- * clamp cannot silently reintroduce that.
+ * polyline end — 37.5 world units for a road of 8 default lanes, so a flat
+ * 24-unit margin would have sliced the end-cap off every road of 5 lanes or
+ * more. Deriving the allowance from `roadWidth` means neither a change to
+ * `LANE_PX` nor a document whose lanes are wider than the default can silently
+ * reintroduce that.
  *
  * The `2` seed floors the allowance at the fattest non-casing stroke in
  * `diagram.css` (`.jn-stopbar`, 4) and keeps the spread from yielding
  * `-Infinity` for a document with no links.
  */
 export function strokeAllowance(doc: Document): number {
-  return Math.max(2, ...doc.links.map((l) => roadWidth(l.lanes.length) / 2));
+  return Math.max(2, ...doc.links.map((l) => roadWidth(l.lanes) / 2));
 }
 
 /** The drawing alone, chrome-free: `<g class="diagram">…</g>`. */

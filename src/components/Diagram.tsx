@@ -19,7 +19,9 @@ import {
   Vec2,
 } from "../model/types";
 import {
+  MIN_ROAD_WIDTH,
   endDirection,
+  laneBands,
   offsetPolyline,
   polylinePath,
   roadWidth,
@@ -135,7 +137,7 @@ function junctionArms(doc: Document, nodeId: NodeId): Arm[] {
     const dx = n1.x - n0.x;
     const dy = n1.y - n0.y;
     const len = Math.hypot(dx, dy) || 1;
-    arms.push({ dir: { x: dx / len, y: dy / len }, width: roadWidth(link.lanes.length) });
+    arms.push({ dir: { x: dx / len, y: dy / len }, width: roadWidth(link.lanes) });
   }
   return arms;
 }
@@ -154,19 +156,19 @@ function RoadShape({
   points: Vec2[];
   interaction?: Interaction;
 }) {
-  const lanes = link.lanes.length;
-  const w = roadWidth(lanes);
+  const bands = laneBands(link.lanes);
+  const w = roadWidth(link.lanes);
   const casing = polylinePath(points);
   const edgeInset = w / 2 - 1.5;
   const leftEdge = polylinePath(offsetPolyline(points, edgeInset));
   const rightEdge = polylinePath(offsetPolyline(points, -edgeInset));
 
-  // Lane dividers sit between adjacent lanes (skip the outermost = edge lines).
-  const dividers: string[] = [];
-  for (let i = 1; i < lanes; i++) {
-    const off = w / 2 - 1.5 - i * ((w - 3) / lanes);
-    dividers.push(polylinePath(offsetPolyline(points, off)));
-  }
+  // A divider sits on the boundary between two adjacent lanes, which is each
+  // band's far edge from the nearside — so every band but the first contributes
+  // one. The two outermost boundaries are the edge lines above, not dividers.
+  const dividers = bands
+    .slice(1)
+    .map((b) => polylinePath(offsetPolyline(points, b.offset + b.width / 2)));
 
   const dir = endDirection(points);
   const end = points[points.length - 1];
@@ -266,7 +268,9 @@ function JunctionGlyphShape({
   arms: Arm[];
   interaction?: Interaction;
 }) {
-  const maxW = arms.length ? Math.max(...arms.map((a) => a.width)) : roadWidth(1);
+  const maxW = arms.length
+    ? Math.max(...arms.map((a) => a.width))
+    : MIN_ROAD_WIDTH;
   const rp = (maxW * 0.62 + 3) * scale;
 
   const ro = Math.max(20, maxW * 1.35) * scale;
