@@ -75,7 +75,7 @@ phase from a spec still `status: draft`** — it must pass the review loop
 - `specs/road_rendering_spec.md` — make the drawn road honour the road model:
   lane widths, road class, two-way carriageways, lane kinds (implemented; 4 phases)
 - `specs/ramps_and_tapers_spec.md` — the joins between roads: arm positions, link
-  alignment, lane-drop tapers, gores (in progress; Phases 1–2 of 4 implemented)
+  alignment, lane-drop tapers, gores (in progress; Phases 1–3 of 4 implemented)
 
 **`rules/` — current-state reference (the *what is*).** Terse, authoritative maps
 of subsystems, read on demand. Unlike specs, rules describe the code as it is now;
@@ -95,7 +95,8 @@ there's real cross-file knowledge worth extracting, not for every file.
 - `rules/road-rendering.md` — how a link becomes a road: the one lane-width
   derivation everything descends from, class-as-token, the carriageway pairing
   rule and its positive-offset trap, lane kinds, the one hatch `<pattern>` that
-  cannot be a CSS rule, and the junction arms that carry their own position
+  cannot be a CSS rule, the junction arms that carry their own position, and the
+  three tests a joint passes before it tapers
 
 Specs are authoritative for *intent and plan*; `rules/`, this file, and the code
 are authoritative for *current state*. When a shipped phase changes what a rule

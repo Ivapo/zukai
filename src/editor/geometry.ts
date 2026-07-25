@@ -241,6 +241,189 @@ export function alignmentShift(
 }
 
 /**
+ * How far a taper wedge runs along the inset link, in world units.
+ *
+ * A build constant in the manner of {@link SCHEMATIC_MEDIAN}, not a converted
+ * model quantity: nothing in the model carries a taper length, and a real one
+ * (~50 m) would be ~129 world units — longer than most whole links in a
+ * schematic. Roughly two-and-a-half lane widths, which reads as a taper rather
+ * than as a chamfer (ramps spec OQ-2).
+ */
+export const TAPER_LENGTH = 24;
+
+/**
+ * How far a joint may bend and still count as one road continuing through it,
+ * in **degrees**. Beyond it a corner is a corner and no wedge is drawn.
+ *
+ * **Derived, not picked.** The butt caps a wedge forces (`.road-casing--butt`)
+ * leave a notch on the *outside* of a bend of depth `(roadWidth / 2) · tan(θ/2)`
+ * — 1.36 units at 8° for a 4-lane road, the same order as the ≈1.33-unit
+ * round-cap overhang the butt cap removes, so the trade is never a loss and
+ * falls to zero as the joint straightens. A larger tolerance inverts it (15°
+ * gives ≈2.6), and a schematic lane drop is drawn nearly straight anyway.
+ */
+export const TAPER_MAX_BEND = 8;
+
+/**
+ * How close two casing-edge offsets must be to count as the same edge.
+ *
+ * The pairs that *should* agree do agree exactly today — two `offside`-aligned
+ * roads both put that edge on the polyline, and a 5-lane ramp and a 4-lane
+ * arterial both draw exactly 39 wide (checked across every class and lane
+ * count). This is a tolerance rather than `===` because nothing guarantees that
+ * of a document whose lanes carry arbitrary widths, and because the alternative
+ * is worse than a missed wedge: a step below 1e-6 world units would emit a
+ * zero-area polygon and butt-cap two roads over a difference no one can see.
+ */
+const SAME_EDGE = 1e-6;
+
+/**
+ * How one link meets a through joint, **as drawn** — the input the taper rule
+ * compares. Every direction is passed in rather than re-derived: the road spec's
+ * review burned four rounds on offset-sign traps, and `Diagram.tsx` has all of
+ * this in hand from the drawn polyline already (ramps spec §2.4).
+ */
+export interface JointEnd {
+  /** Where the link's drawn polyline meets the joint. */
+  at: Vec2;
+  /** Unit direction from the joint **away** along this link. */
+  away: Vec2;
+  /** Unit direction toward this end's **nearside**, in world space. */
+  nearside: Vec2;
+  /** The link's signed lateral shift — the `d` its drawn polyline carries. */
+  offset: number;
+  /** Its drawn road width, casing lip included. */
+  width: number;
+}
+
+/** A wedge to draw, and which end of the joint it runs along. */
+export interface TaperWedge {
+  /** `[the outset link's edge at the joint, the inset link's, the tip]`. */
+  corners: [Vec2, Vec2, Vec2];
+  /**
+   * The inset end — the very {@link JointEnd} that was passed in, so a caller
+   * can map it back to the link it came from (and to that link's road class).
+   */
+  inset: JointEnd;
+}
+
+/**
+ * The asphalt wedge closing a width step at a through joint, on one side.
+ *
+ * Every argument is already in drawing space, so this function has no frame, no
+ * offset sign, and nothing to re-derive. **Three** corners, not four: the wedge
+ * is a triangle from the two links' edges at the joint out to a tip `length`
+ * along the inset link.
+ */
+export function taperWedge(
+  outerEdge: Vec2,
+  insetEdge: Vec2,
+  insetDir: Vec2,
+  length: number,
+): [Vec2, Vec2, Vec2] {
+  return [
+    outerEdge,
+    insetEdge,
+    {
+      x: insetEdge.x + insetDir.x * length,
+      y: insetEdge.y + insetDir.y * length,
+    },
+  ];
+}
+
+/**
+ * Every wedge a through joint needs — none, one, or one per side.
+ *
+ * **The joint must be collinear within {@link TAPER_MAX_BEND} first.** A taper's
+ * whole premise is one road continuing through a width step, and the two ends'
+ * lateral offsets are only comparable while their frames agree: `segmentNormals`
+ * rotates with the link, so at `N1(0,0) → N2(120,0) → N3(120,120)` two
+ * *identical* links put their nearside casing edges at `(120, 19.5)` and
+ * `(100.5, 0)`. The two ends of a through joint point *apart*, so the test is on
+ * the dot product being near `-1`. It also rejects a degenerate zero-length
+ * link, whose `away` is `(0, 0)`.
+ *
+ * Then, **independently on each side**, the two ends' casing edges are compared
+ * as *signed lateral offsets* — `offset ± width / 2`, the numbers the drawing
+ * itself is built from, never world points:
+ *
+ * - equal ⇒ nothing to draw (aligning both links to that side is exactly what
+ *   makes them equal);
+ * - otherwise the **inset** end is the one nearer the road's other side — the
+ *   smaller value on the nearside, the larger on the offside — and the wedge
+ *   runs from the joint along it. There is no tie to break: a tie *is* equality.
+ *
+ * That rule keeps the geometry purely **additive**. A wedge only ever paints
+ * asphalt into space the inset link left empty; it never has to erase asphalt a
+ * uniform stroke already laid down.
+ */
+export function taperWedges(
+  a: JointEnd,
+  b: JointEnd,
+  length: number,
+): TaperWedge[] {
+  const alignment = a.away.x * b.away.x + a.away.y * b.away.y;
+  if (alignment > -Math.cos((TAPER_MAX_BEND * Math.PI) / 180)) return [];
+
+  const wedges: TaperWedge[] = [];
+  // +1 is the nearside, -1 the offside — the sign `laneBands` and
+  // `offsetPolyline` already use, so no side has to be named twice.
+  for (const side of [1, -1]) {
+    const ea = a.offset + (side * a.width) / 2;
+    const eb = b.offset + (side * b.width) / 2;
+    if (Math.abs(ea - eb) < SAME_EDGE) continue;
+    // Smaller wins on the nearside, larger on the offside: both are "nearer the
+    // road's other side", which `side *` says once instead of twice.
+    const [inset, outset] = side * (ea - eb) < 0 ? [a, b] : [b, a];
+    wedges.push({
+      corners: taperWedge(
+        casingEdge(outset, side),
+        casingEdge(inset, side),
+        inset.away,
+        length,
+      ),
+      inset,
+    });
+  }
+  return wedges;
+}
+
+/** Where one end's casing edge on `side` (+1 nearside, -1 offside) sits. */
+function casingEdge(e: JointEnd, side: number): Vec2 {
+  const d = (side * e.width) / 2;
+  return { x: e.at.x + e.nearside.x * d, y: e.at.y + e.nearside.y * d };
+}
+
+/**
+ * The wedge's own edge line: its hypotenuse, drawn `inset` inside the asphalt.
+ *
+ * Mirrors `RoadShape`'s `edgeInset = w / 2 - 1.5` — a wedge is asphalt bounded
+ * by the *casing* edges, and its painted line sits inside that rim like every
+ * other. The direction is "toward the third corner", so there is no sign to get
+ * wrong and no frame to be in. A degenerate wedge returns its hypotenuse unmoved.
+ */
+export function taperEdge(
+  corners: [Vec2, Vec2, Vec2],
+  inset: number,
+): [Vec2, Vec2] {
+  const [outerEdge, insetEdge, tip] = corners;
+  const hx = tip.x - outerEdge.x;
+  const hy = tip.y - outerEdge.y;
+  const len = Math.hypot(hx, hy);
+  if (len < SAME_EDGE) return [outerEdge, tip];
+  const nx = -hy / len;
+  const ny = hx / len;
+  // Which way the asphalt lies: the side the wedge's third corner is on.
+  const towards = (insetEdge.x - outerEdge.x) * nx + (insetEdge.y - outerEdge.y) * ny;
+  if (towards === 0) return [outerEdge, tip];
+  const d = towards > 0 ? inset : -inset;
+  return [
+    { x: outerEdge.x + nx * d, y: outerEdge.y + ny * d },
+    { x: tip.x + nx * d, y: tip.y + ny * d },
+  ];
+}
+
+/**
  * Which side of its own travel direction a carriageway of a divided road sits
  * on: `+1` is right-hand traffic.
  *

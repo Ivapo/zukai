@@ -176,6 +176,82 @@ for `general`: one representation of the default, matching what Rust writes back
 (`skip_serializing_if = "LinkAlign::is_centre"`). Adding the field needed no
 `SCHEMA_VERSION` bump — see `rules/document-model.md`.
 
+## Tapers: a wedge at the joint, never a link that changes width
+
+Where a road changes width, both links keep their **uniform** width and the
+transition is one added polygon per side. The obvious alternative — a link whose
+width varies along its length — is rejected outright: `Link.lanes` is a single
+array, so a tapering link has no answer to "how many lanes is it", and the casing
+is a **stroked path**, whose width cannot vary. Making it vary means drawing every
+road as a filled polygon, a rewrite that invalidates every pinned width in the
+test suite to serve a case entirely local to one node.
+
+`tapers(doc, offsets)` in `Diagram.tsx` finds the joints; `taperWedges` in
+`geometry.ts` decides and builds. A joint qualifies on **three** independent
+tests, and dropping any one of them draws a wedge where no road changes width:
+
+- **Exactly two incident links, one ending and one starting.** Three or more is a
+  junction or a gore. Node *kind* is not consulted — what makes a joint is how
+  many roads meet at it.
+- **Not a reversed twin.** A divided pair puts one link in and one out at *either*
+  of its nodes, so unequal lane counts would otherwise stretch a wedge across the
+  median between two anti-parallel carriageways.
+- **Collinear within `TAPER_MAX_BEND` (8°).** `segmentNormals` rotates with the
+  link, so at `N1(0,0) → N2(120,0) → N3(120,120)` two *identical* 4-lane links put
+  their nearside casing edges at `(120, 19.5)` and `(100.5, 0)`.
+
+**The twin test and the bend guard do not subsume each other.** A hairpin
+(`N1→N2`, `N2→N3` with N3 placed back beside N1) has a different node pair, so the
+twin test misses it and only the bend guard opposes its frames; a twin whose bends
+leave the node the other way passes the bend guard and only the twin test stops
+it. Both are preconditions.
+
+Then, **per side independently**, the two ends' casing edges are compared as
+**signed lateral offsets** — `d ± roadWidth/2`, where `d` is the very number
+`drawnPolyline` applies (`lateralShift`), **never world points**. Equal ⇒ nothing
+to draw. Otherwise the **inset** link is the one nearer the road's other side —
+smaller on the nearside, larger on the offside — and the wedge runs from the joint
+`TAPER_LENGTH` (24) along it. Four cases fall out with no further judgement:
+
+| Joint (per side) | Inset link | Wedge runs |
+|---|---|---|
+| Lane drop, both `offside`-aligned | the downstream narrow one | **forward**, past the node |
+| Lane addition, both `offside`-aligned | the upstream narrow one | **backward**, before it |
+| Either, both `centre`-aligned | the narrow one, on **both** sides | one wedge per side, each closing half |
+| The two aligned to *different* sides | possibly a different link each side | one each way; the road jinks and says so |
+
+Four more things this pins:
+
+- **The rule keeps the geometry additive.** A wedge only ever paints asphalt into
+  space the inset link left empty; it never erases asphalt a uniform stroke
+  already laid down, which is what makes it a polygon and not a redraw.
+- **It is bounded by the *casing* edges** (`roadWidth/2`), because a wedge is
+  asphalt. Its own edge line is inset 1.5 from the hypotenuse (`taperEdge`),
+  mirroring `RoadShape`'s `edgeInset`. Using the lane-region edge is a silent
+  1.5-unit error at every joint.
+- **A wedge forces butt caps** (`.road-casing--butt` on **both** links). Otherwise
+  the outset link's round cap paints a half-disc of asphalt past the node —
+  ~1.3 units outside the freshly painted taper line on a 4→3 joint — which no
+  added polygon can remove. `stroke-linecap` is a property of the whole path, so a
+  link tapered at one end is butt-capped at its **other** end too: covered by the
+  pad at a junction, and a flat rather than domed free end elsewhere, which is the
+  better schematic reading anyway.
+- **8° is derived, not picked.** Butt caps notch the outside of a bend by
+  `(roadWidth/2)·tan(θ/2)` — 1.36 units at 8° on a 4-lane road, no deeper than the
+  1.33-unit overhang they remove, so the trade is never a loss. 15° would invert
+  it at ≈2.6.
+
+The wedge is a `<polygon class="road-taper">` inside `<g class="taper
+road-{style}">`, taking the **inset** link's class token — so `.road-local
+.road-taper` and the class-scoped `.road-edge` width both apply with no rule of
+their own, the same class-as-token mechanism the roads use. Only a joint that
+actually draws a wedge is touched at all, so a document with no width step emits
+byte-identical markup.
+
+**A divided road's lane drop does not taper** — four links on the node is not a
+through joint. That is a non-goal (ramps spec §2.8), not an oversight; the fix
+belongs with a wider pass over carriageway pairing.
+
 ## Lane kinds, and what a line means
 
 `Lane.kind` drives two things, both from `laneBands`:
@@ -252,8 +328,8 @@ spec, not a rendering one — the fix is a field, which this spec ruled out.
 
 | Piece | Where | Tested by |
 |---|---|---|
-| `laneBands`, `roadWidth`, `classWidthFactor`, `carriageways`, `alignmentShift`, `rayCircleExit`, `UNITS_PER_METRE`, `MIN_ROAD_WIDTH`, `DRIVE_SIDE`, `SCHEMATIC_MEDIAN` | `src/editor/geometry.ts` | `geometry.test.ts` (pure) |
-| `RoadShape`, `HatchPattern`, `drawnPolyline`, `junctionArms`, `JunctionGlyphShape` | `src/components/Diagram.tsx` | `Diagram.test.tsx` via `renderToStaticMarkup` |
+| `laneBands`, `roadWidth`, `classWidthFactor`, `carriageways`, `alignmentShift`, `rayCircleExit`, `taperWedge`/`taperWedges`/`taperEdge`, `UNITS_PER_METRE`, `MIN_ROAD_WIDTH`, `DRIVE_SIDE`, `SCHEMATIC_MEDIAN`, `TAPER_LENGTH`, `TAPER_MAX_BEND` | `src/editor/geometry.ts` | `geometry.test.ts` (pure) |
+| `RoadShape`, `HatchPattern`, `drawnPolyline`/`lateralShift`, `junctionArms`, `jointEnd`/`tapers`/`TaperShape`, `JunctionGlyphShape` | `src/components/Diagram.tsx` | `Diagram.test.tsx` via `renderToStaticMarkup` |
 | Colour, tints, line treatments | `src/styles/diagram.css` | `export.test.ts` — reaches exports free |
 | `setLaneKind`, `setLinkLanes`, `setLinkAlign` | `src/editor/state.ts` | `state.test.ts` |
 | `LinkAlign` and `LinkView.align` — the one mirrored field | `src/model/types.ts` **and** `src-tauri/src/model/layout.rs`; read through `linkAlign`/`linkStyle` in `src/model/document.ts` | `layout.rs` serde tests |
@@ -264,6 +340,7 @@ which is a real model field and so obeys `rules/document-model.md`'s Rust↔TS
 mirror discipline — it did not need a `SCHEMA_VERSION` bump, but it did need
 `cargo fmt`/`clippy`. The one cross-subsystem obligation is `strokeAllowance`
 (`src/editor/export.tsx`), which must keep measuring roads at their own lane
-widths **and their own class** or wide roads clip in exports; alignment needs
-nothing from it, since `measureDiagram` frames the *drawn* tree and a shifted
-road is already inside the box.
+widths **and their own class** or wide roads clip in exports; alignment and tapers
+need nothing from it, since `measureDiagram` frames the *drawn* tree — a shifted
+road is already inside the box, and a wedge is fill geometry whose corners sit on
+the casing rim the allowance is derived from.

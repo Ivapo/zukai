@@ -53,11 +53,27 @@
   stroke-linejoin: round;
 }
 
+/* A road that tapers at either end takes butt caps, because the round one
+   bulges half a road past the node and outside the wedge's own edge line - a
+   half-disc of asphalt spilling past freshly painted paint. No added polygon
+   can remove it, so the cap goes instead. Only a joint that actually draws a
+   wedge gets the class, so a document with no width step paints as it always
+   has (ramps spec 2.4). */
+.road-casing--butt {
+  stroke-linecap: butt;
+}
+
 .road-edge {
   fill: none;
   stroke: var(--paint-white);
   stroke-width: 1.5;
   stroke-linecap: round;
+}
+
+/* The wedge that closes a width step: asphalt, in the class of the link it runs
+   along, with the road's own edge line on its hypotenuse. */
+.road-taper {
+  fill: var(--asphalt);
 }
 
 .road-divider {
@@ -126,6 +142,11 @@
 .road-local .road-casing,
 .road-ramp .road-casing {
   stroke: var(--asphalt-2);
+}
+
+.road-local .road-taper,
+.road-ramp .road-taper {
+  fill: var(--asphalt-2);
 }
 
 .road-local .road-edge,

@@ -1,9 +1,9 @@
 ---
-status: in-progress (Phases 1–2 shipped 2026-07-25; Phase 3 next)
+status: in-progress (Phases 1–3 shipped 2026-07-25; Phase 4 next)
 last_updated: 2026-07-25
 note: Draw the transitions between roads — lane-count tapers, ramp gores, and junction interiors that follow a divided road's carriageways.
-implemented: ["Phase 1", "Phase 2"]
-not_implemented: ["Phase 3", "Phase 4"]
+implemented: ["Phase 1", "Phase 2", "Phase 3"]
+not_implemented: ["Phase 4"]
 related: [specs/road_rendering_spec.md, specs/diagram_export_spec.md]
 reference: "Motorway diagram convention as road atlases and variable-message signage use it — tapered lane drops, hatched gore areas at a diverge, a continuous outer edge through a lane change. Not to-scale interchange geometry (that is Assimilator's job), and not the painted chevrons inside a gore, which are markings and belong to the decorations spec."
 ---
@@ -709,6 +709,22 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
   shows outside the new taper line at the node.
 - **Docs touched:** `rules/road-rendering.md` gains the taper rule; the
   `strokeAllowance` note in `rules/diagram-export.md` gains the wedge.
+- **Shipped 2026-07-25.** As specified, with three notes for Phase 4:
+  - **`TAPER_LENGTH = 24` is pinned** (OQ-2's proposal, checked against the
+    drawing: a lane closing over two-and-a-half lane widths reads as a taper).
+    `GORE_LENGTH` is still open.
+  - **The equality test is a tolerance, not `===`** — `SAME_EDGE = 1e-6`. The
+    pairs that should agree do agree *exactly* today (measured across every class
+    and lane count: two `offside`-aligned roads, and a 5-lane ramp against a
+    4-lane arterial, which both draw 39). The tolerance is there because nothing
+    guarantees that of arbitrary lane widths, and because the alternative to a
+    missed wedge is a zero-area polygon plus two butt caps for a step no one can
+    see.
+  - **The inset link keeps its own edge line under the wedge**, so a lane drop
+    draws as a closing wedge bounded by the taper line above and that edge line
+    below. That is the additive rule working as specified and it reads correctly;
+    it is noted only because it is the one place the picture carries a line the
+    §2.4 sketch does not show.
 
 ### Phase 4 — Gores  (depends on Phase 3)
 

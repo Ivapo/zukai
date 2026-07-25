@@ -18,10 +18,13 @@ import {
 } from "../model/types";
 import {
   DRIVE_SIDE,
+  JointEnd,
   LANE_PX,
   MIN_ROAD_WIDTH,
   ROAD_MARGIN,
   SCHEMATIC_MEDIAN,
+  TAPER_LENGTH,
+  TAPER_MAX_BEND,
   UNITS_PER_METRE,
   alignmentShift,
   carriageways,
@@ -31,6 +34,9 @@ import {
   offsetPolyline,
   rayCircleExit,
   roadWidth,
+  taperEdge,
+  taperWedge,
+  taperWedges,
 } from "./geometry";
 
 /** `n` lanes at the model's default width, as every link the UI creates has. */
@@ -383,6 +389,235 @@ describe("rayCircleExit", () => {
     // "just solve the quadratic" implementation gets wrong by re-entering.
     expect(rayCircleExit({ x: 30, y: 0 }, { x: 1, y: 0 }, 24)).toBe(0);
     expect(rayCircleExit({ x: 30, y: 0 }, { x: -1, y: 0 }, 24)).toBe(0);
+  });
+});
+
+describe("tapers", () => {
+  /**
+   * How a `lanes`-lane link meets a joint at `(120, 0)`, drawn due east —
+   * `arriving` for the link that ends there, `!arriving` for the one that
+   * starts. Both carry the same nearside, which is what a through joint means.
+   */
+  function end(
+    lanes: number,
+    align: LinkAlign,
+    arriving: boolean,
+    style: LinkStyle = DEFAULT_LINK_STYLE,
+  ): JointEnd {
+    const ls = defaults(lanes);
+    const offset = alignmentShift(ls, style, align);
+    return {
+      at: { x: 120, y: offset },
+      away: arriving ? { x: -1, y: 0 } : { x: 1, y: 0 },
+      nearside: { x: 0, y: 1 },
+      offset,
+      width: roadWidth(ls, style),
+    };
+  }
+
+  /** The same, for a link leaving the joint `deg` off due east. */
+  function bent(lanes: number, deg: number): JointEnd {
+    const rad = (deg * Math.PI) / 180;
+    const away = { x: Math.cos(rad), y: Math.sin(rad) };
+    const ls = defaults(lanes);
+    return {
+      at: { x: 120, y: 0 },
+      away,
+      nearside: { x: -away.y, y: away.x },
+      offset: 0,
+      width: roadWidth(ls),
+    };
+  }
+
+  it("puts the tip a whole length along the inset link, and returns three corners", () => {
+    const corners = taperWedge(
+      { x: 0, y: 10 },
+      { x: 0, y: 4 },
+      { x: 0.6, y: -0.8 },
+      TAPER_LENGTH,
+    );
+
+    expect(corners).toHaveLength(3);
+    expect(corners[2]).toEqual({
+      x: 0 + 0.6 * TAPER_LENGTH,
+      y: 4 - 0.8 * TAPER_LENGTH,
+    });
+  });
+
+  /**
+   * §1's joint: a 4-lane motorway dropping a lane, both links held on their
+   * **offside** edge. The offside offsets then agree exactly, so the outer edge
+   * runs straight through and the only wedge is on the nearside — closing over
+   * `TAPER_LENGTH` **past** the node, which is how a real lane drop reads.
+   *
+   * The corners are exact, and the outer one is the **casing** rim at 37.5, not
+   * the lane region's edge at 36: a wedge is asphalt, and using the painted edge
+   * instead is a silent 1.5-unit error at every joint.
+   */
+  it("closes a 4-to-3 lane drop past the node, on the nearside only", () => {
+    const wedges = taperWedges(
+      end(4, "offside", true),
+      end(3, "offside", false),
+      TAPER_LENGTH,
+    );
+
+    expect(wedges).toHaveLength(1);
+    expect(wedges[0].corners).toEqual([
+      { x: 120, y: 37.5 },
+      { x: 120, y: 28.5 },
+      { x: 144, y: 28.5 },
+    ]);
+    // The casing rim, not the 4-lane road's painted nearside edge.
+    expect(wedges[0].corners[0].y).toBe(roadWidth(defaults(4)) / 2 + 18);
+    expect(wedges[0].corners[0].y).not.toBe(
+      alignmentShift(defaults(4), DEFAULT_LINK_STYLE, "offside") * 2,
+    );
+    // It runs along the downstream link — the narrow one, which leaves the node.
+    expect(wedges[0].inset.away).toEqual({ x: 1, y: 0 });
+  });
+
+  /**
+   * The mirror case, and OQ-1's recorded direction: a lane **addition** opens
+   * *before* the node, because the inset link is then the upstream one and the
+   * wedge always runs along the inset link. That is what keeps the geometry
+   * additive — it only ever paints asphalt into space the narrow link left
+   * empty, never erases asphalt a uniform stroke already laid down.
+   */
+  it("opens a 3-to-4 lane addition before the node", () => {
+    const wedges = taperWedges(
+      end(3, "offside", true),
+      end(4, "offside", false),
+      TAPER_LENGTH,
+    );
+
+    expect(wedges).toHaveLength(1);
+    expect(wedges[0].corners).toEqual([
+      { x: 120, y: 37.5 },
+      { x: 120, y: 28.5 },
+      { x: 96, y: 28.5 },
+    ]);
+    expect(wedges[0].inset.away).toEqual({ x: -1, y: 0 });
+  });
+
+  /**
+   * The rule compares **casing-edge offsets**, not lane counts. A 5-lane ramp
+   * and a 4-lane arterial draw the same 39 units wide, so a joint between them
+   * is not a width step however different the two roads are.
+   */
+  it("draws nothing where the two casing edges agree, whatever the lane counts", () => {
+    const ramp = end(5, "centre", true, "ramp");
+    const arterial = end(4, "centre", false);
+
+    expect(ramp.width).toBe(arterial.width);
+    expect(taperWedges(ramp, arterial, TAPER_LENGTH)).toEqual([]);
+  });
+
+  /**
+   * And the comparison is a tolerance, not `===`. A step below a millionth of a
+   * world unit is not a lane drop: drawing it would emit a zero-area polygon and
+   * butt-cap two roads over a difference no one can see.
+   */
+  it("treats a step too small to draw as no step at all", () => {
+    const a = end(4, "centre", true);
+    const b: JointEnd = { ...end(4, "centre", false), offset: 1e-9 };
+
+    expect(b.offset).not.toBe(a.offset);
+    expect(taperWedges(a, b, TAPER_LENGTH)).toEqual([]);
+  });
+
+  /**
+   * Aligning both links to a side is exactly what leaves one wedge. Aligning
+   * neither leaves two: a centred pair steps symmetrically, so each side closes
+   * half the difference — the honest drawing of an unaligned lane change.
+   */
+  it("wedges both sides of a centred joint, in mirror image", () => {
+    const wedges = taperWedges(
+      end(4, "centre", true),
+      end(3, "centre", false),
+      TAPER_LENGTH,
+    );
+
+    expect(wedges).toHaveLength(2);
+    const [near, off] = wedges;
+    expect(near.corners).toEqual([
+      { x: 120, y: 19.5 },
+      { x: 120, y: 15 },
+      { x: 144, y: 15 },
+    ]);
+    for (let i = 0; i < 3; i++) {
+      expect(off.corners[i].x).toBe(near.corners[i].x);
+      expect(off.corners[i].y).toBe(-near.corners[i].y);
+    }
+    // Both run along the narrow link, which is the same link on either side.
+    expect(off.inset).toBe(near.inset);
+  });
+
+  /**
+   * A taper's premise is one road continuing through a width step, and the two
+   * links only share a frame while the joint is straight: `segmentNormals`
+   * rotates with the link, so at a corner the "same" edge points a different way
+   * for each. Beyond the tolerance a corner stays a corner, however different
+   * the two roads are.
+   */
+  it("refuses a joint bent past TAPER_MAX_BEND, and allows one inside it", () => {
+    const arriving = end(4, "centre", true);
+
+    expect(TAPER_MAX_BEND).toBe(8);
+    expect(taperWedges(arriving, bent(3, 7), TAPER_LENGTH)).toHaveLength(2);
+    expect(taperWedges(arriving, bent(3, 9), TAPER_LENGTH)).toEqual([]);
+    // A right-angled corner is the case this exists for.
+    expect(taperWedges(arriving, bent(3, 90), TAPER_LENGTH)).toEqual([]);
+    expect(taperWedges(arriving, bent(4, 90), TAPER_LENGTH)).toEqual([]);
+  });
+
+  /** A zero-length link has no direction to be collinear with. */
+  it("refuses a degenerate end rather than dividing by its length", () => {
+    const dead: JointEnd = { ...end(3, "centre", false), away: { x: 0, y: 0 } };
+
+    expect(taperWedges(end(4, "centre", true), dead, TAPER_LENGTH)).toEqual([]);
+  });
+
+  describe("taperEdge", () => {
+    const corners = taperWedges(
+      end(4, "offside", true),
+      end(3, "offside", false),
+      TAPER_LENGTH,
+    )[0].corners;
+    const [outer, inset, tip] = corners;
+
+    /** Signed distance of `p` from the hypotenuse, positive toward `inset`. */
+    function fromHypotenuse(p: { x: number; y: number }): number {
+      const len = distance(outer, tip);
+      const nx = -(tip.y - outer.y) / len;
+      const ny = (tip.x - outer.x) / len;
+      const side = Math.sign((inset.x - outer.x) * nx + (inset.y - outer.y) * ny);
+      return side * ((p.x - outer.x) * nx + (p.y - outer.y) * ny);
+    }
+
+    /**
+     * The wedge's own edge line mirrors `RoadShape`'s `edgeInset = w / 2 - 1.5`:
+     * parallel to the hypotenuse, 1.5 inside the asphalt. Inside, not outside —
+     * a line painted on the far side of the casing rim is painted on the paper.
+     */
+    it("runs parallel to the hypotenuse, exactly 1.5 inside the asphalt", () => {
+      const [e0, e1] = taperEdge(corners, 1.5);
+
+      expect(fromHypotenuse(e0)).toBeCloseTo(1.5);
+      expect(fromHypotenuse(e1)).toBeCloseTo(1.5);
+      // Parallel: the shifted segment is the same vector as the hypotenuse.
+      expect(e1.x - e0.x).toBeCloseTo(tip.x - outer.x);
+      expect(e1.y - e0.y).toBeCloseTo(tip.y - outer.y);
+    });
+
+    it("leaves a degenerate wedge's hypotenuse where it is", () => {
+      const flat: [typeof outer, typeof outer, typeof outer] = [
+        { x: 10, y: 10 },
+        { x: 10, y: 10 },
+        { x: 10, y: 10 },
+      ];
+
+      expect(taperEdge(flat, 1.5)).toEqual([flat[0], flat[2]]);
+    });
   });
 });
 

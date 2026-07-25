@@ -111,6 +111,13 @@ exactly the clipping this function exists to prevent.
 needs no allowance: it is centred so its outer edge lands exactly on the
 coincident `.jn-edge` circle, which is pure geometry `getBBox` already includes.
 
+**A taper wedge needs no allowance either, and that is a conclusion rather than
+luck.** `getBBox` excludes stroke width but *includes* fill, and a wedge is a
+filled `<polygon>` inside the measured `<g>` — so it is in the box already, and
+its corners sit on the casing rim the allowance is derived from, which it can
+never reach past. Widening `strokeAllowance` for a tapered document would pad
+every export for nothing; `export.test.ts` pins the unchanged value.
+
 A document with nothing to measure yields `null` bounds, which `diagramSvg`
 frames as `viewBox="-26 -26 52 52"` — a blank diagram is a blank picture, never
 an error or a `NaN`.

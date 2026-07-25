@@ -536,6 +536,219 @@ describe("link alignment", () => {
   });
 });
 
+describe("tapers", () => {
+  /**
+   * §1's lane drop, drawn due east: a 4-lane motorway at N2 becoming a 3-lane
+   * one, both links held on their **offside** edge so the outer edge runs
+   * straight through and the lane goes from the nearside. `extra` hangs further
+   * actions off the same document.
+   */
+  function laneDrop(...extra: Action[]): Document {
+    return run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "addNode", pos: { x: 120, y: 0 } },
+      { type: "addNode", pos: { x: 240, y: 0 } },
+      { type: "startLink", from: "N1" },
+      { type: "completeLink", to: "N2" },
+      { type: "startLink", from: "N2" },
+      { type: "completeLink", to: "N3" },
+      { type: "setLinkLanes", id: "L1", count: 4 },
+      { type: "setLinkLanes", id: "L2", count: 3 },
+      { type: "setLinkStyle", id: "L1", style: "motorway" },
+      { type: "setLinkStyle", id: "L2", style: "motorway" },
+      { type: "setLinkAlign", id: "L1", align: "offside" },
+      { type: "setLinkAlign", id: "L2", align: "offside" },
+      ...extra,
+    ).doc;
+  }
+
+  /** The two endpoints of the taper's own edge line. */
+  function taperEdgePoints(svg: string): [number, number][] {
+    const m = svg.match(
+      /class="road-edge road-taper-edge" d="M (\S+) (\S+) L (\S+) (\S+)"/,
+    )!;
+    return [
+      [Number(m[1]), Number(m[2])],
+      [Number(m[3]), Number(m[4])],
+    ];
+  }
+
+  /**
+   * The wedge, pinned exactly. The outer corner is the 4-lane road's **casing**
+   * rim at 18 + 19.5, the inner one the 3-lane road's at 13.5 + 15, and the tip
+   * a whole `TAPER_LENGTH` past the node — the dropped lane closing forward,
+   * which is how a real lane drop reads.
+   *
+   * One wedge, not two: aligning both links offside makes their offside edges
+   * agree, so that side has nothing to close.
+   */
+  it("closes a lane drop with one wedge on the nearside", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={laneDrop()} />);
+
+    expect(svg).toContain(
+      '<polygon class="road-taper" points="120,37.5 120,28.5 144,28.5"></polygon>',
+    );
+    expect(svg.match(/road-taper"/g)).toHaveLength(1);
+    // Painted in the class of the link it closes, by the same class token the
+    // road group carries — so `.road-local .road-taper` needs no rule of its own.
+    expect(svg).toContain('<g class="taper road-motorway">');
+  });
+
+  /**
+   * The wedge's own edge line: `RoadShape`'s 1.5-unit inset, applied to the
+   * hypotenuse. Asserted as a distance from the two pinned corners, which is
+   * the claim itself — a sign error would put the line on the paper outside the
+   * asphalt and still satisfy any assertion about its direction.
+   */
+  it("paints an edge line 1.5 inside the wedge's hypotenuse", () => {
+    const [start, finish] = taperEdgePoints(
+      renderToStaticMarkup(<Diagram doc={laneDrop()} />),
+    );
+
+    expect(Math.hypot(start[0] - 120, start[1] - 37.5)).toBeCloseTo(1.5);
+    expect(Math.hypot(finish[0] - 144, finish[1] - 28.5)).toBeCloseTo(1.5);
+    // Inside the asphalt, which on this joint is below the hypotenuse and left
+    // of the joint face: both ends move toward the wedge's third corner.
+    expect(start[1]).toBeLessThan(37.5);
+    expect(finish[1]).toBeLessThan(28.5);
+  });
+
+  /**
+   * The round cap has to go with the wedge: `.road-casing` is `stroke-linecap:
+   * round`, so the 4-lane link would paint a half-disc of asphalt 19.5 units
+   * past N2 — outside the taper line just painted, and unremovable by any added
+   * polygon. **Both** links take the modifier, since either can overhang.
+   */
+  it("butt-caps both links of a tapered joint, and only those", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={laneDrop()} />);
+
+    expect(svg.match(/road-casing road-casing--butt/g)).toHaveLength(2);
+
+    const plain = renderToStaticMarkup(<Diagram doc={straightPair(4, 4)} />);
+    expect(plain).not.toContain("road-casing--butt");
+  });
+
+  /** Two links of `a` then `b` lanes, in a straight line, centred and unaligned. */
+  function straightPair(a: number, b: number): Document {
+    return run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "addNode", pos: { x: 120, y: 0 } },
+      { type: "addNode", pos: { x: 240, y: 0 } },
+      { type: "startLink", from: "N1" },
+      { type: "completeLink", to: "N2" },
+      { type: "startLink", from: "N2" },
+      { type: "completeLink", to: "N3" },
+      { type: "setLinkLanes", id: "L1", count: a },
+      { type: "setLinkLanes", id: "L2", count: b },
+    ).doc;
+  }
+
+  /**
+   * A document with no width step draws exactly what it drew before tapers
+   * existed — no polygon, no modifier class, and the casing markup unchanged
+   * down to the attribute.
+   */
+  it("leaves a joint of equal width exactly as it was", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={straightPair(4, 4)} />);
+
+    expect(svg).not.toContain("taper");
+    expect(svg).toContain(
+      '<path class="road-casing" d="M 0 0 L 120 0" stroke-width="39"></path>',
+    );
+  });
+
+  /** A centred lane change closes half the difference on each side. */
+  it("wedges both sides of an unaligned lane change", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={straightPair(4, 3)} />);
+
+    expect(svg).toContain(
+      '<polygon class="road-taper" points="120,19.5 120,15 144,15"></polygon>',
+    );
+    expect(svg).toContain(
+      '<polygon class="road-taper" points="120,-19.5 120,-15 144,-15"></polygon>',
+    );
+  });
+
+  /**
+   * Three links on a node is a junction or a gore, not a through joint — the
+   * road spec's habit of leaving the ambiguous case alone. Stated as its own
+   * case because the alternative is to guess which two of the three taper.
+   */
+  it("draws no wedge where three links meet", () => {
+    const svg = renderToStaticMarkup(
+      <Diagram
+        doc={laneDrop(
+          { type: "addNode", pos: { x: 200, y: 120 } },
+          { type: "startLink", from: "N2" },
+          { type: "completeLink", to: "N4" },
+        )}
+      />,
+    );
+
+    expect(svg).not.toContain("road-taper");
+    expect(svg).not.toContain("road-casing--butt");
+  });
+
+  /**
+   * The anti-parallel trap. A divided pair puts exactly one link in and one out
+   * at *either* of its nodes, so unequal lane counts would otherwise stretch a
+   * wedge between two carriageways that face opposite ways — a lane drop drawn
+   * across the median. The reversed-twin exclusion is what stops it; the bend
+   * guard does not, since a twin's two ends can leave a node any way its bends
+   * take them.
+   */
+  it("never wedges between the two carriageways of a divided road", () => {
+    const doc = run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "addNode", pos: { x: 120, y: 0 } },
+      { type: "startLink", from: "N1" },
+      { type: "completeLink", to: "N2" },
+      { type: "startLink", from: "N2" },
+      { type: "completeLink", to: "N1" },
+      { type: "setLinkLanes", id: "L1", count: 4 },
+      { type: "setLinkLanes", id: "L2", count: 2 },
+    ).doc;
+    const svg = renderToStaticMarkup(<Diagram doc={doc} />);
+
+    expect(svg).not.toContain("road-taper");
+    expect(svg).not.toContain("road-casing--butt");
+  });
+
+  /**
+   * A corner is a corner. `segmentNormals` rotates with the link, so at
+   * `N1(0,0) → N2(120,0) → N3(120,120)` two **identical** 4-lane links put their
+   * nearside casing edges at `(120, 19.5)` and `(100.5, 0)` — a rule comparing
+   * world points would read that as a width step and wedge a plain corner, which
+   * no collinear fixture catches. Comparing signed offsets makes the equal-width
+   * corner safe; the unequal one is what `TAPER_MAX_BEND` itself excludes.
+   */
+  it("draws no wedge at a right-angled corner, equal width or not", () => {
+    const corner = (a: number, b: number): string => {
+      const doc = run(
+        initialState(),
+        { type: "addNode", pos: { x: 0, y: 0 } },
+        { type: "addNode", pos: { x: 120, y: 0 } },
+        { type: "addNode", pos: { x: 120, y: 120 } },
+        { type: "startLink", from: "N1" },
+        { type: "completeLink", to: "N2" },
+        { type: "startLink", from: "N2" },
+        { type: "completeLink", to: "N3" },
+        { type: "setLinkLanes", id: "L1", count: a },
+        { type: "setLinkLanes", id: "L2", count: b },
+      ).doc;
+      return renderToStaticMarkup(<Diagram doc={doc} />);
+    };
+
+    for (const svg of [corner(4, 4), corner(4, 3)]) {
+      expect(svg).not.toContain("road-taper");
+      expect(svg).not.toContain("road-casing--butt");
+    }
+  });
+});
+
 describe("junction interiors", () => {
   /**
    * Three nodes in a row, the middle one a signalized junction: two undivided

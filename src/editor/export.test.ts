@@ -253,6 +253,79 @@ describe("diagramSvg", () => {
   });
 });
 
+describe("tapers in an exported file", () => {
+  /** §1's lane drop: a 4-lane road becoming 3-lane at (120, 0), both offside. */
+  function tapered(): Document {
+    return run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "addNode", pos: { x: 120, y: 0 } },
+      { type: "addNode", pos: { x: 240, y: 0 } },
+      { type: "startLink", from: "N1" },
+      { type: "completeLink", to: "N2" },
+      { type: "startLink", from: "N2" },
+      { type: "completeLink", to: "N3" },
+      { type: "setLinkLanes", id: "L1", count: 4 },
+      { type: "setLinkLanes", id: "L2", count: 3 },
+      { type: "setLinkAlign", id: "L1", align: "offside" },
+      { type: "setLinkAlign", id: "L2", align: "offside" },
+    ).doc;
+  }
+
+  /**
+   * The cross-spec obligation, checked rather than assumed — and the expected
+   * answer is "nothing to do".
+   *
+   * `strokeAllowance` exists because `getBBox` measures path geometry and
+   * excludes *stroke* width, which is the whole of the road casing. A wedge is a
+   * filled `<polygon>` inside the same measured `<g>`, so its extent is already
+   * in the box, and it can never reach past the casing rim the allowance is
+   * derived from: its corners are on that rim by construction. So the frame the
+   * roads alone demand already covers it, and widening the allowance for a
+   * tapered document would only pad every export for nothing.
+   */
+  it("needs no allowance of its own — the frame already covers the wedge", () => {
+    const doc = tapered();
+
+    expect(strokeAllowance(doc)).toBe(roadWidth(doc.links[0].lanes) / 2);
+    expect(strokeAllowance(doc)).toBe(strokeAllowance(road(4)));
+
+    const corners = [
+      ...diagramInner(doc).matchAll(/class="road-taper" points="([^"]+)"/g),
+    ].flatMap((m) =>
+      m[1].split(" ").map((p) => p.split(",").map(Number) as [number, number]),
+    );
+    expect(corners).toHaveLength(3);
+
+    // Framed from the node positions alone — the conservative stand-in for the
+    // `getBBox` this environment has no DOM to run.
+    const [x, y, w, h] = diagramSvg(doc, { x: 0, y: 0, width: 240, height: 0 })
+      .match(/viewBox="([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+)"/)!
+      .slice(1)
+      .map(Number);
+    for (const [cx, cy] of corners) {
+      expect(cx).toBeGreaterThan(x);
+      expect(cx).toBeLessThan(x + w);
+      expect(cy).toBeGreaterThan(y);
+      expect(cy).toBeLessThan(y + h);
+    }
+  });
+
+  /** The wedge's paint travels as CSS like every other rule (spec §2.4). */
+  it("carries the taper's paint in the embedded stylesheet", () => {
+    const svg = diagramSvg(tapered(), null);
+    const css = embeddedCss(svg);
+
+    expect(svg).toContain('class="road-taper"');
+    expect(css).toContain(".road-taper");
+    expect(css).toContain(".road-casing--butt");
+    expect(css).not.toContain("url(");
+    expect(css).not.toMatch(/[<&]/);
+    expect(svg).not.toMatch(CHROME);
+    expect(svg).not.toMatch(/vector-effect/);
+  });
+});
+
 describe("exportFormat", () => {
   it("reads PNG from the extension, whatever its case", () => {
     expect(exportFormat("x.png")).toBe("png");

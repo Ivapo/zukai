@@ -22,7 +22,9 @@ import {
   Vec2,
 } from "../model/types";
 import {
+  JointEnd,
   MIN_ROAD_WIDTH,
+  TAPER_LENGTH,
   alignmentShift,
   carriageways,
   distance,
@@ -32,6 +34,8 @@ import {
   polylinePath,
   rayCircleExit,
   roadWidth,
+  taperEdge,
+  taperWedges,
 } from "../editor/geometry";
 import { Selection } from "../editor/state";
 
@@ -59,6 +63,10 @@ export function Diagram({
   // The two links of a divided road step off their shared centreline before
   // anything is drawn from them — the roads and the junction arms alike.
   const offsets = carriageways(doc);
+  // Where a road changes width. The roads have to know first: a joint that
+  // draws a wedge butt-caps both its links, or the wide one's round cap bulges
+  // outside the freshly painted taper line (§2.4).
+  const { wedges, butt } = tapers(doc, offsets);
 
   return (
     <g className="diagram">
@@ -73,10 +81,15 @@ export function Diagram({
             link={link}
             style={linkStyle(doc, link.id)}
             points={pts}
+            butt={butt.has(link.id)}
             interaction={interaction}
           />
         );
       })}
+
+      {wedges.map((w, i) => (
+        <TaperShape key={i} wedge={w} interaction={interaction} />
+      ))}
 
       {fromPos && cursor && (
         <line
@@ -190,15 +203,28 @@ function drawnPolyline(
   offsets: Record<LinkId, number>,
 ): Vec2[] | undefined {
   const pts = linkPolyline(doc, link);
-  const d =
-    (offsets[link.id] ?? 0) +
-    alignmentShift(
-      link.lanes,
-      linkStyle(doc, link.id),
-      linkAlign(doc, link.id),
-    );
+  const d = lateralShift(doc, link, offsets);
   if (!pts || d === 0) return pts;
   return offsetPolyline(pts, d);
+}
+
+/**
+ * The sum of the two lateral terms, in the link's own polyline frame — the `d`
+ * {@link drawnPolyline} applies.
+ *
+ * Its own function because the taper rule compares these as **signed offsets**
+ * rather than as world points (§2.4), and a second derivation of the same number
+ * is exactly how the drawing and the rule that measures it come to disagree.
+ */
+function lateralShift(
+  doc: Document,
+  link: Link,
+  offsets: Record<LinkId, number>,
+): number {
+  return (
+    (offsets[link.id] ?? 0) +
+    alignmentShift(link.lanes, linkStyle(doc, link.id), linkAlign(doc, link.id))
+  );
 }
 
 /** An arm meeting a junction, as drawn. */
@@ -252,6 +278,142 @@ function junctionArms(
   return arms;
 }
 
+/**
+ * How a link meets a node, as drawn. `atEnd` says which end of the link the node
+ * is — its last point for the link arriving there, its first for the one
+ * leaving.
+ *
+ * Like `Arm.origin`, nothing here is re-derived: the position is the drawn
+ * polyline's own end point, and the frame is the terminal segment's. The
+ * nearside is the right of travel, which SVG's y-down axis makes `(-t.y, t.x)`
+ * — the same normal `offsetPolyline` treats as a positive distance, so
+ * `offset ± width / 2` and the world points agree by construction.
+ */
+function jointEnd(
+  doc: Document,
+  link: Link,
+  offsets: Record<LinkId, number>,
+  atEnd: boolean,
+): JointEnd | undefined {
+  const poly = drawnPolyline(doc, link, offsets);
+  if (!poly || poly.length < 2) return undefined;
+  const n = poly.length;
+  const [at, next] = atEnd ? [poly[n - 1], poly[n - 2]] : [poly[0], poly[1]];
+  const dx = next.x - at.x;
+  const dy = next.y - at.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const away = { x: dx / len, y: dy / len };
+  // Travel runs *into* the joint at the arriving end and out of it at the
+  // leaving one, so only one of the two is `away`.
+  const t = atEnd ? { x: -away.x, y: -away.y } : away;
+  return {
+    at,
+    away,
+    nearside: { x: -t.y, y: t.x },
+    offset: lateralShift(doc, link, offsets),
+    width: roadWidth(link.lanes, linkStyle(doc, link.id)),
+  };
+}
+
+/** A wedge as it is drawn: its corners, and the class of the link it closes. */
+interface Taper {
+  corners: [Vec2, Vec2, Vec2];
+  style: LinkStyle;
+}
+
+/**
+ * Every taper wedge in the document, and the links whose casing must be
+ * butt-capped because of one.
+ *
+ * A **through joint** is a node with exactly two incident links, one ending
+ * there and one starting there — three or more is a junction or a gore, not a
+ * taper, and the road spec's habit is to leave the ambiguous case alone. Node
+ * *kind* is not consulted: what makes a joint is how many roads meet at it.
+ *
+ * **Never between the two carriageways of a divided road.** A reversed twin
+ * satisfies "one in, one out" at *either* of its nodes, so a pair carrying
+ * different lane counts would otherwise get a wedge stretched between two
+ * anti-parallel carriageways. The bend guard inside `taperWedges` does not
+ * subsume this and the exclusion does not subsume the bend guard: a hairpin
+ * (`N1→N2`, `N2→N3` with N3 placed back beside N1) is not a twin, yet its frames
+ * oppose; and a twin whose bends leave the node the other way passes the bend
+ * guard. Both are preconditions (§2.4).
+ */
+function tapers(
+  doc: Document,
+  offsets: Record<LinkId, number>,
+): { wedges: Taper[]; butt: Set<LinkId> } {
+  const wedges: Taper[] = [];
+  const butt = new Set<LinkId>();
+
+  for (const node of doc.nodes) {
+    const incident = doc.links.filter(
+      (l) => l.from_node === node.id || l.to_node === node.id,
+    );
+    if (incident.length !== 2) continue;
+    // A self-loop is excluded by asking for the *other* end to be elsewhere.
+    const into = incident.find(
+      (l) => l.to_node === node.id && l.from_node !== node.id,
+    );
+    const from = incident.find(
+      (l) => l.from_node === node.id && l.to_node !== node.id,
+    );
+    if (!into || !from) continue;
+    if (into.from_node === from.to_node) continue;
+
+    const a = jointEnd(doc, into, offsets, true);
+    const b = jointEnd(doc, from, offsets, false);
+    if (!a || !b) continue;
+
+    const cut = taperWedges(a, b, TAPER_LENGTH);
+    if (cut.length === 0) continue;
+    for (const w of cut) {
+      // `inset` is one of the two arguments by identity, which is how the wedge
+      // finds the link it runs along — and so the road class it paints as.
+      const link = w.inset === a ? into : from;
+      wedges.push({ corners: w.corners, style: linkStyle(doc, link.id) });
+    }
+    butt.add(into.id);
+    butt.add(from.id);
+  }
+
+  return { wedges, butt };
+}
+
+/**
+ * The asphalt wedge at a width step, and the edge line on its hypotenuse.
+ *
+ * The road class reaches it as a token on the group, exactly as `RoadShape`
+ * emits one — so `.road-local .road-taper` and the class-scoped `.road-edge`
+ * width both apply with no rule of their own, and the wedge cannot come to paint
+ * a different asphalt from the road it closes.
+ */
+function TaperShape({
+  wedge,
+  interaction,
+}: {
+  wedge: Taper;
+  interaction?: Interaction;
+}) {
+  const [a, b, c] = wedge.corners;
+  const [e0, e1] = taperEdge(wedge.corners, 1.5);
+  return (
+    <g className={`taper road-${wedge.style}`}>
+      <polygon
+        className="road-taper"
+        points={`${a.x},${a.y} ${b.x},${b.y} ${c.x},${c.y}`}
+      />
+      {/* Paints as a road edge line, because that is what it is; the second
+          token names it in the markup and for tests. */}
+      <path
+        className="road-edge road-taper-edge"
+        d={polylinePath([e0, e1])}
+        vectorEffect={hairline(interaction)}
+      />
+    </g>
+  );
+}
+
 function isSelected(sel: Selection | null, kind: "node" | "link", id: string) {
   return sel?.kind === kind && sel.id === id;
 }
@@ -278,11 +440,13 @@ function RoadShape({
   link,
   style,
   points,
+  butt,
   interaction,
 }: {
   link: Link;
   style: LinkStyle;
   points: Vec2[];
+  butt?: boolean;
   interaction?: Interaction;
 }) {
   const bands = laneBands(link.lanes, style);
@@ -343,7 +507,16 @@ function RoadShape({
       {selected && (
         <path className="road-halo" d={casing} strokeWidth={w + 6} />
       )}
-      <path className="road-casing" d={casing} strokeWidth={w} />
+      {/* `stroke-linecap` is a property of the whole path, so a link
+          butt-capped at a tapered end is butt-capped at its other end too.
+          Where that meets a junction the pad covers it; where it is a free
+          endpoint the road now ends flat rather than domed — the better
+          schematic reading anyway (§2.4). */}
+      <path
+        className={`road-casing${butt ? " road-casing--butt" : ""}`}
+        d={casing}
+        strokeWidth={w}
+      />
       {/* Lane bands sit on the asphalt and under every painted line, so a
           shoulder's hatch and a bus lane's tint read as surface, not marking. */}
       {painted.map((b, i) => (
