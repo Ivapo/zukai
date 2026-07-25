@@ -1,9 +1,9 @@
 ---
-status: reviewed
+status: in-progress (Phase 1 shipped 2026-07-25; Phase 2 next)
 last_updated: 2026-07-25
 note: Draw the transitions between roads — lane-count tapers, ramp gores, and junction interiors that follow a divided road's carriageways.
-implemented: []
-not_implemented: ["Phase 1", "Phase 2", "Phase 3", "Phase 4"]
+implemented: ["Phase 1"]
+not_implemented: ["Phase 2", "Phase 3", "Phase 4"]
 related: [specs/road_rendering_spec.md, specs/diagram_export_spec.md]
 reference: "Motorway diagram convention as road atlases and variable-message signage use it — tapered lane drops, hatched gore areas at a diverge, a continuous outer edge through a lane change. Not to-scale interchange geometry (that is Assimilator's job), and not the painted chevrons inside a gore, which are markings and belong to the decorations spec."
 ---

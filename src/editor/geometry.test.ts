@@ -27,6 +27,7 @@ import {
   distance,
   laneBands,
   offsetPolyline,
+  rayCircleExit,
   roadWidth,
 } from "./geometry";
 
@@ -260,6 +261,51 @@ describe("classWidthFactor", () => {
         bands[i - 1].offset - bands[i - 1].width / 2,
       );
     }
+  });
+});
+
+describe("rayCircleExit", () => {
+  /**
+   * The identity Phase 1's no-visual-change proof rests on: an arm that meets
+   * the node dead centre must get the pad radius back **exactly**, so the new
+   * stop-bar expression collapses to the old `dir * (rp + 4)`. `toBe`, not
+   * `toBeCloseTo` — a rounding error here would move every existing stop bar.
+   *
+   * The radii are real ones: a 2-lane and a 1-lane arterial pad, and a 2-lane
+   * divided junction's floored pad.
+   */
+  it("returns exactly the radius for a ray from the centre", () => {
+    const centre = { x: 0, y: 0 };
+    for (const r of [16.02, 10.44, 24, 40.5]) {
+      expect(rayCircleExit(centre, { x: 1, y: 0 }, r)).toBe(r);
+      expect(rayCircleExit(centre, { x: -1, y: 0 }, r)).toBe(r);
+      expect(rayCircleExit(centre, { x: 0.6, y: -0.8 }, r)).toBe(r);
+    }
+  });
+
+  /**
+   * The case that exists for divided approaches: a carriageway 13.5 off the
+   * centreline leaves a 24-unit pad sooner than a centred one does, and lands on
+   * the pad rim rather than somewhere near it.
+   */
+  it("lands on the circle from an off-centre start", () => {
+    const p = { x: 0, y: 13.5 };
+    const d = { x: -1, y: 0 };
+    const t = rayCircleExit(p, d, 24);
+
+    expect(t).toBeCloseTo(Math.sqrt(24 * 24 - 13.5 * 13.5));
+    expect(t).toBeGreaterThan(0);
+    expect(t).toBeLessThan(24);
+    expect(Math.hypot(p.x + d.x * t, p.y + d.y * t)).toBeCloseTo(24);
+  });
+
+  it("returns 0 from a start on or outside the circle, whichever way it points", () => {
+    // On the rim.
+    expect(rayCircleExit({ x: 24, y: 0 }, { x: 1, y: 0 }, 24)).toBe(0);
+    // Outside, heading away — and outside, heading back in, which is the one a
+    // "just solve the quadratic" implementation gets wrong by re-entering.
+    expect(rayCircleExit({ x: 30, y: 0 }, { x: 1, y: 0 }, 24)).toBe(0);
+    expect(rayCircleExit({ x: 30, y: 0 }, { x: -1, y: 0 }, 24)).toBe(0);
   });
 });
 

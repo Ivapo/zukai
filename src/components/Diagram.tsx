@@ -24,10 +24,12 @@ import {
 import {
   MIN_ROAD_WIDTH,
   carriageways,
+  distance,
   endDirection,
   laneBands,
   offsetPolyline,
   polylinePath,
+  rayCircleExit,
   roadWidth,
 } from "../editor/geometry";
 import { Selection } from "../editor/state";
@@ -188,17 +190,29 @@ function drawnPolyline(
   return offsetPolyline(pts, d);
 }
 
-/** An arm meeting a junction: unit direction away from the node, and road width. */
+/** An arm meeting a junction, as drawn. */
 interface Arm {
+  /** Unit direction away from the node, along the drawn carriageway. */
   dir: Vec2;
+  /**
+   * Where that carriageway actually meets the node, in **world** units — the
+   * node position for an undivided road, stepped off it for one carriageway of a
+   * divided pair. The glyph's own group is translated to the node, so an interior
+   * detail drawn from this has to enter as `origin - center`.
+   */
+  origin: Vec2;
   width: number;
 }
 
 /**
  * The arms incident to a junction node, derived from the links that touch it —
- * from each one *as drawn*, so a divided road's arms follow its carriageways.
- * The junction's own interior (stop bars, pad) still centres on the node, which
- * is where a divided approach and its glyph part company (road spec OQ-6).
+ * from each one *as drawn*, so a divided road's arms follow its carriageways,
+ * position included. The lateral position is not re-derived from `DRIVE_SIDE` or
+ * a second call to `carriageways`: it is already sitting in the drawn polyline's
+ * own end point (ramps spec §2.2, road spec OQ-6).
+ *
+ * The node *dots* still draw at the node position, so an endpoint or waypoint on
+ * a divided road sits in its median (ramps spec OQ-4, open).
  */
 function junctionArms(
   doc: Document,
@@ -220,6 +234,7 @@ function junctionArms(
     const len = Math.hypot(dx, dy) || 1;
     arms.push({
       dir: { x: dx / len, y: dy / len },
+      origin: n0,
       width: roadWidth(link.lanes, linkStyle(doc, link.id)),
     });
   }
@@ -407,9 +422,23 @@ function JunctionGlyphShape({
   const maxW = arms.length
     ? Math.max(...arms.map((a) => a.width))
     : MIN_ROAD_WIDTH;
-  const rp = (maxW * 0.62 + 3) * scale;
 
-  const ro = Math.max(20, maxW * 1.35) * scale;
+  // How far the outermost corner of any arm sits from the node. On an undivided
+  // junction this is just half the widest road; a divided approach adds its step
+  // off the centreline, and the glyph has to reach out to meet it.
+  //
+  // A **floor** on the size the glyph already chose, never a replacement:
+  // `0.62 w + 3 > w / 2` for every road, so substituting would shrink every
+  // undivided pad ever drawn. And the floor is unscaled world units while
+  // `scale` multiplies only the base term, so shrinking a junction can no longer
+  // pull its pad off the carriageways it exists to join — below roughly half
+  // scale the Size control simply stops shrinking the pad (ramps spec §2.2).
+  const reach = arms.length
+    ? Math.max(...arms.map((a) => distance(a.origin, center) + a.width / 2))
+    : 0;
+  const rp = Math.max((maxW * 0.62 + 3) * scale, reach);
+
+  const ro = Math.max(Math.max(20, maxW * 1.35) * scale, reach);
   const ringT = ro * 0.42;
   const ri = ro - ringT;
 
@@ -447,10 +476,17 @@ function JunctionGlyphShape({
       {glyph === "signalized_cross" && (
         <>
           {arms.map((a, i) => {
-            // Sit the stop line just beyond the pad, on the visible approach road.
-            const dist = rp + 4;
-            const cx = a.dir.x * dist;
-            const cy = a.dir.y * dist;
+            // Sit the stop line just beyond the pad, on the visible approach
+            // road — measured from *that arm's* carriageway, not from the node,
+            // so a divided approach gets a bar on each half. The group is
+            // already translated to `center`, so the arm enters relative to it;
+            // for an undivided arm that is (0, 0), `rayCircleExit` gives back
+            // exactly `rp`, and this is the old `dir * (rp + 4)` unchanged.
+            const ox = a.origin.x - center.x;
+            const oy = a.origin.y - center.y;
+            const dist = rayCircleExit({ x: ox, y: oy }, a.dir, rp) + 4;
+            const cx = ox + a.dir.x * dist;
+            const cy = oy + a.dir.y * dist;
             const hx = -a.dir.y * (a.width / 2 + 1);
             const hy = a.dir.x * (a.width / 2 + 1);
             return (

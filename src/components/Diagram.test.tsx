@@ -413,6 +413,161 @@ describe("two-way carriageways", () => {
   });
 });
 
+describe("junction interiors", () => {
+  /**
+   * Three nodes in a row, the middle one a signalized junction: two undivided
+   * 2-lane approaches, both on the centreline. Lanes pinned so the numbers below
+   * don't move with `NEW_LINK_LANES`.
+   */
+  function crossroad(scale?: number): Document {
+    return run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "addNode", pos: { x: 120, y: 0 } },
+      { type: "addNode", pos: { x: 240, y: 0 } },
+      { type: "startLink", from: "N1" },
+      { type: "completeLink", to: "N2" },
+      { type: "startLink", from: "N2" },
+      { type: "completeLink", to: "N3" },
+      { type: "setLinkLanes", id: "L1", count: 2 },
+      { type: "setLinkLanes", id: "L2", count: 2 },
+      { type: "setNodeKind", id: "N2", kind: "junction" },
+      { type: "setJunctionGlyph", id: "N2", glyph: "signalized_cross" },
+      ...(scale === undefined
+        ? []
+        : [{ type: "setJunctionScale", id: "N2", scale } as Action]),
+    ).doc;
+  }
+
+  /** The `jn-pad` radius. */
+  function padRadius(svg: string): number {
+    return Number(svg.match(/class="jn-pad" r="(\S+?)"/)![1]);
+  }
+
+  /**
+   * The no-visual-change proof for Phase 1. An undivided arm's `origin` *is* the
+   * node centre, so `rayCircleExit` returns exactly the pad radius and the new
+   * expression collapses to the old `dir * (rp + 4)`. These are the numbers the
+   * centre-derived code emitted — pinned literally, so a drift of any size fails.
+   *
+   * Written at the **default** Size deliberately: the reach floor is unscaled, so
+   * a reduced Size *does* move an undivided pad (asserted below, by design).
+   */
+  it("draws an undivided signalized junction exactly as it always has", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={crossroad()} />);
+
+    // (2 * 9 + 3) * 0.62 + 3, with no floor binding: reach is only 10.5.
+    expect(svg).toContain('class="jn-pad" r="16.02"');
+    // Stop bars 4 units beyond the pad, half a road plus 1 wide either side.
+    expect(svg).toContain('x1="-20.02" y1="11.5" x2="-20.02" y2="-11.5"');
+    expect(svg).toContain('x1="20.02" y1="-11.5" x2="20.02" y2="11.5"');
+  });
+
+  /**
+   * A divided road ending at a signalized junction: the two carriageways step
+   * 13.5 either side of the centreline, and before `Arm.origin` the stop bars
+   * stayed behind on it — both bars drawn at y = 0, across the median, touching
+   * neither carriageway (road spec OQ-6).
+   *
+   * Asserted against the drawn casing rather than a constant, so the two can
+   * never drift apart, and `not 0` explicitly: that is the value the old code
+   * emitted, and no count-of-bars assertion catches it.
+   */
+  function dividedApproach(scale?: number): Document {
+    return run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "addNode", pos: { x: 120, y: 0 } },
+      { type: "startLink", from: "N1" },
+      { type: "completeLink", to: "N2" },
+      { type: "startLink", from: "N2" },
+      { type: "completeLink", to: "N1" },
+      { type: "setLinkLanes", id: "L1", count: 2 },
+      { type: "setLinkLanes", id: "L2", count: 2 },
+      { type: "setNodeKind", id: "N2", kind: "junction" },
+      { type: "setJunctionGlyph", id: "N2", glyph: "signalized_cross" },
+      ...(scale === undefined
+        ? []
+        : [{ type: "setJunctionScale", id: "N2", scale } as Action]),
+    ).doc;
+  }
+
+  it("puts a stop bar on each carriageway of a divided approach", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={dividedApproach()} />);
+
+    // Where the two carriageways are actually drawn, read off their casings.
+    const casings = [...svg.matchAll(/class="road-casing" d="M \S+ (\S+) L/g)]
+      .map((m) => Number(m[1]))
+      .sort((a, b) => a - b);
+    expect(casings).toEqual([-13.5, 13.5]);
+
+    // The bars are drawn in the junction's group, which is translated to the
+    // node — and the node sits on the centreline, so a bar's y is directly
+    // comparable to its carriageway's.
+    const bars = [
+      ...svg.matchAll(/class="jn-stopbar" x1="\S+" y1="(\S+)" x2="\S+" y2="(\S+)"/g),
+    ]
+      .map((m) => (Number(m[1]) + Number(m[2])) / 2)
+      .sort((a, b) => a - b);
+
+    expect(bars).toEqual(casings);
+    expect(bars).not.toContain(0);
+  });
+
+  /**
+   * …and the pad has to grow to meet them. The base radius for a 2-lane arm is
+   * 16.02, which stops 8 units short of a carriageway whose outer edge is at
+   * 13.5 + 21/2 = 24 — a glyph floating clear of the roads it joins.
+   */
+  it("reaches a displaced carriageway's outer edge with the pad", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={dividedApproach()} />);
+
+    expect(padRadius(svg)).toBeCloseTo(24);
+  });
+
+  /**
+   * The reach is a floor in **world** units while `scale` multiplies only the
+   * base term, so the Size control clamps rather than shrinking a pad past the
+   * road it serves. That is intended (ramps spec §2.2), and pinned here so it is
+   * not later read as a bug: at half size an undivided 2-lane junction would
+   * compute (0.62 * 21 + 3) * 0.5 = 8.01 and instead holds at half a road, 10.5.
+   */
+  it("clamps the Size control at the arms' own reach", () => {
+    const full = renderToStaticMarkup(<Diagram doc={crossroad()} />);
+    const half = renderToStaticMarkup(<Diagram doc={crossroad(0.5)} />);
+
+    // Size still resizes, just not below the approach.
+    expect(padRadius(half)).toBeLessThan(padRadius(full));
+    expect(padRadius(half)).toBeCloseTo(10.5);
+    expect(padRadius(half)).toBeGreaterThan((16.02 * 0.5));
+  });
+
+  /**
+   * The roundabout ring takes the same floor — fixing the pad and not the ring
+   * would be an omission with no reason behind it. Half size is where it bites:
+   * `1.35 w / 2 < w / 2 + median / 2 + w / 2` for every road.
+   */
+  it("floors the roundabout ring at the arms' reach too", () => {
+    const ring = (doc: Document) =>
+      Math.max(
+        ...[
+          ...renderToStaticMarkup(<Diagram doc={doc} />).matchAll(
+            /class="jn-edge" r="(\S+?)"/g,
+          ),
+        ].map((m) => Number(m[1])),
+      );
+    const round = (scale?: number): Document =>
+      run(
+        { ...initialState(), doc: dividedApproach(scale) },
+        { type: "setJunctionGlyph", id: "N2", glyph: "roundabout" },
+      ).doc;
+
+    // 2 lanes: max(20, 28.35) unfloored, against a 24-unit reach.
+    expect(ring(round())).toBeCloseTo(28.35);
+    expect(ring(round(0.5))).toBeCloseTo(24);
+  });
+});
+
 describe("Diagram on the live canvas", () => {
   // Guards against gating the chrome the wrong way round: the assertions above
   // would also pass if `interaction` never rendered anything.

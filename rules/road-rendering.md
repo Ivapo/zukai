@@ -1,9 +1,10 @@
 # Road rendering
 
 How a link becomes a picture of a road: lane geometry, road class, two-way
-carriageways, and lane kinds. Frontend only — nothing here crosses IPC, reaches
-disk, or changes the schema. The design rationale lives in
-`specs/road_rendering_spec.md`; hand-maintained.
+carriageways, lane kinds, and the junction arms derived from them. Frontend only
+— nothing here crosses IPC, reaches disk, or changes the schema. The design
+rationale lives in `specs/road_rendering_spec.md`, and from `Arm.origin` onward in
+`specs/ramps_and_tapers_spec.md`; hand-maintained.
 
 ## The rule the whole subsystem follows
 
@@ -102,11 +103,34 @@ directional: a two-way street is two links with opposite `from_node`/`to_node`."
 and `junctionArms` share, so the two cannot come to disagree about where a road
 runs.
 
-**Accepted limitation (spec OQ-6):** a junction's interior — stop bars, pad
-radius — and the node dots are drawn from the node *position*, while `Arm`
-carries no lateral offset. So where a divided road meets a junction, the
-carriageways move off the centreline and those glyphs do not. Fixing it means
-re-deriving the junction glyph, which is the ramps/junction spec's work.
+### Arms carry their position, so the glyph follows the carriageways
+
+`Arm` is `{ dir, origin, width }`, and `origin` is **not re-derived** — it is the
+drawn polyline's own end point, which `junctionArms` already had in hand. No
+second call to `carriageways`, no `DRIVE_SIDE` reasoning, and so none of the
+offset-sign traps the section above is about. `origin` is **world** space; the
+glyph's group is translated to the node, so an interior detail enters as
+`origin - center`, which is `(0, 0)` for an undivided road.
+
+- **A stop bar starts from its own carriageway**, at `(origin - center) + dir *
+  (rayCircleExit(origin - center, dir, rp) + 4)`. `rayCircleExit` returns
+  *exactly* `rp` from the centre, so an undivided junction draws byte-identically
+  to the centre-derived code this replaced — pinned in `Diagram.test.tsx`.
+- **The arms' reach is a floor on the pad radius and the roundabout ring**, never
+  a replacement: `reach = max(distance(origin, center) + width/2)`, then
+  `rp = max((maxW * 0.62 + 3) * scale, reach)` and the same for `ro`. Substituting
+  would *shrink* every undivided pad ever drawn, since `0.62 w + 3 > w / 2` for
+  every road. `ringT`/`ri` derive from `ro` and inherit it.
+- **`scale` multiplies the base term only; the floor is unscaled world units.**
+  The corollary is intended, not a bug: **Size clamps.** Below roughly half scale
+  the floor binds even on an undivided junction, so the Inspector's Size control
+  stops shrinking a pad past the road it serves. A pad narrower than its own
+  approach is not a smaller junction, it is a broken one.
+
+**Still open (ramps spec OQ-4):** the node *dots* draw at the node position, so an
+endpoint or waypoint on a divided road sits in the median rather than on either
+carriageway. `Arm.origin` makes "one dot per carriageway" cheap; whether that is
+what a divided endpoint should show is the open question.
 
 ## Lane kinds, and what a line means
 
@@ -184,8 +208,8 @@ spec, not a rendering one — the fix is a field, which this spec ruled out.
 
 | Piece | Where | Tested by |
 |---|---|---|
-| `laneBands`, `roadWidth`, `classWidthFactor`, `carriageways`, `UNITS_PER_METRE`, `MIN_ROAD_WIDTH`, `DRIVE_SIDE`, `SCHEMATIC_MEDIAN` | `src/editor/geometry.ts` | `geometry.test.ts` (pure) |
-| `RoadShape`, `HatchPattern`, `drawnPolyline`, `junctionArms` | `src/components/Diagram.tsx` | `Diagram.test.tsx` via `renderToStaticMarkup` |
+| `laneBands`, `roadWidth`, `classWidthFactor`, `carriageways`, `rayCircleExit`, `UNITS_PER_METRE`, `MIN_ROAD_WIDTH`, `DRIVE_SIDE`, `SCHEMATIC_MEDIAN` | `src/editor/geometry.ts` | `geometry.test.ts` (pure) |
+| `RoadShape`, `HatchPattern`, `drawnPolyline`, `junctionArms`, `JunctionGlyphShape` | `src/components/Diagram.tsx` | `Diagram.test.tsx` via `renderToStaticMarkup` |
 | Colour, tints, line treatments | `src/styles/diagram.css` | `export.test.ts` — reaches exports free |
 | `setLaneKind`, `setLinkLanes` | `src/editor/state.ts` | `state.test.ts` |
 | The lane-kind control | `src/components/Inspector.tsx`, chrome CSS in `src/styles.css` | — |

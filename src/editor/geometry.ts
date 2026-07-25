@@ -58,6 +58,28 @@ export function distance(a: Vec2, b: Vec2): number {
   return Math.hypot(b.x - a.x, b.y - a.y);
 }
 
+/**
+ * How far along unit direction `d` a ray from `p` runs before it leaves the
+ * circle of radius `r` **about the origin** — `0` when `p` is already outside it.
+ *
+ * Written for a junction glyph's interior, whose group is translated to the node,
+ * so `p` is an arm's position *relative to the node* and the circle is the pad.
+ *
+ * **A centred arm gets exactly `r` back**, not `r` to within a rounding error:
+ * `p = (0, 0)` reduces the expression to `-0 + Math.sqrt(0 + r * r - 0)`, and
+ * `Math.sqrt(r * r) === r` holds for every double. That identity is what lets a
+ * displaced arm and an undivided one share one expression while the undivided
+ * drawing stays byte-identical to the centre-derived code this replaced.
+ */
+export function rayCircleExit(p: Vec2, d: Vec2, r: number): number {
+  const pd = p.x * d.x + p.y * d.y;
+  const p2 = p.x * p.x + p.y * p.y;
+  // Outside the circle there is nothing to leave. The junction's reach floor
+  // keeps every arm origin inside its own pad, so this branch is defensive.
+  if (p2 >= r * r) return 0;
+  return -pd + Math.sqrt(pd * pd + r * r - p2);
+}
+
 /** An SVG `path` `d` string through a polyline of world points. */
 export function polylinePath(points: Vec2[]): string {
   return points
