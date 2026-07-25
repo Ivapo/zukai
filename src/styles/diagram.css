@@ -67,6 +67,24 @@
   fill: var(--paint-white);
 }
 
+/* ----- road class ----- */
+
+/* Motorway and arterial take the base treatment above; the local pair is the
+   lighter, thinner-lined one. Only paint lives here. The class also carries a
+   modest width factor, and that cannot: a CSS rule can replace a computed
+   stroke-width but not scale one, so it lives in `editor/geometry.ts`, upstream
+   of the casing, the edge inset and the lane dividers alike (road spec 2.3). */
+
+.road-local .road-casing,
+.road-ramp .road-casing {
+  stroke: var(--asphalt-2);
+}
+
+.road-local .road-edge,
+.road-ramp .road-edge {
+  stroke-width: 1.2;
+}
+
 /* ----- nodes ----- */
 
 .node-dot {

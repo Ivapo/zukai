@@ -17,6 +17,7 @@
 
 import { renderToStaticMarkup } from "react-dom/server";
 import { Diagram } from "../components/Diagram";
+import { linkStyle } from "../model/document";
 import { Document } from "../model/types";
 import { roadWidth } from "./geometry";
 // The paint travels inside the file. One definition site, two importers: the
@@ -57,12 +58,19 @@ export const PNG_SCALE = 2;
  * `LANE_PX` nor a document whose lanes are wider than the default can silently
  * reintroduce that.
  *
+ * The road class is part of that width (`classWidthFactor`), so it is passed
+ * here too: a class that ever draws *wider* than the default would otherwise
+ * reintroduce the clipping this function exists to prevent.
+ *
  * The `2` seed floors the allowance at the fattest non-casing stroke in
  * `diagram.css` (`.jn-stopbar`, 4) and keeps the spread from yielding
  * `-Infinity` for a document with no links.
  */
 export function strokeAllowance(doc: Document): number {
-  return Math.max(2, ...doc.links.map((l) => roadWidth(l.lanes) / 2));
+  return Math.max(
+    2,
+    ...doc.links.map((l) => roadWidth(l.lanes, linkStyle(doc, l.id)) / 2),
+  );
 }
 
 /** The drawing alone, chrome-free: `<g class="diagram">…</g>`. */

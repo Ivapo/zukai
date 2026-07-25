@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_LANE_WIDTH, defaultLane } from "../model/document";
-import { Lane } from "../model/types";
+import { Lane, LinkStyle } from "../model/types";
 import {
   LANE_PX,
   MIN_ROAD_WIDTH,
   ROAD_MARGIN,
   UNITS_PER_METRE,
+  classWidthFactor,
   laneBands,
   roadWidth,
 } from "./geometry";
@@ -131,6 +132,114 @@ describe("laneBands", () => {
         .map((b) => b.offset + b.width / 2);
 
       expect(boundaries).toEqual(old);
+    }
+  });
+});
+
+describe("classWidthFactor", () => {
+  const NARROWER: LinkStyle[] = ["local", "ramp"];
+
+  it("leaves motorway and arterial at the unfactored width", () => {
+    for (let n = 1; n <= 8; n++) {
+      expect(roadWidth(defaults(n), "motorway")).toBe(roadWidth(defaults(n)));
+      expect(roadWidth(defaults(n), "arterial")).toBe(roadWidth(defaults(n)));
+    }
+    expect(classWidthFactor("motorway")).toBe(1);
+    expect(classWidthFactor("arterial")).toBe(1);
+  });
+
+  it("keeps the factor modest enough never to confuse lane count", () => {
+    for (const style of NARROWER) {
+      const f = classWidthFactor(style);
+      expect(f).toBeGreaterThanOrEqual(0.8);
+      expect(f).toBeLessThan(1);
+    }
+    // The property that matters: more lanes always beats a wider class.
+    expect(roadWidth(defaults(3), "ramp")).toBeGreaterThan(
+      roadWidth(defaults(2), "motorway"),
+    );
+  });
+
+  /**
+   * The factor's definition: it scales each lane's drawn width, one step
+   * upstream of everything derived from them. Exact, and deliberately asserted
+   * per band rather than on the summed road width — this is the half a
+   * scale-the-finished-width implementation gets wrong, leaving the dividers at
+   * full pitch and spilling them outside a narrowed casing (road spec 2.3).
+   */
+  it("scales every lane band exactly, for every class and lane count", () => {
+    for (const style of NARROWER) {
+      const f = classWidthFactor(style);
+      for (let n = 1; n <= 8; n++) {
+        const plain = laneBands(defaults(n));
+        const scaled = laneBands(defaults(n), style);
+
+        expect(scaled).toHaveLength(plain.length);
+        for (let i = 0; i < plain.length; i++) {
+          expect(scaled[i].width).toBe(f * plain[i].width);
+        }
+      }
+    }
+  });
+
+  /**
+   * `ROAD_MARGIN` is the casing lip, not a lane, so it is *not* scaled: the road
+   * width is not proportional to the factor, only its lane region is, and the
+   * two differ by `ROAD_MARGIN * (1 - factor)` at every lane count.
+   *
+   * `toBeCloseTo`, not `toBe`, and the reason is measured rather than assumed.
+   * Two float effects put the aggregate identity up to 1 ulp off: regrouping
+   * (`sum(w * f)` differs from `f * sum(w)` at local n=3, n=7 and ramp n=8 —
+   * the same drift the metre conversion has, one level up) and the margin round
+   * trip (`(region + 3) - 3` differs from `region` at ramp n=1, n=2). Neither is
+   * avoidable by regrouping — scaling in metres before converting drifts three
+   * times as often. The exact claim lives in the per-band test above.
+   */
+  it("scales the lane region and leaves the casing lip alone", () => {
+    for (const style of NARROWER) {
+      const f = classWidthFactor(style);
+      for (let n = 1; n <= 8; n++) {
+        const plain = roadWidth(defaults(n));
+        const scaled = roadWidth(defaults(n), style);
+
+        expect(scaled - ROAD_MARGIN).toBeCloseTo(f * (plain - ROAD_MARGIN));
+        expect(scaled - f * plain).toBeCloseTo(ROAD_MARGIN * (1 - f));
+        // Which is to say: the road width itself is *not* proportional.
+        expect(scaled).not.toBe(f * plain);
+      }
+    }
+  });
+
+  /**
+   * The `MIN_ROAD_WIDTH` interaction. The one-lane floor is on the lane *count*;
+   * had it been a `Math.max(MIN_ROAD_WIDTH, ...)` clamp on the result, a 1-lane
+   * ramp would round back up to a 1-lane arterial's 12 and the class would be
+   * silently cancelled in exactly the case it reads most clearly (spec 2.2).
+   */
+  it("draws a 1-lane ramp strictly narrower than a 1-lane arterial", () => {
+    expect(roadWidth(defaults(1), "ramp")).toBeLessThan(roadWidth(defaults(1)));
+    expect(roadWidth(defaults(1), "ramp")).toBeLessThan(MIN_ROAD_WIDTH);
+    expect(roadWidth(defaults(1), "ramp")).toBeCloseTo(10.2);
+    // And the floor still applies to the count, not the width.
+    expect(roadWidth([], "ramp")).toBe(roadWidth([defaultLane(0)], "ramp"));
+  });
+
+  /**
+   * Contiguity is `toBeCloseTo` here where the default-lane case above asserts
+   * `toBe`: a shared boundary is reached from either side as `offset ± width/2`,
+   * and once the class factor makes the widths non-integral those two
+   * reconstructions can land 1 ulp apart. That is a rounding artefact of the
+   * midpoint form, not a gap in the road.
+   */
+  it("keeps lane 0 on the nearside under a narrowed class", () => {
+    const bands = laneBands(defaults(4), "ramp");
+
+    expect(bands[0].offset).toBe(Math.max(...bands.map((b) => b.offset)));
+    expect(bands[0].offset).toBe(-bands[bands.length - 1].offset);
+    for (let i = 1; i < bands.length; i++) {
+      expect(bands[i].offset + bands[i].width / 2).toBeCloseTo(
+        bands[i - 1].offset - bands[i - 1].width / 2,
+      );
     }
   });
 });

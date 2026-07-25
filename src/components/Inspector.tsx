@@ -1,7 +1,7 @@
 /** Right panel: properties of the current selection, or a getting-started hint. */
 
 import type { ReactNode } from "react";
-import { findLink, findNode } from "../model/document";
+import { findLink, findNode, linkStyle } from "../model/document";
 import { JunctionGlyph, LinkStyle, Node, NodeKind } from "../model/types";
 import { Action, EditorState } from "../editor/state";
 
@@ -78,7 +78,7 @@ export function Inspector({ state, dispatch }: InspectorProps) {
   const link = findLink(doc, selection.id);
   if (!link) return <aside className="inspector" />;
   const laneCount = link.lanes.length;
-  const style = doc.layout.links[link.id]?.style ?? "arterial";
+  const style = linkStyle(doc, link.id);
   return (
     <aside className="inspector">
       <div className="inspector-head">

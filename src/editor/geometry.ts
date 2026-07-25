@@ -1,7 +1,7 @@
 /** Canvas geometry: the pan/zoom transform and road-drawing math. */
 
-import { DEFAULT_LANE_WIDTH } from "../model/document";
-import { Lane, Vec2 } from "../model/types";
+import { DEFAULT_LANE_WIDTH, DEFAULT_LINK_STYLE } from "../model/document";
+import { Lane, LinkStyle, Vec2 } from "../model/types";
 
 /**
  * The canvas view transform. A world point `p` maps to screen coordinates as
@@ -74,8 +74,37 @@ export const ROAD_MARGIN = 3;
  */
 export const UNITS_PER_METRE = LANE_PX / DEFAULT_LANE_WIDTH;
 
-/** Drawn width of a road of one default lane — what an empty `lanes` array gets. */
+/**
+ * Drawn width of a road of one default lane at the default road class — what an
+ * empty `lanes` array gets, and the fallback width for a junction with no arms
+ * to measure (`Diagram.tsx`). A narrower class draws narrower than this: a
+ * 1-lane ramp is 10.2, deliberately *not* floored back up to 12 (§2.2).
+ */
 export const MIN_ROAD_WIDTH = DEFAULT_LANE_WIDTH * UNITS_PER_METRE + ROAD_MARGIN;
+
+/** Per-class lane-width multipliers. Exhaustive, so a new `LinkStyle` won't build. */
+const CLASS_WIDTH_FACTOR: Record<LinkStyle, number> = {
+  motorway: 1,
+  arterial: 1,
+  local: 0.9,
+  ramp: 0.8,
+};
+
+/**
+ * How much narrower a road of this class draws — modest by design, and never
+ * large enough to confuse lane count: road width is how a reader counts lanes,
+ * so a 2-lane motorway must still read narrower than a 4-lane local street. The
+ * rest of what makes a class legible is colour and line treatment, which live in
+ * `diagram.css` (§2.3).
+ *
+ * It is applied to the per-lane widths rather than to the finished road width,
+ * so `roadWidth`, `laneBands`, the dividers, the edge inset, the junction arms
+ * and the export allowance all inherit it from one derivation. Falls back to 1
+ * for a style a hand-edited document invented.
+ */
+export function classWidthFactor(style: LinkStyle): number {
+  return CLASS_WIDTH_FACTOR[style] ?? 1;
+}
 
 /**
  * One lane's slice of the road, in **world units** — the metre conversion has
@@ -104,10 +133,17 @@ export interface LaneBand {
  * arterial's 12 and so cancel the class distinction it was meant to show. Only a
  * hand-edited or imported document can get here — the Inspector clamps the count
  * to 1..8 — which is why it needs a floor rather than an assertion.
+ *
+ * **The road class enters here and nowhere else.** Scaling the finished width
+ * instead would narrow the casing while the band-derived dividers stayed put and
+ * spilled outside it; scaling in metres, before the conversion, drifts three
+ * times as often (measured). So each lane's already-converted width takes the
+ * factor, and `ROAD_MARGIN` — the casing lip, not a lane — never does.
  */
-function laneWidths(lanes: Lane[]): number[] {
-  if (lanes.length === 0) return [DEFAULT_LANE_WIDTH * UNITS_PER_METRE];
-  return lanes.map((l) => l.width * UNITS_PER_METRE);
+function laneWidths(lanes: Lane[], style: LinkStyle): number[] {
+  const factor = classWidthFactor(style);
+  if (lanes.length === 0) return [DEFAULT_LANE_WIDTH * UNITS_PER_METRE * factor];
+  return lanes.map((l) => l.width * UNITS_PER_METRE * factor);
 }
 
 /**
@@ -121,8 +157,11 @@ function laneWidths(lanes: Lane[]): number[] {
  * The boundary between two adjacent bands is a lane divider; the outermost two
  * are the carriageway edges.
  */
-export function laneBands(lanes: Lane[]): LaneBand[] {
-  const widths = laneWidths(lanes);
+export function laneBands(
+  lanes: Lane[],
+  style: LinkStyle = DEFAULT_LINK_STYLE,
+): LaneBand[] {
+  const widths = laneWidths(lanes, style);
   let edge = widths.reduce((s, w) => s + w, 0) / 2;
   return widths.map((width) => {
     const offset = edge - width / 2;
@@ -132,8 +171,11 @@ export function laneBands(lanes: Lane[]): LaneBand[] {
 }
 
 /** Total drawn road width in world units: every lane, plus the casing lip. */
-export function roadWidth(lanes: Lane[]): number {
-  return laneWidths(lanes).reduce((s, w) => s + w, 0) + ROAD_MARGIN;
+export function roadWidth(
+  lanes: Lane[],
+  style: LinkStyle = DEFAULT_LINK_STYLE,
+): number {
+  return laneWidths(lanes, style).reduce((s, w) => s + w, 0) + ROAD_MARGIN;
 }
 
 /**

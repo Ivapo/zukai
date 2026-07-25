@@ -1,8 +1,12 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { ROAD_MARGIN, classWidthFactor } from "../editor/geometry";
 import { Action, EditorState, initialState, reducer } from "../editor/state";
-import { Document } from "../model/types";
+import { Document, LinkStyle } from "../model/types";
 import { Diagram, Interaction } from "./Diagram";
+
+/** Every road class the Inspector offers. */
+const LINK_STYLES: LinkStyle[] = ["motorway", "arterial", "local", "ramp"];
 
 /** Apply a sequence of actions, as the UI would dispatch them. */
 function run(state: EditorState, ...actions: Action[]): EditorState {
@@ -109,6 +113,115 @@ describe("RoadShape geometry", () => {
     expect(svg).toContain('class="road-casing" d="M 0 0 L 120 0" stroke-width="12"');
     expect(svg).toContain('class="road-edge" d="M 0 4.5 L 120 4.5"');
     expect(svg).not.toContain("road-divider");
+  });
+});
+
+describe("road class", () => {
+  /** A `lanes`-lane link drawn due east from the origin, at road class `style`. */
+  function classed(style: LinkStyle, lanes = 4): Document {
+    return run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "addNode", pos: { x: 120, y: 0 } },
+      { type: "startLink", from: "N1" },
+      { type: "completeLink", to: "N2" },
+      { type: "setLinkLanes", id: "L1", count: lanes },
+      { type: "setLinkStyle", id: "L1", style },
+    ).doc;
+  }
+
+  /** Every `y` a road drawn due east paints its `cls` lines at. */
+  function offsets(svg: string, cls: string): number[] {
+    return [...svg.matchAll(new RegExp(`class="${cls}" d="M 0 (\\S+) L`, "g"))]
+      .map((m) => Number(m[1]))
+      .sort((a, b) => a - b);
+  }
+
+  /** The casing's drawn width. */
+  function casingWidth(svg: string): number {
+    return Number(svg.match(/class="road-casing"[^>]*stroke-width="(\S+?)"/)![1]);
+  }
+
+  it("tags the road group with its class, for every class", () => {
+    for (const style of LINK_STYLES) {
+      const svg = renderToStaticMarkup(<Diagram doc={classed(style)} />);
+      expect(svg).toContain(`<g class="road road-${style}">`);
+    }
+  });
+
+  /**
+   * An imported or hand-edited document need not carry a `LinkView` at all, and
+   * the drawing still has to pick a class — the same default the Inspector shows.
+   */
+  it("falls back to arterial for a link with no layout entry", () => {
+    const doc = classed("ramp");
+    const bare: Document = {
+      ...doc,
+      layout: { ...doc.layout, links: {} },
+    };
+
+    expect(renderToStaticMarkup(<Diagram doc={bare} />)).toContain(
+      '<g class="road road-arterial">',
+    );
+  });
+
+  /**
+   * The width factor has to reach the *lane-derived* geometry, not just the
+   * casing. Scaling the finished width alone narrows the asphalt while the
+   * dividers stay at full pitch and spill outside it — a broken drawing that a
+   * casing-and-edges check would pass (road spec 2.3).
+   */
+  it("narrows a ramp's casing, edge lines and lane dividers together", () => {
+    const plain = renderToStaticMarkup(<Diagram doc={classed("arterial")} />);
+    const ramp = renderToStaticMarkup(<Diagram doc={classed("ramp")} />);
+    const f = classWidthFactor("ramp");
+
+    // The casing carries the lane region, which scales, plus the unscaled lip.
+    expect(casingWidth(ramp)).toBeLessThan(casingWidth(plain));
+    expect(casingWidth(ramp) - ROAD_MARGIN).toBeCloseTo(
+      f * (casingWidth(plain) - ROAD_MARGIN),
+    );
+
+    const rampEdges = offsets(ramp, "road-edge");
+    const rampDividers = offsets(ramp, "road-divider");
+    expect(rampEdges).toHaveLength(2);
+    expect(rampDividers).toHaveLength(3);
+
+    // Every lane-derived line moved inward by the same factor. The edge lines
+    // sit at the lane region's half-span, so they scale with it as cleanly as
+    // the dividers do — the casing is the only quantity carrying the lip.
+    const plainEdges = offsets(plain, "road-edge");
+    const plainDividers = offsets(plain, "road-divider");
+    for (let i = 0; i < rampEdges.length; i++) {
+      expect(rampEdges[i]).toBeCloseTo(f * plainEdges[i]);
+    }
+    for (let i = 0; i < rampDividers.length; i++) {
+      expect(rampDividers[i]).toBeCloseTo(f * plainDividers[i]);
+    }
+
+    // And the paint stays on the road: no divider outside its own edge lines.
+    for (const d of rampDividers) {
+      expect(Math.abs(d)).toBeLessThan(Math.abs(rampEdges[0]));
+    }
+  });
+
+  /** `junctionArms` measures each approach, so the class sizes the pad too. */
+  it("sizes a junction pad from the class of the roads meeting it", () => {
+    const pad = (style: LinkStyle) => {
+      const doc = run(
+        initialState(),
+        { type: "addNode", pos: { x: 0, y: 0 } },
+        { type: "addNode", pos: { x: 120, y: 0 } },
+        { type: "startLink", from: "N1" },
+        { type: "completeLink", to: "N2" },
+        { type: "setLinkStyle", id: "L1", style },
+        { type: "setNodeKind", id: "N2", kind: "junction" },
+      ).doc;
+      const svg = renderToStaticMarkup(<Diagram doc={doc} />);
+      return Number(svg.match(/class="jn-pad" r="(\S+?)"/)![1]);
+    };
+
+    expect(pad("ramp")).toBeLessThan(pad("arterial"));
   });
 });
 

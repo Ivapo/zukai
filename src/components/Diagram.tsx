@@ -9,11 +9,12 @@
  */
 
 import type React from "react";
-import { linkPolyline, nodePos } from "../model/document";
+import { linkPolyline, linkStyle, nodePos } from "../model/document";
 import {
   Document,
   JunctionGlyph,
   Link,
+  LinkStyle,
   Node,
   NodeId,
   Vec2,
@@ -59,6 +60,7 @@ export function Diagram({
           <RoadShape
             key={link.id}
             link={link}
+            style={linkStyle(doc, link.id)}
             points={pts}
             interaction={interaction}
           />
@@ -137,7 +139,10 @@ function junctionArms(doc: Document, nodeId: NodeId): Arm[] {
     const dx = n1.x - n0.x;
     const dy = n1.y - n0.y;
     const len = Math.hypot(dx, dy) || 1;
-    arms.push({ dir: { x: dx / len, y: dy / len }, width: roadWidth(link.lanes) });
+    arms.push({
+      dir: { x: dx / len, y: dy / len },
+      width: roadWidth(link.lanes, linkStyle(doc, link.id)),
+    });
   }
   return arms;
 }
@@ -146,18 +151,29 @@ function isSelected(sel: Selection | null, kind: "node" | "link", id: string) {
   return sel?.kind === kind && sel.id === id;
 }
 
-/** A schematic road: asphalt casing, painted edge lines, lane dividers, arrow. */
+/**
+ * A schematic road: asphalt casing, painted edge lines, lane dividers, arrow.
+ *
+ * The road class reaches the paint as a class token rather than a computed
+ * attribute, so `diagram.css` carries the colour and line treatment and an
+ * exported file inherits both with no exporter change (§2.3). Its *width* factor
+ * cannot travel that way — CSS can replace a computed `strokeWidth`, not scale
+ * it — so it enters through `laneBands`/`roadWidth`, upstream of every quantity
+ * below.
+ */
 function RoadShape({
   link,
+  style,
   points,
   interaction,
 }: {
   link: Link;
+  style: LinkStyle;
   points: Vec2[];
   interaction?: Interaction;
 }) {
-  const bands = laneBands(link.lanes);
-  const w = roadWidth(link.lanes);
+  const bands = laneBands(link.lanes, style);
+  const w = roadWidth(link.lanes, style);
   const casing = polylinePath(points);
   const edgeInset = w / 2 - 1.5;
   const leftEdge = polylinePath(offsetPolyline(points, edgeInset));
@@ -180,7 +196,7 @@ function RoadShape({
 
   return (
     <g
-      className={`road${selected ? " is-selected" : ""}`}
+      className={`road road-${style}${selected ? " is-selected" : ""}`}
       onPointerDown={
         interaction && ((e: React.PointerEvent) => interaction.onLinkPointerDown(e, link))
       }

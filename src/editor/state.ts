@@ -1,6 +1,7 @@
 /** Editor state and the reducer that drives all document edits. */
 
 import {
+  DEFAULT_LINK_STYLE,
   defaultLane,
   emptyDocument,
   findLink,
@@ -445,7 +446,7 @@ function completeLink(state: EditorState, to: NodeId): EditorState {
       ],
       layout: {
         ...doc.layout,
-        links: { ...doc.layout.links, [id]: { style: "arterial" } },
+        links: { ...doc.layout.links, [id]: { style: DEFAULT_LINK_STYLE } },
       },
     },
     linkFrom: null,

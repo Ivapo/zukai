@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Document } from "../model/types";
+import { Document, LinkStyle } from "../model/types";
 import {
   EXPORT_PAD,
   diagramSvg,
@@ -24,6 +24,15 @@ function road(lanes: number): Document {
     { type: "completeLink", to: "N2" },
     { type: "setLinkLanes", id: "L1", count: lanes },
   ).doc;
+}
+
+/** {@link road}, at a road class other than the default. */
+function classed(lanes: number, style: LinkStyle): Document {
+  return run({ ...initialState(), doc: road(lanes) }, {
+    type: "setLinkStyle",
+    id: "L1",
+    style,
+  }).doc;
 }
 
 /**
@@ -61,6 +70,21 @@ describe("strokeAllowance", () => {
       roadWidth(widest.links[0].lanes) / 2,
     );
   });
+
+  /**
+   * The road class is part of the drawn width, so the frame has to know about
+   * it: today every factor is at most 1, so a miss would only over-pad, but a
+   * class that ever drew wider than the default would clip its own end caps —
+   * the regression this function exists to prevent.
+   */
+  it("measures the road at its own class, not the default", () => {
+    const ramp = classed(4, "ramp");
+
+    expect(strokeAllowance(ramp)).toBe(
+      roadWidth(ramp.links[0].lanes, "ramp") / 2,
+    );
+    expect(strokeAllowance(ramp)).toBeLessThan(strokeAllowance(road(4)));
+  });
 });
 
 describe("diagramSvg", () => {
@@ -93,6 +117,23 @@ describe("diagramSvg", () => {
     expect(css).toContain(".diagram-bg");
     expect(css).not.toContain("@import");
     expect(css).not.toContain("url(");
+  });
+
+  /**
+   * The road class travels as a class token plus a rule in the embedded
+   * stylesheet, so an exported file paints it with no exporter change at all —
+   * the claim that made class-in-CSS the right mechanism (road spec 2.3). A
+   * computed inline colour would have needed the export path to know about road
+   * classes; a `url()` reference would have failed the assertions above.
+   */
+  it("carries the road class and its paint rule into the file", () => {
+    const svg = diagramSvg(classed(2, "ramp"), null);
+
+    expect(svg).toContain('<g class="road road-ramp">');
+    expect(embeddedCss(svg)).toContain(".road-ramp .road-casing");
+    expect(embeddedCss(svg)).toContain("--asphalt-2");
+    expect(embeddedCss(svg)).not.toContain("url(");
+    expect(embeddedCss(svg)).not.toMatch(/[<&]/);
   });
 
   it("keeps the embedded stylesheet XML-safe", () => {

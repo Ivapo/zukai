@@ -6,6 +6,7 @@ import {
   Layout,
   Link,
   LinkId,
+  LinkStyle,
   Node,
   NodeId,
   SCHEMA_VERSION,
@@ -18,6 +19,8 @@ export const DEFAULT_SPEED_LIMIT = 13.88888888888889;
 export const DEFAULT_LANE_WIDTH = 3.5;
 /** Default gap to the opposing carriageway, metres. */
 export const DEFAULT_MEDIAN_GAP = 0.5;
+/** The road class a link is created as, and drawn as when it has no layout entry. */
+export const DEFAULT_LINK_STYLE: LinkStyle = "arterial";
 
 /** An empty document at the current schema version. */
 export function emptyDocument(name: string): Document {
@@ -142,6 +145,14 @@ export function linkPolyline(doc: Document, link: Link): Vec2[] | undefined {
   if (!a || !b) return undefined;
   const bends = doc.layout.links[link.id]?.bends ?? [];
   return [a, ...bends, b];
+}
+
+/**
+ * The road class a link is drawn as: its layout entry's, or the default for a
+ * link that has none — an imported or hand-edited document need not carry one.
+ */
+export function linkStyle(doc: Document, id: LinkId): LinkStyle {
+  return doc.layout.links[id]?.style ?? DEFAULT_LINK_STYLE;
 }
 
 /** Look up a node by id. */

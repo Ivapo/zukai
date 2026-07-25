@@ -2,8 +2,8 @@
 status: in-progress
 last_updated: 2026-07-25
 note: Make the drawn road honour the road model — class, lane widths, lane kinds, and two-way carriageways that don't sit on top of each other.
-implemented: ["Phase 1"]
-not_implemented: ["Phase 2", "Phase 3", "Phase 4"]
+implemented: ["Phase 1", "Phase 2"]
+not_implemented: ["Phase 3", "Phase 4"]
 related: [specs/diagram_export_spec.md, specs/save_load_spec.md]
 reference: "Schematic road-diagram convention as road atlases and motorway signage use it — solid edge lines, dashed lane dividers, hatched shoulders, separated carriageways. Not to-scale surveyed geometry (that is Assimilator's job), not a map style like OSM Carto."
 ---
@@ -216,12 +216,29 @@ roadWidth(ramp, n)  −  factor × roadWidth(arterial, n)  =  ROAD_MARGIN × (1 
                                                         =  0.6, at every n
 ```
 
-What *is* exactly proportional is the lane region, `roadWidth − ROAD_MARGIN`.
+What *is* proportional is the lane region, `roadWidth − ROAD_MARGIN`.
 This matters because the obvious gate — "a ramp's casing is `factor` times an
 arterial's" — is **false at every lane count**, and an implementer forcing it true
 has to scale the whole of `w` including the margin, which is exactly the `w`-only
 implementation forbidden above and brings the divider spill back. Phase 2's gate
 is therefore written against the lane region.
+
+**Proportional to within a float ulp, though — the *exact* claim is per lane.**
+(Corrected during Phase 2, measured; round 4's "verified at n = 1, 2, 4, 8" was
+wrong.) `Σ(wᵢ × f)` is not `f × Σ(wᵢ)`, and `(region + ROAD_MARGIN) − ROAD_MARGIN`
+is not `region`, so the aggregate identity lands up to 1 ulp off at ramp n = 1, 2,
+8 and local n = 3, 7. No regrouping fixes it — scaling in metres before converting
+drifts three times as often, and this is §2.2's own drift one level up. What *is*
+exact for every class and every lane width is the per-lane statement this section
+already makes:
+
+```ts
+laneBands(lanes, style)[i].width === factor * laneBands(lanes)[i].width
+```
+
+which is also the stronger gate, since the dividers are what a `w`-only
+implementation gets wrong. So Phase 2 asserts that exactly and the aggregate
+lane-region relation approximately.
 
 `diagram.css` then carries only colour and line treatment. This does not weaken
 the export claim — the *paint* still travels as classes; width was already a
@@ -519,20 +536,28 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
   something.
 - **Exit gate:** `bun run build` + `bun run test` green, with a `Diagram.test.tsx`
   case asserting the class token reaches the markup for each of the four styles
-  and that the default (`arterial`) is emitted when a link has no layout entry; a
-  case asserting the **lane region** scales exactly —
-  `roadWidth(ramp) − ROAD_MARGIN === classWidthFactor("ramp") × (roadWidth(arterial) − ROAD_MARGIN)`,
+  and that the default (`arterial`) is emitted when a link has no layout entry;
+  a `geometry.test.ts` case asserting **every lane band scales exactly** —
+  `laneBands(lanes, style)[i].width === classWidthFactor(style) × laneBands(lanes)[i].width`,
+  the one form of the width claim that is exact (§2.3) — and one asserting the
+  aggregate **lane region** scales to within a float ulp,
+  `roadWidth(ramp) − ROAD_MARGIN ≈ factor × (roadWidth(arterial) − ROAD_MARGIN)`,
   *not* `roadWidth(ramp) === factor × roadWidth(arterial)`, which is false at
-  every lane count because `ROAD_MARGIN` is unscaled (§2.3) — **and** that both its `edgeInset`-derived edge lines
-  **and its `laneBands`-derived dividers** moved with it — the dividers are the
-  half that a `w`-only implementation gets wrong, so a gate that checks the edge
-  lines alone passes on a broken drawing (§2.3); a case asserting a **1-lane
+  every lane count because `ROAD_MARGIN` is unscaled (§2.3); a `Diagram.test.tsx`
+  case that both the `edgeInset`-derived edge lines
+  **and the `laneBands`-derived dividers** moved with the casing — the dividers
+  are the half that a `w`-only implementation gets wrong, so a gate that checks
+  the edge lines alone passes on a broken drawing (§2.3) — with no divider
+  outside its own edge lines; a case asserting a **1-lane
   ramp is strictly narrower than a 1-lane arterial** (the `MIN_ROAD_WIDTH`
   interaction of §2.2 — an output clamp instead of a lane-count floor makes these
   equal and silently defeats the factor); an `export.test.ts` case asserting the
   class and its CSS rule both reach an exported SVG (proving §2.3's
-  no-exporter-change claim for paint). Plus a `bun run dev` pass: clicking each
-  Road class button visibly changes the drawing.
+  no-exporter-change claim for paint), and one that `strokeAllowance` measures a
+  road at its own class. Plus a `bun run dev` pass: clicking each Road class
+  button changes the drawing — visibly for `local`/`ramp`; `motorway` and
+  `arterial` are identical until Phase 4 adds the hard-shoulder line (§2.3's
+  table).
 - **Docs touched:** `rules/` gains a road-rendering note in Phase 4; none here.
 
 ### Phase 3 — Two-way carriageways  (depends on Phase 2)
@@ -788,3 +813,37 @@ class width factor should exist at all — the mechanism is built either way),
 **OQ-5** (whether a shoulder counts toward the Inspector's lane count), **OQ-6**
 (whether junction interiors follow offset carriageways — deferred to the
 ramps/junction spec).
+
+### Phase 2 implementation note — 2026-07-25 — one gate corrected
+
+Not a review round: a correction found while implementing Phase 2, recorded here
+so a later pass does not reopen it as a regression.
+
+**Round 4's exactness claim was wrong.** It recorded
+`roadWidth(ramp) − ROAD_MARGIN === factor × (roadWidth(arterial) − ROAD_MARGIN)`
+as "verified at n = 1, 2, 4, 8". Measured against the implementation, it **fails
+at ramp n = 1, 2, 8 and local n = 3, 7**, from two independent float effects:
+regrouping (`Σ(wᵢ × f)` ≠ `f × Σ(wᵢ)`) and the margin round trip
+(`(region + 3) − 3` ≠ `region`). Neither is avoidable — the alternative grouping,
+scaling in metres before converting, drifts at 9 of the 32 (class, n) pairs
+instead of 3, and would reintroduce round 1's blocker 1.
+
+The property itself is sound; only its exactness was overstated. §2.3 and Phase
+2's gate now assert the **per-lane** identity exactly — `laneBands(lanes,
+style)[i].width === factor × laneBands(lanes)[i].width`, exact for every class
+and lane width tested — and the aggregate lane-region identity approximately.
+The per-lane form is the stronger claim anyway: it is the literal statement of
+"applied to the per-lane widths feeding `laneBands`", and the dividers are what a
+`w`-only implementation gets wrong.
+
+Same cause, same treatment: `laneBands`' band-contiguity assertion is exact for
+default lanes and 1 ulp off under a factor, since a shared boundary is
+reconstructed as `offset ± width/2` from either side. A rounding artefact of the
+midpoint form, not a gap in the road.
+
+**OQ-1 is now answerable from the shipped code, and the answer is keep it.** The
+factor exists and reads correctly: a 4-lane ramp draws at 31.8 against an
+arterial's 39, narrow enough to register as a ramp and far too small to be
+mistaken for a lane-count difference (a 3-lane ramp is still wider than a 2-lane
+motorway, asserted). Left open only in the sense that removing it would now be a
+deletion rather than a decision.
