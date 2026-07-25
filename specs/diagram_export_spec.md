@@ -1,9 +1,9 @@
 ---
-status: partial (Phase 1 landed; reviewed in 2 rounds, 2026-07-24)
+status: partial (Phases 1–2 landed; reviewed in 2 rounds, 2026-07-24)
 last_updated: 2026-07-24
 note: Export the schematic as a standalone SVG (and PNG) — the picture leaves the app, chrome-free, at its own scale.
-implemented: ["Phase 1"]
-not_implemented: ["Phase 2", "Phase 3", "Phase 4"]
+implemented: ["Phase 1", "Phase 2"]
+not_implemented: ["Phase 3", "Phase 4"]
 related: [specs/save_load_spec.md]
 reference: "Standalone SVG 1.1 as browsers, Inkscape, and Figma consume it — `xmlns`, explicit `width`/`height`/`viewBox`, and no external references (no linked stylesheet, no web font, no remote image). PDF, multi-page output, and print CSS are out of scope."
 ---
@@ -141,7 +141,9 @@ rules. Two importers consume it:
 - the app (`styles.css` imports it, so the live canvas is styled by exactly the
   rules that get exported);
 - the exporter, as a string: `import diagramCss from "../styles/diagram.css?raw"`
-  (Vite's `?raw`, which vitest honours since it runs the Vite pipeline).
+  (Vite's `?raw`; vitest additionally needs `test.css: true`, since it otherwise
+  stubs every CSS import with an empty string — found while implementing Phase 2,
+  and without it each assertion about the exported stylesheet passes on `""`).
 
 One source of truth, no runtime CSSOM scraping, no drift, and the builder stays
 pure. The rejected alternatives: a hand-written export stylesheet constant (drifts
@@ -158,7 +160,10 @@ page, where `:root` would instead be that page's `<html>`.
 **Split rule:** a rule that paints the drawing moves to `diagram.css`; a rule that
 serves interaction stays in `styles.css` (`.road-hit`, every `*-halo`, `.node`/
 `.junction` `cursor`, `.link-preview`, `.grid-dot`, `.canvas`). The gate is that
-the exported `<style>` matches none of `hit|halo|cursor|preview|grid`.
+the exported `<style>` matches none of
+`road-hit|jn-hit|-halo|link-preview|grid|cursor` — **class tokens, not bare
+words**: `--paint-white` contains the substring `hit`, so a `/hit/` test can
+never pass on a file that carries the palette (caught implementing Phase 2).
 
 **Palette ownership (resolves OQ-5).** `diagram.css` is the *single* declaration
 site for every colour it defines; `styles.css` must **not** redeclare them. Four
@@ -436,13 +441,15 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
   `diagramInner(doc)` and `diagramSvg(doc, bounds)` — root `<svg>` with `xmlns`,
   `class="zukai-diagram"`, `width`/`height`/`viewBox` from bounds plus the derived
   margin (`EXPORT_PAD` + `strokeAllowance(doc)`, §2.6), the `<style>` from
-  `diagram.css?raw`, and the background rect (§2.7).
+  `diagram.css?raw`, and the background rect (§2.7). Also set `test.css: true`
+  in `vitest.config.ts` — vitest stubs CSS imports with `""` by default, which
+  would make every assertion about the embedded stylesheet vacuous.
 - **Exit gate:** `bun run build` + `bun run test` green, with vitest cases (node
   env, no DOM) asserting: the `xmlns` and a `viewBox` matching the passed bounds
   expanded by the derived margin; `width`/`height` equal to the padded bounds at
   1×; the palette and `.road-casing` present in the embedded style; **no**
-  `vector-effect`, and no `hit|halo|cursor|preview|grid` anywhere in the output;
-  `strokeAllowance` of an 8-lane document is `37.5` and of an empty one is `2`,
+  `vector-effect`, and none of the §2.4 chrome class tokens anywhere in the
+  output; `strokeAllowance` of an 8-lane document is `37.5` and of an empty one is `2`,
   with a regression assertion that the margin is `>= roadWidth(8)/2` so a
   round end-cap can never be clipped (§2.6); and `diagramSvg(emptyDoc, null)`
   yields `viewBox="-26 -26 52 52"` rather than any `NaN`. Visually confirm in a

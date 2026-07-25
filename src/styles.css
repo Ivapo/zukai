@@ -1,22 +1,22 @@
 /* Zukai — "drafting table meets motorway signage".
    Dark control-desk chrome frames a light drafting-paper canvas; roads are
-   drawn from their own materials (asphalt, paint white, marking yellow). */
+   drawn from their own materials (asphalt, paint white, marking yellow).
+
+   The road palette and the rules that paint the drawing live in
+   `styles/diagram.css`, because an exported SVG has to carry them inside the
+   file. They are imported, never redeclared here: a second copy would win in
+   the app (later in the cascade) while the export kept the first, so editing
+   one would silently change only half of what it looks like it changes. */
+
+@import "./styles/diagram.css";
 
 :root {
-  --asphalt: #2b2f36;
-  --asphalt-2: #23272d;
   --desk: #191c21;
   --desk-2: #21252b;
   --line: #333941;
 
-  --paper: #e7ebee;
   --grid-dot: #c1ccd4;
-  --island: #c9d6c9;
 
-  --paint-white: #f5f7f8;
-  --paint-yellow: #f5c518;
-
-  --ink: #12161b;
   --chrome-text: #e2e7eb;
   --chrome-dim: #8b96a1;
 
@@ -243,6 +243,7 @@ body {
 }
 
 /* ----- roads ----- */
+/* The painted road itself is in `styles/diagram.css`. */
 
 .road-hit {
   fill: none;
@@ -258,32 +259,6 @@ body {
   opacity: 0.55;
 }
 
-.road-casing {
-  fill: none;
-  stroke: var(--asphalt);
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.road-edge {
-  fill: none;
-  stroke: var(--paint-white);
-  stroke-width: 1.5;
-  stroke-linecap: round;
-}
-
-.road-divider {
-  fill: none;
-  stroke: var(--paint-white);
-  stroke-width: 1.4;
-  stroke-dasharray: 7 7;
-  opacity: 0.85;
-}
-
-.road-arrow {
-  fill: var(--paint-white);
-}
-
 .link-preview {
   stroke: var(--asphalt);
   stroke-width: 2;
@@ -295,25 +270,6 @@ body {
 
 .node {
   cursor: pointer;
-}
-
-.node-dot {
-  stroke-width: 2;
-}
-
-.node-endpoint .node-dot {
-  fill: var(--paper);
-  stroke: var(--asphalt);
-}
-
-.node-junction .node-dot {
-  fill: var(--asphalt);
-  stroke: var(--paint-white);
-}
-
-.node-waypoint .node-dot {
-  fill: var(--asphalt);
-  stroke: none;
 }
 
 .node-halo {
@@ -336,55 +292,6 @@ body {
   fill: none;
   stroke: var(--paint-yellow);
   stroke-width: 2.5;
-}
-
-.jn-pad {
-  fill: var(--asphalt);
-}
-
-.jn-ring {
-  fill: none;
-  stroke: var(--asphalt);
-}
-
-.jn-island {
-  fill: var(--island);
-}
-
-.jn-edge {
-  fill: none;
-  stroke: var(--paint-white);
-  stroke-width: 1.5;
-}
-
-.jn-stopbar {
-  stroke: var(--paint-white);
-  stroke-width: 4;
-  stroke-linecap: butt;
-}
-
-.jn-priority {
-  fill: var(--paint-yellow);
-  stroke: var(--ink);
-  stroke-width: 1.5;
-}
-
-.jn-signal-body {
-  fill: #16191e;
-  stroke: var(--paint-white);
-  stroke-width: 1;
-}
-
-.jn-red {
-  fill: #e5484d;
-}
-
-.jn-amber {
-  fill: var(--paint-yellow);
-}
-
-.jn-green {
-  fill: #46a758;
 }
 
 /* ----- inspector ----- */

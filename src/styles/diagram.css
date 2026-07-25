@@ -1,0 +1,140 @@
+/* The drawing itself: the road palette, and every rule that paints a road, a
+   node, or a junction glyph.
+
+   One definition site, two importers — `styles.css` for the live canvas, and
+   `editor/export.tsx`, which embeds this file verbatim in the style element of
+   an exported SVG. A standalone .svg reaches no external stylesheet, so the
+   paint has to travel inside the file; importing the same rules both ways is
+   what stops a file on disk from disagreeing with the picture on screen.
+
+   Two rules about what may live here, both asserted in `editor/export.test.ts`:
+
+   - Rules that serve interaction rather than paint — click targets, selection
+     outlines, pointer styling, the in-progress link, the canvas backdrop —
+     belong in `styles.css`. Added here, they would ship inside every export.
+   - No angle brackets or ampersands anywhere in this file, not even in a
+     comment: it is embedded raw inside an XML document, where either would end
+     the style element or open an entity. */
+
+/* In a standalone SVG document the root element is the svg itself, so `:root`
+   matches it; the class keeps the markup self-contained when it is pasted
+   inline into an HTML page, where `:root` would be that page's root instead. */
+:root,
+.zukai-diagram {
+  --asphalt: #2b2f36;
+  --asphalt-2: #23272d;
+
+  --paper: #e7ebee;
+  --island: #c9d6c9;
+
+  --paint-white: #f5f7f8;
+  --paint-yellow: #f5c518;
+
+  --ink: #12161b;
+}
+
+/* The opaque sheet an export is drawn on: without it the paper-filled endpoint
+   dots and the island would float invisibly on a light page. */
+.diagram-bg {
+  fill: var(--paper);
+}
+
+/* ----- roads ----- */
+
+.road-casing {
+  fill: none;
+  stroke: var(--asphalt);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.road-edge {
+  fill: none;
+  stroke: var(--paint-white);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+.road-divider {
+  fill: none;
+  stroke: var(--paint-white);
+  stroke-width: 1.4;
+  stroke-dasharray: 7 7;
+  opacity: 0.85;
+}
+
+.road-arrow {
+  fill: var(--paint-white);
+}
+
+/* ----- nodes ----- */
+
+.node-dot {
+  stroke-width: 2;
+}
+
+.node-endpoint .node-dot {
+  fill: var(--paper);
+  stroke: var(--asphalt);
+}
+
+.node-junction .node-dot {
+  fill: var(--asphalt);
+  stroke: var(--paint-white);
+}
+
+.node-waypoint .node-dot {
+  fill: var(--asphalt);
+  stroke: none;
+}
+
+/* ----- junction glyphs ----- */
+
+.jn-pad {
+  fill: var(--asphalt);
+}
+
+.jn-ring {
+  fill: none;
+  stroke: var(--asphalt);
+}
+
+.jn-island {
+  fill: var(--island);
+}
+
+.jn-edge {
+  fill: none;
+  stroke: var(--paint-white);
+  stroke-width: 1.5;
+}
+
+.jn-stopbar {
+  stroke: var(--paint-white);
+  stroke-width: 4;
+  stroke-linecap: butt;
+}
+
+.jn-priority {
+  fill: var(--paint-yellow);
+  stroke: var(--ink);
+  stroke-width: 1.5;
+}
+
+.jn-signal-body {
+  fill: #16191e;
+  stroke: var(--paint-white);
+  stroke-width: 1;
+}
+
+.jn-red {
+  fill: #e5484d;
+}
+
+.jn-amber {
+  fill: var(--paint-yellow);
+}
+
+.jn-green {
+  fill: #46a758;
+}
