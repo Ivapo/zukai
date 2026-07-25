@@ -2,8 +2,8 @@
 status: in-progress
 last_updated: 2026-07-25
 note: Make the drawn road honour the road model — class, lane widths, lane kinds, and two-way carriageways that don't sit on top of each other.
-implemented: ["Phase 1", "Phase 2"]
-not_implemented: ["Phase 3", "Phase 4"]
+implemented: ["Phase 1", "Phase 2", "Phase 3"]
+not_implemented: ["Phase 4"]
 related: [specs/diagram_export_spec.md, specs/save_load_spec.md]
 reference: "Schematic road-diagram convention as road atlases and motorway signage use it — solid edge lines, dashed lane dividers, hatched shoulders, separated carriageways. Not to-scale surveyed geometry (that is Assimilator's job), not a map style like OSM Carto."
 ---
@@ -847,3 +847,24 @@ arterial's 39, narrow enough to register as a ramp and far too small to be
 mistaken for a lane-count difference (a 3-lane ramp is still wider than a 2-lane
 motorway, asserted). Left open only in the sense that removing it would now be a
 deletion rather than a decision.
+
+### Phase 3 implementation note — 2026-07-25 — two readings recorded
+
+Not a review round: two things settled while implementing Phase 3, recorded so a
+later pass does not read either as a deviation.
+
+**The offset's width term is the link's own road class.** §2.4 writes
+`roadWidth(link.lanes)`, which predates the `style` parameter Phase 2 added.
+`carriagewayOffset` passes `linkStyle(doc, link.id)`, because the step has to
+clear the road's *drawn* width and that width carries `classWidthFactor`; the
+unclassed width would leave a ramp pair a wider gap than the `SEPARATION` the
+formula claims to draw. Confirmed in the running app on an unequal pair (4-lane
+eastbound, 3-lane westbound): casings at y = 322.5 and 282, spanning 303–342 and
+267–297, so the drawn median is exactly 6 either way.
+
+**A second accepted consequence of the junction limitation.** §2.4 records that
+a junction's stop bars stay on the centreline while its carriageways move off
+it. The same is true of the **node dots**, which now sit in the median of a
+divided road rather than on either carriageway. Same cause — the glyphs are
+drawn from the node position, and `Arm` carries no lateral offset — and the same
+disposition: OQ-6, the ramps/junction spec.

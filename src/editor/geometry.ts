@@ -1,7 +1,18 @@
 /** Canvas geometry: the pan/zoom transform and road-drawing math. */
 
-import { DEFAULT_LANE_WIDTH, DEFAULT_LINK_STYLE } from "../model/document";
-import { Lane, LinkStyle, Vec2 } from "../model/types";
+import {
+  DEFAULT_LANE_WIDTH,
+  DEFAULT_LINK_STYLE,
+  linkStyle,
+} from "../model/document";
+import {
+  Document,
+  Lane,
+  Link,
+  LinkId,
+  LinkStyle,
+  Vec2,
+} from "../model/types";
 
 /**
  * The canvas view transform. A world point `p` maps to screen coordinates as
@@ -179,6 +190,110 @@ export function roadWidth(
 }
 
 /**
+ * Which side of its own travel direction a carriageway of a divided road sits
+ * on: `+1` is right-hand traffic.
+ *
+ * A build-wide constant, not a document field — a `.zkai` has nowhere to record
+ * one, and adding a place would be the schema change the road spec rules out
+ * (§2.7, OQ-2). Left-hand traffic is a one-character change here.
+ *
+ * The sign is not the obvious one. `segmentNormals` returns left-hand normals in
+ * the y-up convention maths uses, but SVG's y axis points down: travel due east
+ * gives the normal `(0, +1)`, which draws *below* the road, i.e. to the right of
+ * the direction of travel as seen. So positive is right-hand traffic.
+ */
+export const DRIVE_SIDE = 1;
+
+/**
+ * The narrowest drawn gap between the two carriageways of a divided road, in
+ * world units.
+ *
+ * `Link.median_gap` is metres and defaults to 0.5, which converts to ~1.3 units
+ * — thinner than the 1.5-unit edge line, so drawing it literally would smudge
+ * the two carriageways into one road. Six units is four times the edge line, so
+ * the median reads as a gap; the crossover is at `median_gap ≈ 2.33 m`, above
+ * which a real motorway median widens the drawn gap and the model's field is
+ * honoured ordinally (OQ-3).
+ */
+export const SCHEMATIC_MEDIAN = 6;
+
+/**
+ * How far each link steps sideways before it is drawn, keyed by link id. Every
+ * link in the document gets an entry, `0` unless it is one carriageway of a
+ * divided road — a caller never has to tell "no offset" from "unknown link".
+ *
+ * Two links between the same node pair in opposite directions are one two-way
+ * road; the model has no other way to say so ("roads are directional: a two-way
+ * street is two links with opposite `from_node`/`to_node`"). Drawn on the shared
+ * centreline they are literally invisible as two, so each steps out by half its
+ * own drawn width plus half the median. Half its *own* width is the point: a
+ * step derived from the median alone would leave two 4-lane carriageways sitting
+ * almost entirely on top of each other, which is the defect this fixes.
+ *
+ * **Every offset returned is positive, and that is not a bug.** The number is
+ * the `d` of {@link offsetPolyline}, measured in each link's *own* polyline
+ * frame — and a reversed twin traverses the same ground the other way, so its
+ * segment normal already points the other way and the same positive `d` draws it
+ * on the opposite visual side. Negating one twin to make the two signs differ
+ * would put both carriageways on the same side.
+ *
+ * Pairing is on an exact reversed node pair, never on "roughly parallel", which
+ * would mis-pair a slip road with the mainline it runs beside — and a schematic
+ * is deliberately placed by a human. Three or more links on one node pair (a
+ * divided road plus a service road) stay on the centreline rather than have a
+ * layout guessed for them.
+ */
+export function carriageways(doc: Document): Record<LinkId, number> {
+  const offsets: Record<LinkId, number> = {};
+  // Grouped by *unordered* node pair, so a link and its reversed twin collide
+  // here; ` ` cannot occur in an id, so the key cannot alias.
+  const byPair = new Map<string, Link[]>();
+
+  for (const link of doc.links) {
+    offsets[link.id] = 0;
+    const [a, b] =
+      link.from_node < link.to_node
+        ? [link.from_node, link.to_node]
+        : [link.to_node, link.from_node];
+    const key = `${a} ${b}`;
+    const group = byPair.get(key);
+    if (group) group.push(link);
+    else byPair.set(key, [link]);
+  }
+
+  for (const group of byPair.values()) {
+    if (group.length !== 2) continue;
+    const [a, b] = group;
+    // Same pair of nodes, opposite directions — and not two self-loops, which
+    // satisfy that test trivially without being a divided road.
+    if (a.from_node === a.to_node) continue;
+    if (a.from_node !== b.to_node || a.to_node !== b.from_node) continue;
+    offsets[a.id] = carriagewayOffset(doc, a);
+    offsets[b.id] = carriagewayOffset(doc, b);
+  }
+
+  return offsets;
+}
+
+/**
+ * One carriageway's step out from the shared centreline — always positive, per
+ * {@link carriageways}.
+ *
+ * The width term is the link's *drawn* width, road class and all, so the gap
+ * left for the median is the median and nothing else. Each link uses its own
+ * `median_gap`; on the document the UI produces they always agree, and where a
+ * hand-edited one disagrees the drawn gap is the mean of the two separations.
+ */
+function carriagewayOffset(doc: Document, link: Link): number {
+  const separation = Math.max(
+    SCHEMATIC_MEDIAN,
+    link.median_gap * UNITS_PER_METRE,
+  );
+  const w = roadWidth(link.lanes, linkStyle(doc, link.id));
+  return DRIVE_SIDE * (w / 2 + separation / 2);
+}
+
+/**
  * Unit direction of the final segment of a polyline, used to orient the
  * link's direction arrowhead. Returns `undefined` for a degenerate polyline.
  */
@@ -192,7 +307,12 @@ export function endDirection(points: Vec2[]): Vec2 | undefined {
   return undefined;
 }
 
-/** Unit left-hand normals of each segment of a polyline. */
+/**
+ * Unit left-hand normals of each segment of a polyline — "left-hand" in the
+ * y-up convention this formula comes from. SVG's y axis points down, so on the
+ * canvas these point to the **right** of the direction of travel: due east gives
+ * `(0, +1)`, which is drawn below the road. See {@link DRIVE_SIDE}.
+ */
 function segmentNormals(points: Vec2[]): Vec2[] {
   const normals: Vec2[] = [];
   for (let i = 0; i < points.length - 1; i++) {
@@ -206,8 +326,9 @@ function segmentNormals(points: Vec2[]): Vec2[] {
 
 /**
  * A polyline parallel to `points`, offset by signed distance `d` along the
- * per-vertex normal (averaged at interior vertices). Good enough for the gentle
- * bends a schematic uses; not a true miter offset at sharp corners.
+ * per-vertex normal (averaged at interior vertices) — positive `d` to the right
+ * of the direction of travel as drawn. Good enough for the gentle bends a
+ * schematic uses; not a true miter offset at sharp corners.
  */
 export function offsetPolyline(points: Vec2[], d: number): Vec2[] {
   if (points.length < 2) return points;

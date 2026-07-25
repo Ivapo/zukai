@@ -1,13 +1,32 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_LANE_WIDTH, defaultLane } from "../model/document";
-import { Lane, LinkStyle } from "../model/types";
 import {
+  DEFAULT_LANE_WIDTH,
+  DEFAULT_LINK_STYLE,
+  DEFAULT_MEDIAN_GAP,
+  defaultLane,
+  emptyDocument,
+} from "../model/document";
+import {
+  Document,
+  Lane,
+  Link,
+  LinkId,
+  LinkStyle,
+  LinkView,
+  NodeId,
+} from "../model/types";
+import {
+  DRIVE_SIDE,
   LANE_PX,
   MIN_ROAD_WIDTH,
   ROAD_MARGIN,
+  SCHEMATIC_MEDIAN,
   UNITS_PER_METRE,
+  carriageways,
   classWidthFactor,
+  distance,
   laneBands,
+  offsetPolyline,
   roadWidth,
 } from "./geometry";
 
@@ -240,6 +259,153 @@ describe("classWidthFactor", () => {
       expect(bands[i].offset + bands[i].width / 2).toBeCloseTo(
         bands[i - 1].offset - bands[i - 1].width / 2,
       );
+    }
+  });
+});
+
+describe("carriageways", () => {
+  /** A link carrying what `completeLink` writes, at `lanes` default lanes. */
+  function link(
+    id: LinkId,
+    from: NodeId,
+    to: NodeId,
+    lanes = 2,
+    median_gap = DEFAULT_MEDIAN_GAP,
+  ): Link {
+    return { id, from_node: from, to_node: to, lanes: defaults(lanes), median_gap };
+  }
+
+  /** A document of just these links: `carriageways` reads nothing else. */
+  function net(links: Link[], views: Record<LinkId, LinkView> = {}): Document {
+    const base = emptyDocument("carriageways");
+    return { ...base, links, layout: { ...base.layout, links: views } };
+  }
+
+  /** Where one 2-lane arterial carriageway sits: 21/2 + 6/2. */
+  const OFFSET_2 = 13.5;
+
+  it("leaves every road without an opposing twin on its centreline", () => {
+    // A lone link; a chain sharing one node; and two links running the *same*
+    // way between one pair, which is not a two-way road however it is drawn.
+    expect(carriageways(net([link("L1", "N1", "N2")]))).toEqual({ L1: 0 });
+    expect(
+      carriageways(net([link("L1", "N1", "N2"), link("L2", "N2", "N3")])),
+    ).toEqual({ L1: 0, L2: 0 });
+    expect(
+      carriageways(net([link("L1", "N1", "N2"), link("L2", "N1", "N2")])),
+    ).toEqual({ L1: 0, L2: 0 });
+  });
+
+  it("steps each half of a reversed pair out by half its width plus half the median", () => {
+    const off = carriageways(net([link("L1", "N1", "N2"), link("L2", "N2", "N1")]));
+
+    expect(off.L1).toBe(roadWidth(defaults(2)) / 2 + SCHEMATIC_MEDIAN / 2);
+    expect(off.L1).toBe(OFFSET_2);
+    expect(off.L2).toBe(off.L1);
+  });
+
+  /**
+   * Both offsets are **positive**, and an assertion that the two signs differ
+   * would be wrong — it fails on a correct implementation, and the obvious fix
+   * (negate one twin) puts both carriageways on the same visual side. The offset
+   * is the `d` of `offsetPolyline`, measured in each link's own polyline frame;
+   * the twin runs the other way, so its normal already points the other way.
+   */
+  it("returns positive offsets for both halves, not opposite signs", () => {
+    const off = carriageways(net([link("L1", "N1", "N2"), link("L2", "N2", "N1")]));
+
+    expect(off.L1).toBeGreaterThan(0);
+    expect(off.L2).toBeGreaterThan(0);
+  });
+
+  /**
+   * The opposition is in the frame, not the sign — so this is the assertion that
+   * catches an inverted `DRIVE_SIDE`, which no magnitude test can. SVG's y axis
+   * points down, so `+y` is *below* the centreline, which for eastbound travel
+   * is its right-hand side: where right-hand traffic belongs.
+   */
+  it("draws the eastbound half below the centreline and its twin above", () => {
+    const off = carriageways(net([link("L1", "N1", "N2"), link("L2", "N2", "N1")]));
+    // N1 at the origin, N2 due east: L1 runs east, its twin L2 runs back west.
+    const east = offsetPolyline([{ x: 0, y: 0 }, { x: 120, y: 0 }], off.L1);
+    const west = offsetPolyline([{ x: 120, y: 0 }, { x: 0, y: 0 }], off.L2);
+
+    expect(DRIVE_SIDE).toBe(1);
+    expect(east.map((p) => p.y)).toEqual([OFFSET_2, OFFSET_2]);
+    expect(west.map((p) => p.y)).toEqual([-OFFSET_2, -OFFSET_2]);
+  });
+
+  /**
+   * The step has to clear the road's own width, not just the median: an offset
+   * derived from the median alone leaves two 4-lane carriageways sitting almost
+   * entirely on top of each other. Unequal lane counts are the case that shows
+   * it — the magnitudes differ, and the drawn median does not.
+   */
+  it("clears each carriageway's own width, whatever its lane count", () => {
+    const off = carriageways(net([link("L1", "N1", "N2", 4), link("L2", "N2", "N1", 2)]));
+
+    expect(off.L1).toBeGreaterThan(off.L2);
+    // Each one's inner edge, in its own frame; the two face each other.
+    const innerA = off.L1 - roadWidth(defaults(4)) / 2;
+    const innerB = off.L2 - roadWidth(defaults(2)) / 2;
+    expect(innerA).toBe(SCHEMATIC_MEDIAN / 2);
+    expect(innerA + innerB).toBe(SCHEMATIC_MEDIAN);
+  });
+
+  it("leaves three links on one node pair alone rather than guess a layout", () => {
+    const off = carriageways(
+      net([link("L1", "N1", "N2"), link("L2", "N2", "N1"), link("L3", "N1", "N2")]),
+    );
+
+    expect(off).toEqual({ L1: 0, L2: 0, L3: 0 });
+  });
+
+  it("honours a median_gap wider than the schematic minimum, and floors a narrower one", () => {
+    const separation = 3 * UNITS_PER_METRE;
+    const wide = carriageways(
+      net([link("L1", "N1", "N2", 2, 3), link("L2", "N2", "N1", 2, 3)]),
+    );
+
+    expect(separation).toBeGreaterThan(SCHEMATIC_MEDIAN);
+    expect(wide.L1).toBe(roadWidth(defaults(2)) / 2 + separation / 2);
+    // The 0.5 m every link the UI creates carries is ~1.3 units — thinner than
+    // the edge line painted over it, so it floors at the schematic median.
+    expect(DEFAULT_MEDIAN_GAP * UNITS_PER_METRE).toBeLessThan(SCHEMATIC_MEDIAN);
+  });
+
+  it("measures each carriageway at its own road class", () => {
+    const links = [link("L1", "N1", "N2"), link("L2", "N2", "N1")];
+    const off = carriageways(
+      net(links, { L1: { style: "ramp" }, L2: { style: "ramp" } }),
+    );
+    const w = roadWidth(defaults(2), "ramp");
+
+    expect(off.L1).toBe(w / 2 + SCHEMATIC_MEDIAN / 2);
+    // A ramp pair sits closer together because its asphalt is narrower — the
+    // median between them is the same 6 units. (`toBeCloseTo`: subtracting the
+    // half-width back off a narrowed road is the float round trip the class
+    // factor already documents.)
+    expect(off.L1).toBeLessThan(OFFSET_2);
+    expect(off.L1 - w / 2).toBeCloseTo(SCHEMATIC_MEDIAN / 2);
+  });
+
+  it("offsets a bent road along its whole length", () => {
+    const bend = { x: 60, y: 20 };
+    const off = carriageways(
+      net([link("L1", "N1", "N2"), link("L2", "N2", "N1")], {
+        L1: { style: DEFAULT_LINK_STYLE, bends: [bend] },
+      }),
+    );
+
+    // A bend is layout, not topology: still a pair, still the same step.
+    expect(off.L1).toBe(OFFSET_2);
+
+    const spine = [{ x: 0, y: 0 }, bend, { x: 120, y: 0 }];
+    const drawn = offsetPolyline(spine, off.L1);
+
+    expect(drawn).toHaveLength(spine.length);
+    for (let i = 0; i < spine.length; i++) {
+      expect(distance(spine[i], drawn[i])).toBeCloseTo(OFFSET_2);
     }
   });
 });

@@ -1,6 +1,10 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { ROAD_MARGIN, classWidthFactor } from "../editor/geometry";
+import {
+  ROAD_MARGIN,
+  SCHEMATIC_MEDIAN,
+  classWidthFactor,
+} from "../editor/geometry";
 import { Action, EditorState, initialState, reducer } from "../editor/state";
 import { Document, LinkStyle } from "../model/types";
 import { Diagram, Interaction } from "./Diagram";
@@ -222,6 +226,63 @@ describe("road class", () => {
     };
 
     expect(pad("ramp")).toBeLessThan(pad("arterial"));
+  });
+});
+
+describe("two-way carriageways", () => {
+  /**
+   * Two nodes 120 apart, joined by a link each way — a two-way road exactly as
+   * the model spells one: two links with opposite `from_node`/`to_node`. Lanes
+   * pinned at 2 so the numbers below don't move with `NEW_LINK_LANES`.
+   */
+  function divided(): Document {
+    return run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "addNode", pos: { x: 120, y: 0 } },
+      { type: "startLink", from: "N1" },
+      { type: "completeLink", to: "N2" },
+      { type: "startLink", from: "N2" },
+      { type: "completeLink", to: "N1" },
+      { type: "setLinkLanes", id: "L1", count: 2 },
+      { type: "setLinkLanes", id: "L2", count: 2 },
+    ).doc;
+  }
+
+  /**
+   * Before this, the pair drew on one centreline and a two-way road was
+   * invisible as two. Now each half steps out by `roadWidth/2 + median/2`.
+   *
+   * The signs are the load-bearing half: SVG's y points down, so the eastbound
+   * link belongs *below* the centreline under right-hand traffic, and its
+   * westbound twin above. Both offsets are positive — the opposition lives in
+   * each link's polyline frame — so only the drawn `y` can tell them apart.
+   */
+  it("draws the two halves apart, on the sides right-hand traffic puts them", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={divided()} />);
+
+    expect(svg).toContain('class="road-casing" d="M 0 13.5 L 120 13.5"');
+    expect(svg).toContain('class="road-casing" d="M 120 -13.5 L 0 -13.5"');
+
+    // Both casings 21 wide, so each spans 3..24 from the centreline on its own
+    // side: a 6-unit median down the middle, and no overlap anywhere.
+    const widths = [
+      ...svg.matchAll(/class="road-casing"[^>]*stroke-width="(\S+?)"/g),
+    ].map((m) => Number(m[1]));
+    expect(widths).toEqual([21, 21]);
+    expect(13.5 - 21 / 2).toBe(SCHEMATIC_MEDIAN / 2);
+  });
+
+  it("leaves the same road on the centreline once its twin is gone", () => {
+    const oneWay = run(
+      { ...initialState(), doc: divided() },
+      { type: "select", selection: { kind: "link", id: "L2" } },
+      { type: "deleteSelection" },
+    ).doc;
+    const svg = renderToStaticMarkup(<Diagram doc={oneWay} />);
+
+    expect(svg).toContain('class="road-casing" d="M 0 0 L 120 0"');
+    expect(svg).not.toContain("13.5");
   });
 });
 

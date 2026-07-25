@@ -14,6 +14,7 @@ import {
   Document,
   JunctionGlyph,
   Link,
+  LinkId,
   LinkStyle,
   Node,
   NodeId,
@@ -21,6 +22,7 @@ import {
 } from "../model/types";
 import {
   MIN_ROAD_WIDTH,
+  carriageways,
   endDirection,
   laneBands,
   offsetPolyline,
@@ -50,11 +52,14 @@ export function Diagram({
     ? nodePos(doc, interaction.linkFrom)
     : undefined;
   const cursor = interaction?.cursor;
+  // The two links of a divided road step off their shared centreline before
+  // anything is drawn from them — the roads and the junction arms alike.
+  const offsets = carriageways(doc);
 
   return (
     <g className="diagram">
       {doc.links.map((link) => {
-        const pts = linkPolyline(doc, link);
+        const pts = drawnPolyline(doc, link, offsets);
         if (!pts) return null;
         return (
           <RoadShape
@@ -90,7 +95,7 @@ export function Diagram({
               glyph={jn?.glyph ?? "generic"}
               scale={jn?.scale ?? 1}
               center={p}
-              arms={junctionArms(doc, node.id)}
+              arms={junctionArms(doc, node.id, offsets)}
               interaction={interaction}
             />
           );
@@ -118,20 +123,48 @@ function hairline(interaction?: Interaction): "non-scaling-stroke" | undefined {
   return interaction ? "non-scaling-stroke" : undefined;
 }
 
+/**
+ * The polyline a link is *drawn* along: its layout polyline, stepped sideways by
+ * the carriageway offset of a divided road. Identical to the layout polyline —
+ * the same array, not a copy — for every link that has no opposing twin.
+ *
+ * One helper so the roads and the junction arms cannot come to disagree about
+ * where a road runs.
+ */
+function drawnPolyline(
+  doc: Document,
+  link: Link,
+  offsets: Record<LinkId, number>,
+): Vec2[] | undefined {
+  const pts = linkPolyline(doc, link);
+  const d = offsets[link.id] ?? 0;
+  if (!pts || d === 0) return pts;
+  return offsetPolyline(pts, d);
+}
+
 /** An arm meeting a junction: unit direction away from the node, and road width. */
 interface Arm {
   dir: Vec2;
   width: number;
 }
 
-/** The arms incident to a junction node, derived from the links that touch it. */
-function junctionArms(doc: Document, nodeId: NodeId): Arm[] {
+/**
+ * The arms incident to a junction node, derived from the links that touch it —
+ * from each one *as drawn*, so a divided road's arms follow its carriageways.
+ * The junction's own interior (stop bars, pad) still centres on the node, which
+ * is where a divided approach and its glyph part company (road spec OQ-6).
+ */
+function junctionArms(
+  doc: Document,
+  nodeId: NodeId,
+  offsets: Record<LinkId, number>,
+): Arm[] {
   const arms: Arm[] = [];
   for (const link of doc.links) {
     const touchesStart = link.from_node === nodeId;
     const touchesEnd = link.to_node === nodeId;
     if (!touchesStart && !touchesEnd) continue;
-    const poly = linkPolyline(doc, link);
+    const poly = drawnPolyline(doc, link, offsets);
     if (!poly || poly.length < 2) continue;
     // Orient the polyline so the junction node is first, then step to the next
     // point to get the direction of the approach leaving the node.
