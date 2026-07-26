@@ -59,10 +59,13 @@ import {
   laneBands,
   laneLine,
   laneLineOffsets,
+  legalMovements,
   markingArrow,
   markingTeeth,
   markingText,
   markingZebra,
+  movementId,
+  movementKind,
   nearestOnPolyline,
   offsetPolyline,
   pointAlongPolyline,
@@ -2020,5 +2023,177 @@ describe("laneLine and laneLineOffsets", () => {
   it("collects nothing from a document with no lane line", () => {
     expect(laneLineOffsets(road(4))).toEqual({});
     expect(laneLineOffsets(road(4, { ...line(1), kind: { type: "stop_line" } }))).toEqual({});
+  });
+});
+
+describe("movements through a junction", () => {
+  /**
+   * The junction semantics spec's own fixture: a **two-way** T, which is what
+   * Assimilator's model makes of one — every arm is an opposing *pair* of links,
+   * because "a two-way street is two links with opposite `from_node`/`to_node`".
+   *
+   * ```
+   *       N1 ⇄ N2 ⇄ N3     west arm   L1 (N1→N2) in,  L2 (N2→N1) out
+   *            ⇅           east arm   L3 (N2→N3) out, L4 (N3→N2) in
+   *            N4          south arm  L5 (N2→N4) out, L6 (N4→N2) in
+   * ```
+   *
+   * `N4` is at **`+y`**, which is south: SVG's y axis points down. All three arms
+   * are reversed pairs, so `carriageways` genuinely offsets every polyline here —
+   * a lateral step, which is why the bearings below are still exact.
+   */
+  const POS: Record<NodeId, Vec2> = {
+    N1: { x: -100, y: 0 },
+    N2: { x: 0, y: 0 },
+    N3: { x: 100, y: 0 },
+    N4: { x: 0, y: 100 },
+  };
+  const ENDS: [LinkId, NodeId, NodeId][] = [
+    ["L1", "N1", "N2"],
+    ["L2", "N2", "N1"],
+    ["L3", "N2", "N3"],
+    ["L4", "N3", "N2"],
+    ["L5", "N2", "N4"],
+    ["L6", "N4", "N2"],
+  ];
+
+  /** The T, with only `placed` given a canvas position (all four by default). */
+  function tee(placed: NodeId[] = ["N1", "N2", "N3", "N4"]): Document {
+    const base = emptyDocument("T");
+    const nodes: Record<NodeId, { pos: Vec2 }> = {};
+    for (const id of placed) nodes[id] = { pos: POS[id] };
+    return {
+      ...base,
+      nodes: [
+        { id: "N1", type: "endpoint" },
+        { id: "N2", type: "junction" },
+        { id: "N3", type: "endpoint" },
+        { id: "N4", type: "endpoint" },
+      ],
+      links: ENDS.map(([id, from, to]) => ({
+        id,
+        from_node: from,
+        to_node: to,
+        lanes: defaults(2),
+        median_gap: DEFAULT_MEDIAN_GAP,
+      })),
+      junctions: [{ node_id: "N2", control: "unsignalized" }],
+      layout: { ...base.layout, nodes },
+    };
+  }
+
+  /**
+   * **A named turn on a named bearing**, and both are load-bearing: the handedness
+   * of §2.4's cross product is self-consistently invertible, so a test asserting
+   * only "one left and one right" passes just as happily written backwards. SVG's
+   * y axis points down, which is what makes a positive cross product a *right*
+   * turn — `DRIVE_SIDE`'s trap in the other subsystem.
+   */
+  it("classifies a turn by the bearing it is actually drawn on", () => {
+    const t = tee();
+
+    // Arriving from the west on L1, so travelling east.
+    expect(movementKind(t, "N2", "L1", "L5")).toBe("right"); // into the south arm
+    expect(movementKind(t, "N2", "L1", "L3")).toBe("through"); // straight on, east
+  });
+
+  /** The same rule on a different axis, so nothing about it is axis-specific. */
+  it("classifies an approach from the south the other way round", () => {
+    const t = tee();
+
+    // Arriving from the south on L6, so travelling north.
+    expect(movementKind(t, "N2", "L6", "L2")).toBe("left"); // into the west arm
+    expect(movementKind(t, "N2", "L6", "L3")).toBe("right"); // into the east arm
+  });
+
+  /**
+   * A u-turn is **topology, not angle**: `from.from_node === to.to_node` is exactly
+   * "leaves back down the road it arrived on". Running it first is what spares the
+   * angular bands a `left`/`u-turn` boundary — a ~180° pair either is one of these
+   * or genuinely is not a u-turn at all.
+   */
+  it("reads the three u-turns off the topology", () => {
+    const t = tee();
+
+    expect(movementKind(t, "N2", "L1", "L2")).toBe("u-turn");
+    expect(movementKind(t, "N2", "L4", "L3")).toBe("u-turn");
+    expect(movementKind(t, "N2", "L6", "L5")).toBe("u-turn");
+  });
+
+  /** The hand-edited document, and `setMovementKind` is the repair for it. */
+  it("falls back to through for a link it cannot measure", () => {
+    // L5's far node has no position, so the link is not drawn at all.
+    expect(movementKind(tee(["N1", "N2", "N3"]), "N2", "L1", "L5")).toBe("through");
+    expect(movementKind(tee(), "N2", "L1", "L9")).toBe("through");
+    // A link that does not touch the node cannot be measured against it either:
+    // neither of these two meets N1, so neither has an arm there.
+    expect(movementKind(tee(), "N1", "L3", "L5")).toBe("through");
+  });
+
+  it("spells a movement's id as the ordered pair it is", () => {
+    expect(movementId("L1", "L3")).toBe("M_L1_L3");
+    expect(movementId("L1", "L3")).not.toBe(movementId("L3", "L1"));
+  });
+
+  /**
+   * 3 arriving × 3 leaving = **9** ordered pairs, the three u-turns among them:
+   * the picker offers everything the model can express, and it is Phase 4's Derive
+   * that will decline to mint a u-turn (§2.4's deliberate split).
+   */
+  it("offers every ordered arriving→leaving pair, u-turns included", () => {
+    const pairs = legalMovements(tee(), "N2");
+
+    expect(pairs).toHaveLength(9);
+    for (const u of [["L1", "L2"], ["L4", "L3"], ["L6", "L5"]]) {
+      expect(pairs).toContainEqual({ from: u[0], to: u[1] });
+    }
+  });
+
+  /** Direction is real: an arriving link is never an exit, whatever it pairs with. */
+  it("never offers an arriving link as an exit", () => {
+    const pairs = legalMovements(tee(), "N2");
+
+    expect([...new Set(pairs.map((p) => p.from))].sort()).toEqual(["L1", "L4", "L6"]);
+    expect([...new Set(pairs.map((p) => p.to))].sort()).toEqual(["L2", "L3", "L5"]);
+  });
+
+  /**
+   * A road that only leaves, or only arrives, is no turn at all — and neither is a
+   * link paired with itself, the self-loop only a hand-edited file can hold
+   * (`carriageways` excludes the same degenerate link from a carriageway pair).
+   */
+  it("offers nothing at a node with one link", () => {
+    const base = emptyDocument("one");
+    const doc: Document = {
+      ...base,
+      nodes: [
+        { id: "N1", type: "junction" },
+        { id: "N2", type: "junction" },
+      ],
+      links: [
+        {
+          id: "L1",
+          from_node: "N1",
+          to_node: "N2",
+          lanes: defaults(2),
+          median_gap: DEFAULT_MEDIAN_GAP,
+        },
+      ],
+      layout: {
+        ...base.layout,
+        nodes: { N1: { pos: { x: 0, y: 0 } }, N2: { pos: { x: 100, y: 0 } } },
+      },
+    };
+
+    expect(legalMovements(doc, "N1")).toEqual([]);
+    expect(legalMovements(doc, "N2")).toEqual([]);
+  });
+
+  /** A link with no drawable polyline is skipped, so the picker never offers one. */
+  it("skips a link whose node has no layout entry", () => {
+    const pairs = legalMovements(tee(["N1", "N2", "N3"]), "N2");
+
+    expect(pairs).toHaveLength(4);
+    expect(pairs.some((p) => p.from === "L6" || p.to === "L5")).toBe(false);
   });
 });

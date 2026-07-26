@@ -26,6 +26,9 @@ import {
   Marking,
   MarkingId,
   MarkingKind,
+  Movement,
+  MovementId,
+  MovementKind,
   NodeId,
   NodeKind,
   Sign,
@@ -34,7 +37,12 @@ import {
   UnsignalizedRule,
   Vec2,
 } from "../model/types";
-import { IDENTITY_VIEW, ViewTransform } from "./geometry";
+import {
+  IDENTITY_VIEW,
+  movementId,
+  movementKind,
+  ViewTransform,
+} from "./geometry";
 
 /** The active drawing tool. */
 export type Tool = "select" | "node" | "link" | "marking" | "sign";
@@ -107,6 +115,17 @@ export type EditAction =
   // `rule?`, not `rule: UnsignalizedRule | null`: absent is the one
   // representation, the rule `setSignLink`'s `link?` already follows.
   | { type: "setJunctionRule"; id: NodeId; rule?: UnsignalizedRule }
+  // `id` is the **junction node**, and the movement a second field —
+  // `setLaneKind`'s shape, because a movement lives inside a `Junction` the way a
+  // lane lives inside a `Link`. There is no `Selection` arm for either.
+  | { type: "addMovement"; id: NodeId; from: LinkId; to: LinkId }
+  | { type: "deleteMovement"; id: NodeId; movement: MovementId }
+  | {
+      type: "setMovementKind";
+      id: NodeId;
+      movement: MovementId;
+      kind: MovementKind;
+    }
   | { type: "startLink"; from: NodeId }
   | { type: "completeLink"; to: NodeId }
   | { type: "cancelLink" }
@@ -408,6 +427,15 @@ function editReducer(state: EditorState, action: EditAction): EditorState {
     case "setJunctionRule":
       return setJunctionRule(state, action.id, action.rule);
 
+    case "addMovement":
+      return addMovement(state, action.id, action.from, action.to);
+
+    case "deleteMovement":
+      return deleteMovement(state, action.id, action.movement);
+
+    case "setMovementKind":
+      return setMovementKind(state, action.id, action.movement, action.kind);
+
     case "startLink":
       return { ...state, linkFrom: action.from };
 
@@ -667,6 +695,149 @@ function setJunctionRule(
   };
 }
 
+/**
+ * One `Junction` inside `doc.junctions` with its movement list replaced — the one
+ * place the three movement actions write, so the empty-list rule is stated once.
+ *
+ * **An empty list is stored as an absent key**, never as `[]`: Rust elides an empty
+ * vec (`skip_serializing_if = "Vec::is_empty"`), so two encodings of "no movements"
+ * would differ by document identity while saving to the same bytes — the
+ * one-representation rule `rule`, `lane` and `associated_link` all follow.
+ *
+ * Every other junction is returned **by identity**, so a document with two
+ * intersections shares the untouched one with its history snapshots.
+ */
+function withMovements(
+  junctions: Junction[],
+  id: NodeId,
+  movements: Movement[],
+): Junction[] {
+  return junctions.map((j) => {
+    if (j.node_id !== id) return j;
+    const { movements: _dropped, ...rest } = j;
+    return movements.length === 0 ? rest : { ...rest, movements };
+  });
+}
+
+/**
+ * Permit a turn through a junction — **the first thing that has ever written
+ * `Junction.movements`**, a field in both mirrors since the first commit that
+ * nothing had read.
+ *
+ * A movement is a *relation*, not an object on the canvas: it is minted by naming
+ * two links rather than by pointing at a place, the way {@link setLinkLanes} mints
+ * a `Lane`. So there is no tool, no gesture and no `Selection` arm — and nothing
+ * here touches `state.selection` (junction semantics §2.3).
+ *
+ * **The legality rule is topological, and that is the whole of it**: a `Link` is
+ * directed, so the approach is one that *ends* at the node and the exit one that
+ * *starts* there. Drawability is deliberately not checked — `legalMovements` skips
+ * an undrawable link so the picker never offers one, but a hand-edited document
+ * that carries the turn anyway is not corrected here (§2.4).
+ *
+ * **The id is the duplicate check.** `M_<from>_<to>` *is* the ordered pair, so one
+ * movement per pair falls out of an id lookup rather than a second predicate.
+ *
+ * `from_lanes`/`to_lanes` are left absent: a lane-pair matrix is a second editor
+ * and the schematic reads the same without it (§2.8, OQ-4). Every rejection returns
+ * `state` itself, so {@link recordHistory} records nothing.
+ */
+function addMovement(
+  state: EditorState,
+  nodeId: NodeId,
+  from: LinkId,
+  to: LinkId,
+): EditorState {
+  const { doc } = state;
+  const junction = findJunction(doc, nodeId);
+  if (!junction) return state;
+
+  const fromLink = findLink(doc, from);
+  const toLink = findLink(doc, to);
+  if (!fromLink || !toLink || from === to) return state;
+  if (fromLink.to_node !== nodeId || toLink.from_node !== nodeId) return state;
+
+  const id = movementId(from, to);
+  const movements = junction.movements ?? [];
+  if (movements.some((m) => m.id === id)) return state;
+
+  const movement: Movement = {
+    id,
+    from_link: from,
+    to_link: to,
+    type: movementKind(doc, nodeId, from, to),
+  };
+  return {
+    ...state,
+    doc: {
+      ...doc,
+      junctions: withMovements(doc.junctions, nodeId, [...movements, movement]),
+    },
+  };
+}
+
+/**
+ * Withdraw one permitted turn — the per-row button in the panel, **not** the Delete
+ * key: a movement is not selectable, so `deleteSelection` never sees one (§2.3).
+ *
+ * Deleting the last one leaves **no `movements` key at all**, per
+ * {@link withMovements}. A movement that is already gone returns `state` itself.
+ */
+function deleteMovement(
+  state: EditorState,
+  nodeId: NodeId,
+  id: MovementId,
+): EditorState {
+  const { doc } = state;
+  const movements = findJunction(doc, nodeId)?.movements;
+  if (!movements || !movements.some((m) => m.id === id)) return state;
+
+  return {
+    ...state,
+    doc: {
+      ...doc,
+      junctions: withMovements(
+        doc.junctions,
+        nodeId,
+        movements.filter((m) => m.id !== id),
+      ),
+    },
+  };
+}
+
+/**
+ * Re-categorise a turn by hand — the repair for the cases {@link movementKind}
+ * cannot classify: a link with no drawable polyline, and the degenerate bearings
+ * §2.4's bands assign by convention rather than by measurement.
+ *
+ * A movement already of that kind returns `state` by identity, which is what
+ * re-picking the current option in the row's dropdown does.
+ */
+function setMovementKind(
+  state: EditorState,
+  nodeId: NodeId,
+  id: MovementId,
+  kind: MovementKind,
+): EditorState {
+  const { doc } = state;
+  const movements = findJunction(doc, nodeId)?.movements;
+  if (!movements) return state;
+  const movement = movements.find((m) => m.id === id);
+  if (!movement || movement.type === kind) return state;
+
+  return {
+    ...state,
+    doc: {
+      ...doc,
+      junctions: withMovements(
+        doc.junctions,
+        nodeId,
+        movements.map((m) => (m.id === id ? { ...m, type: kind } : m)),
+      ),
+    },
+  };
+}
+
 function completeLink(state: EditorState, to: NodeId): EditorState {
   const { doc, linkFrom } = state;
   if (linkFrom === null || linkFrom === to) {
@@ -797,6 +968,39 @@ function clearSignLinks(signs: Sign[], gone: (link: LinkId) => boolean): Sign[] 
     if (!stranded(s)) return s;
     const { associated_link: _dropped, ...rest } = s;
     return rest;
+  });
+}
+
+/**
+ * `junctions` with every movement naming a link the caller says is `gone`
+ * **dropped**, and the **same array** back when none was.
+ *
+ * The third answer to "what happens to a decoration when its road goes", and it is
+ * {@link keepMarkings}'s rather than {@link clearSignLinks}'s: a `Marking` whose
+ * link is deleted would be invisible-but-saved, a `Sign` is free-standing and keeps
+ * standing, and a `Movement` naming a deleted link is not a degraded object but a
+ * **meaningless** one — a turn from nowhere to nowhere is not a turn (junction
+ * semantics §2.5).
+ *
+ * Structurally it is {@link clearSignLinks}, though, because it rewrites junctions
+ * rather than removing them: a `map` always returns a fresh array, so the identity
+ * has to be recovered by the **pre-check** rather than by a length comparison, or
+ * every link deletion in a document with a junction hands history a fresh
+ * `doc.junctions` for something nothing changed in. Untouched junctions keep their
+ * own identity too, and a junction left with no movements loses the key
+ * ({@link withMovements}'s rule, applied inline here since the id is not known).
+ */
+function dropMovements(
+  junctions: Junction[],
+  gone: (link: LinkId) => boolean,
+): Junction[] {
+  const stranded = (m: Movement) => gone(m.from_link) || gone(m.to_link);
+  if (!junctions.some((j) => j.movements?.some(stranded))) return junctions;
+  return junctions.map((j) => {
+    const kept = j.movements?.filter((m) => !stranded(m));
+    if (kept === undefined || kept.length === j.movements?.length) return j;
+    const { movements: _dropped, ...rest } = j;
+    return kept.length === 0 ? rest : { ...rest, movements: kept };
   });
 }
 
@@ -1142,6 +1346,11 @@ function setLinkAlign(
  * sign** (signs spec §2.5); one that vanished because an unrelated road went would
  * be the surprising behaviour. Both arms again, because the node arm drops every
  * incident link and so strands exactly the same reference.
+ *
+ * **A movement takes the marking's answer** ({@link dropMovements}): a turn from
+ * nowhere to nowhere is not a turn. Both arms once more — and unlike the two
+ * above, the node arm's job here is about *other* junctions, since the deleted
+ * node's own record goes whole.
  */
 function deleteSelection(state: EditorState): EditorState {
   const { doc, selection } = state;
@@ -1157,6 +1366,7 @@ function deleteSelection(state: EditorState): EditorState {
           ...doc,
           links: doc.links.filter((l) => l.id !== selection.id),
           layout: { ...doc.layout, links },
+          junctions: dropMovements(doc.junctions, (l) => l === selection.id),
           markings: keepMarkings(doc.markings, (m) => m.link !== selection.id),
           signs: clearSignLinks(doc.signs, (l) => l === selection.id),
         },
@@ -1218,7 +1428,14 @@ function deleteSelection(state: EditorState): EditorState {
           ...doc,
           nodes: doc.nodes.filter((n) => n.id !== id),
           links,
-          junctions: doc.junctions.filter((j) => j.node_id !== id),
+          // The node's own junction record goes; then the links it took with it
+          // are cleaned out of *other* junctions' movements — a neighbouring
+          // intersection can perfectly well permit a turn onto a road that ended
+          // here, and `dropped` is the set this arm already built.
+          junctions: dropMovements(
+            doc.junctions.filter((j) => j.node_id !== id),
+            (l) => dropped.has(l),
+          ),
           layout: {
             ...doc.layout,
             nodes: nodeViews,

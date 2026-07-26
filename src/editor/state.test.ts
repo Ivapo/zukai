@@ -1479,3 +1479,270 @@ describe("junction control and rule", () => {
     expect(next.doc.layout.junctions.N2.glyph).toBe("generic");
   });
 });
+
+/**
+ * The turns through a junction — the first thing ever to write
+ * `Junction.movements`, a field in both mirrors since the first commit that
+ * nothing had read (junction semantics §1, Phase 2).
+ */
+describe("junction movements", () => {
+  /**
+   * The spec's own fixture, built the way the app builds one: a **two-way** T,
+   * every arm an opposing pair of links.
+   *
+   * ```
+   *       N1 ⇄ N2 ⇄ N3     west arm   L1 (N1→N2) in,  L2 (N2→N1) out
+   *            ⇅           east arm   L3 (N2→N3) out, L4 (N3→N2) in
+   *            N4          south arm  L5 (N2→N4) out, L6 (N4→N2) in
+   * ```
+   *
+   * `N4` is a junction too, and carries a movement of its own — the *unrelated*
+   * record every cascade assertion below checks by reference.
+   */
+  function tee(): EditorState {
+    return run(
+      initialState(),
+      { type: "addNode", pos: { x: -100, y: 0 } },
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "addNode", pos: { x: 100, y: 0 } },
+      { type: "addNode", pos: { x: 0, y: 100 } },
+      { type: "startLink", from: "N1" },
+      { type: "completeLink", to: "N2" },
+      { type: "startLink", from: "N2" },
+      { type: "completeLink", to: "N1" },
+      { type: "startLink", from: "N2" },
+      { type: "completeLink", to: "N3" },
+      { type: "startLink", from: "N3" },
+      { type: "completeLink", to: "N2" },
+      { type: "startLink", from: "N2" },
+      { type: "completeLink", to: "N4" },
+      { type: "startLink", from: "N4" },
+      { type: "completeLink", to: "N2" },
+      { type: "setNodeKind", id: "N2", kind: "junction" },
+      { type: "setNodeKind", id: "N4", kind: "junction" },
+    );
+  }
+
+  /** The T with two turns permitted at `N2` and one at `N4`. */
+  function permitted(): EditorState {
+    return run(
+      tee(),
+      { type: "addMovement", id: "N2", from: "L1", to: "L3" },
+      { type: "addMovement", id: "N2", from: "L4", to: "L2" },
+      { type: "addMovement", id: "N4", from: "L5", to: "L6" },
+    );
+  }
+
+  it("mints a movement, classified, and is one undo step", () => {
+    const added = reducer(tee(), {
+      type: "addMovement",
+      id: "N2",
+      from: "L1",
+      to: "L3",
+    });
+
+    expect(findJunction(added.doc, "N2")!.movements).toEqual([
+      { id: "M_L1_L3", from_link: "L1", to_link: "L3", type: "through" },
+    ]);
+    expect(added.dirty).toBe(true);
+
+    // Absent, not `[]`: what serializes is the key (Rust elides an empty vec).
+    const back = reducer(added, { type: "undo" });
+    expect("movements" in findJunction(back.doc, "N2")!).toBe(false);
+  });
+
+  it("classifies each turn off the same approach for itself", () => {
+    const two = run(
+      tee(),
+      { type: "addMovement", id: "N2", from: "L1", to: "L3" },
+      { type: "addMovement", id: "N2", from: "L1", to: "L5" },
+      { type: "addMovement", id: "N2", from: "L1", to: "L2" },
+    );
+
+    // Arriving from the west: straight on, then the south arm, then back west.
+    expect(findJunction(two.doc, "N2")!.movements!.map((m) => m.type)).toEqual([
+      "through",
+      "right",
+      "u-turn",
+    ]);
+  });
+
+  it("re-kinds a movement by hand, one undo step, and no-ops on the same kind", () => {
+    const start = reducer(tee(), {
+      type: "addMovement",
+      id: "N2",
+      from: "L1",
+      to: "L3",
+    });
+    const turned = reducer(start, {
+      type: "setMovementKind",
+      id: "N2",
+      movement: "M_L1_L3",
+      kind: "left",
+    });
+
+    expect(turned.doc.junctions[0].movements![0].type).toBe("left");
+    expect(reducer(turned, { type: "undo" }).doc.junctions[0].movements![0].type).toBe(
+      "through",
+    );
+
+    // Re-picking the option already showing must not push a snapshot.
+    const again = reducer(turned, {
+      type: "setMovementKind",
+      id: "N2",
+      movement: "M_L1_L3",
+      kind: "left",
+    });
+    expect(again.doc).toBe(turned.doc);
+  });
+
+  it("deletes one movement, and the last one takes the key with it", () => {
+    const two = run(
+      tee(),
+      { type: "addMovement", id: "N2", from: "L1", to: "L3" },
+      { type: "addMovement", id: "N2", from: "L1", to: "L5" },
+    );
+
+    const one = reducer(two, {
+      type: "deleteMovement",
+      id: "N2",
+      movement: "M_L1_L3",
+    });
+    expect(one.doc.junctions[0].movements!.map((m) => m.id)).toEqual(["M_L1_L5"]);
+
+    const none = reducer(one, {
+      type: "deleteMovement",
+      id: "N2",
+      movement: "M_L1_L5",
+    });
+    expect("movements" in none.doc.junctions[0]).toBe(false);
+
+    // Each deletion is its own undo step.
+    expect(reducer(none, { type: "undo" }).doc.junctions[0].movements).toHaveLength(1);
+  });
+
+  /**
+   * Every rejection returns `doc` **by identity**, or `recordHistory` pushes a
+   * snapshot for a document nothing changed in (`rules/history.md`).
+   *
+   * The duplicate check is an **id lookup**, which works because `M_<from>_<to>`
+   * *is* the ordered pair — one movement per pair falls out of it rather than
+   * needing a second predicate.
+   */
+  it("refuses a duplicate pair, an illegal pair, and a junction that is not there", () => {
+    const start = reducer(tee(), {
+      type: "addMovement",
+      id: "N2",
+      from: "L1",
+      to: "L3",
+    });
+
+    for (const action of [
+      // The same ordered pair again.
+      { type: "addMovement", id: "N2", from: "L1", to: "L3" },
+      // Arriving→arriving: L4 ends at N2, so it is no exit.
+      { type: "addMovement", id: "N2", from: "L1", to: "L4" },
+      // Leaving→leaving: L3 starts at N2, so it is no approach.
+      { type: "addMovement", id: "N2", from: "L3", to: "L5" },
+      // A link the document does not have, and one that misses the node.
+      { type: "addMovement", id: "N2", from: "L1", to: "L9" },
+      { type: "addMovement", id: "N1", from: "L1", to: "L3" },
+      // A movement that is already gone, and a kind for one that never was.
+      { type: "deleteMovement", id: "N2", movement: "M_L1_L5" },
+      { type: "setMovementKind", id: "N4", movement: "M_L1_L3", kind: "left" },
+    ] as Action[]) {
+      const next = reducer(start, action);
+      expect(next.doc).toBe(start.doc);
+    }
+  });
+
+  /**
+   * **A turn from nowhere to nowhere is not a turn**, so a movement takes the
+   * marking's cascade answer rather than the sign's (§2.5) — and it has to be in
+   * *both* delete arms, because a movement is stranded as readily by the node that
+   * took a road away as by the road itself.
+   */
+  describe("a movement does not outlive the roads it names", () => {
+    it("goes with the link it exits by", () => {
+      const start = permitted();
+      const gone = run(
+        start,
+        { type: "select", selection: { kind: "link", id: "L3" } },
+        { type: "deleteSelection" },
+      );
+
+      expect(findJunction(gone.doc, "N2")!.movements!.map((m) => m.id)).toEqual([
+        "M_L4_L2",
+      ]);
+      // The junction the deleted road never reached is the *same object*, not an
+      // equal one: `clearSignLinks`' lesson, which no behavioural test can see.
+      expect(findJunction(gone.doc, "N4")).toBe(findJunction(start.doc, "N4"));
+    });
+
+    it("goes with the link it arrives by", () => {
+      const gone = run(
+        permitted(),
+        { type: "select", selection: { kind: "link", id: "L4" } },
+        { type: "deleteSelection" },
+      );
+
+      expect(findJunction(gone.doc, "N2")!.movements!.map((m) => m.id)).toEqual([
+        "M_L1_L3",
+      ]);
+    });
+
+    /**
+     * The other half of the identity rule: deleting a road no movement names must
+     * hand history the **same** `junctions` array, not an equal one. A cascade
+     * written as an unconditional `map` passes every assertion above while
+     * rebuilding the array on every link deletion in the document.
+     */
+    it("leaves the junctions array itself alone when nothing is stranded", () => {
+      const start = run(tee(), {
+        type: "addMovement",
+        id: "N4",
+        from: "L5",
+        to: "L6",
+      });
+      const gone = run(
+        start,
+        { type: "select", selection: { kind: "link", id: "L3" } },
+        { type: "deleteSelection" },
+      );
+
+      expect(gone.doc).not.toBe(start.doc);
+      expect(gone.doc.junctions).toBe(start.doc.junctions);
+    });
+
+    it("goes with a node whose deletion takes its links with it", () => {
+      const start = permitted();
+      const gone = run(
+        start,
+        { type: "select", selection: { kind: "node", id: "N3" } },
+        { type: "deleteSelection" },
+      );
+
+      // N3 took the whole east arm — L3 and L4 — and both movements with it, so
+      // the emptied list leaves no key behind.
+      expect("movements" in findJunction(gone.doc, "N2")!).toBe(false);
+      expect(findJunction(gone.doc, "N4")).toBe(findJunction(start.doc, "N4"));
+    });
+
+    /**
+     * The node arm's own job, and the reason it needs the cascade at all: the
+     * deleted node's junction record goes whole, but a *neighbouring* junction can
+     * perfectly well permit a turn onto a road that ended here.
+     */
+    it("cleans a neighbour's movements when the node they run through goes", () => {
+      const gone = run(
+        permitted(),
+        { type: "select", selection: { kind: "node", id: "N2" } },
+        { type: "deleteSelection" },
+      );
+
+      expect(findJunction(gone.doc, "N2")).toBeUndefined();
+      // N4's own u-turn named L5 and L6, both incident to the node just deleted.
+      expect("movements" in findJunction(gone.doc, "N4")!).toBe(false);
+    });
+  });
+});

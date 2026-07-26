@@ -1,6 +1,6 @@
 /** Right panel: properties of the current selection, or a getting-started hint. */
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   findJunction,
   findLink,
@@ -24,7 +24,10 @@ import {
   Marking,
   MarkingId,
   MarkingKind,
+  Movement,
+  MovementKind,
   Node,
+  NodeId,
   NodeKind,
   Sign,
   SignId,
@@ -32,6 +35,7 @@ import {
   TurnDirection,
   UnsignalizedRule,
 } from "../model/types";
+import { legalMovements, movementId, MovementPair } from "../editor/geometry";
 import { Action, EditorState } from "../editor/state";
 
 interface InspectorProps {
@@ -208,6 +212,23 @@ const RULES: { value: UnsignalizedRule | undefined; label: string }[] = [
   { value: "priority", label: "Priority" },
   { value: "priority_right", label: "Priority right" },
   { value: "all_way_stop", label: "All-way stop" },
+];
+/**
+ * What a turn is called. **Not** `TURN_DIRECTIONS`, which looks similar and is a
+ * different vocabulary: that one belongs to a *painted arrow*, spells its u-turn
+ * `u_turn`, and carries two slight-turn values the semantic model has no room for.
+ * This one is `MovementKind`, whose hyphenated `"u-turn"` is Assimilator's own
+ * spelling on the wire and must not be "fixed" (junction semantics §2.6).
+ *
+ * A `<select>` rather than a segmented row, on `LaneKinds`' discriminator: there is
+ * one of these per movement and a junction can carry a dozen, so four buttons a row
+ * would make the panel a wall.
+ */
+const MOVEMENT_KINDS: { value: MovementKind; label: string }[] = [
+  { value: "through", label: "Through" },
+  { value: "left", label: "Left" },
+  { value: "right", label: "Right" },
+  { value: "u-turn", label: "U-turn" },
 ];
 
 export function Inspector({ state, dispatch }: InspectorProps) {
@@ -1037,6 +1058,10 @@ function LaneKinds({
  *
  * Rule is withheld again while signalized, because `Junction.rule` is `None` when
  * `control` is `signal`; `setJunctionControl` is what clears it on the way in.
+ *
+ * Movements join them above the glyph, and this panel is a movement's **only**
+ * home: it is a relation between two links rather than an object on the canvas, so
+ * it is created by naming them and never by pointing at a place (§2.3).
  */
 function JunctionFields({
   node,
@@ -1051,6 +1076,18 @@ function JunctionFields({
   const view = state.doc.layout.junctions[node.id];
   const glyph = view?.glyph ?? "generic";
   const scale = view?.scale ?? 1;
+  const movements = junction?.movements ?? [];
+  // What is left to offer. `legalMovements` answers "what does the model allow
+  // here"; subtracting what the junction already permits is the *panel's*
+  // question, and keeps the pickers from offering a pair whose Add would no-op.
+  // The set is keyed on `movementId` rather than on the pair, because that id **is**
+  // the pair — the one place both halves of that claim meet.
+  const taken = new Set(movements.map((m) => m.id));
+  const addable = junction
+    ? legalMovements(state.doc, node.id).filter(
+        (p) => !taken.has(movementId(p.from, p.to)),
+      )
+    : [];
   return (
     <>
       {junction && (
@@ -1097,6 +1134,35 @@ function JunctionFields({
         </Field>
       )}
 
+      {junction && (
+        <Field label="Movements">
+          {movements.length === 0 ? (
+            <div className="readout">None</div>
+          ) : (
+            <MovementRows
+              node={node.id}
+              movements={movements}
+              dispatch={dispatch}
+            />
+          )}
+        </Field>
+      )}
+
+      {addable.length > 0 && (
+        <Field label="Add movement">
+          {/* Keyed on the node so the two picks reset when another junction is
+              selected, rather than carrying a link id that belongs to the last
+              one. The values are derived against the live options as well, so a
+              stale pick is inert even without the remount. */}
+          <MovementAdd
+            key={node.id}
+            node={node.id}
+            pairs={addable}
+            dispatch={dispatch}
+          />
+        </Field>
+      )}
+
       <Field label="Glyph">
         <div className="segmented segmented-wrap">
           {GLYPHS.map((g) => (
@@ -1135,6 +1201,150 @@ function JunctionFields({
         </div>
       </Field>
     </>
+  );
+}
+
+/**
+ * The turns this junction permits, one row apiece: which pair, what kind of turn,
+ * and a way to withdraw it.
+ *
+ * `LaneKinds`' row idiom, and the delete button is **per row** rather than the
+ * Delete key: a movement has no canvas presence to select, so `deleteSelection`
+ * never sees one and this is the only way to remove it (§2.3).
+ *
+ * The pair is shown as link ids because that is what a movement *is*. The kind is
+ * editable rather than reported: `movementKind` classifies from the drawn bearings
+ * and cannot classify a link the document does not draw, so the row is the repair.
+ */
+function MovementRows({
+  node,
+  movements,
+  dispatch,
+}: {
+  node: NodeId;
+  movements: Movement[];
+  dispatch: (action: Action) => void;
+}) {
+  return (
+    <div className="movements">
+      {movements.map((m) => (
+        <div className="movement-row" key={m.id}>
+          <span className="movement-pair">
+            {m.from_link}
+            <span className="arrow">→</span>
+            {m.to_link}
+          </span>
+          <select
+            className="movement-kind-select"
+            value={m.type}
+            onChange={(e) =>
+              dispatch({
+                type: "setMovementKind",
+                id: node,
+                movement: m.id,
+                kind: e.target.value as MovementKind,
+              })
+            }
+          >
+            {MOVEMENT_KINDS.map((k) => (
+              <option key={k.value} value={k.value}>
+                {k.label}
+              </option>
+            ))}
+          </select>
+          <button
+            className="movement-del"
+            title={`Remove ${m.id}`}
+            onClick={() =>
+              dispatch({ type: "deleteMovement", id: node, movement: m.id })
+            }
+          >
+            ×
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The one control in the panel that holds state of its own: two link pickers and
+ * the button that turns them into a movement.
+ *
+ * A movement needs *two* names before it is anything, so unlike every other
+ * control here it cannot dispatch on change — the half-made pair has to live
+ * somewhere until the second pick, and that somewhere is `useState`.
+ *
+ * **Both values are derived against the live options rather than corrected by an
+ * effect.** `pairs` shrinks as movements are added and changes wholesale when a
+ * different junction is selected, so a pick that was legal a render ago may not be
+ * one now; reading it back through `includes` makes a stale pick simply inactive,
+ * and leaves the Add button correctly disabled. The exit picker offers only what
+ * pairs with the chosen approach, which is why an arriving→arriving turn cannot be
+ * asked for at all.
+ *
+ * The approach survives an add, because permitting several turns off one approach
+ * is the common case; the exit is cleared, since the pair just added is gone from
+ * `pairs` anyway.
+ */
+function MovementAdd({
+  node,
+  pairs,
+  dispatch,
+}: {
+  node: NodeId;
+  pairs: MovementPair[];
+  dispatch: (action: Action) => void;
+}) {
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+
+  const arriving = [...new Set(pairs.map((p) => p.from))];
+  const fromValue = arriving.includes(from) ? from : "";
+  const leaving = pairs.filter((p) => p.from === fromValue).map((p) => p.to);
+  const toValue = leaving.includes(to) ? to : "";
+
+  return (
+    <div className="movement-add">
+      <div className="movement-add-row">
+        <select
+          className="movement-link-select"
+          value={fromValue}
+          onChange={(e) => setFrom(e.target.value)}
+        >
+          <option value="">From…</option>
+          {arriving.map((l) => (
+            <option key={l} value={l}>
+              {l}
+            </option>
+          ))}
+        </select>
+        <span className="arrow">→</span>
+        <select
+          className="movement-link-select"
+          value={toValue}
+          disabled={fromValue === ""}
+          onChange={(e) => setTo(e.target.value)}
+        >
+          <option value="">To…</option>
+          {leaving.map((l) => (
+            <option key={l} value={l}>
+              {l}
+            </option>
+          ))}
+        </select>
+      </div>
+      <button
+        className="movement-add-btn"
+        disabled={toValue === ""}
+        onClick={() => {
+          dispatch({ type: "addMovement", id: node, from: fromValue, to: toValue });
+          setTo("");
+        }}
+      >
+        Add movement
+      </button>
+    </div>
   );
 }
 

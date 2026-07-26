@@ -1,9 +1,9 @@
 ---
-status: Phase 1 shipped 2026-07-26; Phase 2 next (reviewed, converged in 2 rounds)
+status: Phases 1–2 shipped 2026-07-26; Phase 3 next (reviewed, converged in 2 rounds)
 last_updated: 2026-07-26
 note: Make a junction *mean* something — control, right-of-way rule, and the turn movements through it. The semantic half of the thing the glyph has been drawing since the first commit.
-implemented: ["Phase 1"]
-not_implemented: ["Phase 2", "Phase 3", "Phase 4"]
+implemented: ["Phase 1", "Phase 2"]
+not_implemented: ["Phase 3", "Phase 4"]
 related: [specs/ramps_and_tapers_spec.md, specs/road_markings_spec.md, specs/signs_and_text_spec.md]
 reference: "Assimilator's `network.yaml` `junctions` block — `control`, `rule`, `movements`, `signal_plan` — which `graph.rs` already mirrors field for field. Explicitly *not* Assimilator's simulation-only per-junction detail (`conflict_pairs`, `collision_avoidance`, `gap_acceptance`), which `graph.rs:11-15` records as deliberately omitted."
 ---
@@ -505,6 +505,45 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
     one, undo it back.
 - **Docs touched:** the Phase 1 rule file; `rules/history.md` only if any control
   here coalesces (none is expected — every one is a deliberate click).
+- **As built (2026-07-26)** — the phase landed as scoped: three actions, two pure
+  functions, two panel rows, and the cascade in both delete arms. Nothing coalesces,
+  so `rules/history.md` needed nothing, as predicted. Five decisions the scope line
+  left open, and one assertion the gate did not ask for:
+  - **`legalMovements` also excludes a link paired with *itself*.** §2.4's rule
+    ("`to_node === N`" and "`from_node === N`") admits the self-loop pair `(L, L)`,
+    which is not a turn. `completeLink` refuses to draw a self-loop, so only a
+    hand-edited file can hold one — the same degenerate link `carriageways` already
+    excludes from a carriageway pair, and the guard is copied from there.
+    `addMovement` rejects `from === to` for the same reason.
+  - **An empty `movements` is stored as an absent key**, in one place
+    (`withMovements`), because Rust elides an empty vec — the one-representation
+    rule `rule` already follows a phase earlier. Deleting the last movement and a
+    cascade that strands every one both leave no key behind. The spec did not say,
+    and `[]` would have been a second encoding of the same document.
+  - **Both pure functions compute `carriageways(doc)` themselves**, which keeps
+    §2.7's 4-argument signature and spares `state.ts` a second derivation. Every
+    other geometry entry point takes `offsets` from its caller; these two are called
+    from the reducer and the panel rather than from a render pass that already has
+    them.
+  - **The panel subtracts what is already permitted from what `legalMovements`
+    offers.** The function answers what the *model* allows; what is left to add is
+    the panel's question. It also keys that `Set` on `movementId`, which is the one
+    place both halves of "the id is the pair" meet.
+  - **`MovementAdd` is the panel's first `useState`** — unavoidable, and worth
+    naming: a movement needs two names before it is anything, so it is the only
+    control here that cannot dispatch on change. Both picks are *derived* against
+    the live options rather than reset by an effect, so a pick a later render made
+    illegal is inert.
+  - **One assertion beyond the gate**: deleting a link that **no** movement names
+    leaves `doc.junctions` identical **by reference**. The gate asks for the
+    unrelated-junction case, which a `map` with a per-junction early return already
+    passes; only this one fails a cascade written without `clearSignLinks`'
+    pre-check, and that is the bug the pre-check exists for.
+  - The dev pass ran on §1's T built through the UI. Recorded because two of its
+    results are the phase's real proof: after picking `L1` the exit picker offered
+    exactly `L2`, `L3`, `L5` — the u-turn among them and no arriving link — and the
+    two rows read `L1 → L3 Through` and `L1 → L5 Right`, the named turns on named
+    bearings, live.
 
 ### Phase 3 — Movements drawn through the junction  (depends on Phase 2)
 

@@ -8,10 +8,11 @@ nothing here crosses IPC on new terms, reaches disk in a new shape, or moves
 `SCHEMA_VERSION` (still **2**). The design rationale lives in
 `specs/junction_semantics_spec.md`; hand-maintained.
 
-**Build state: Phase 1 of 4.** `control` and `rule` are written and read.
-`Junction.movements` and `Junction.signal_plan` are still what they have always
-been — **fields nothing reads**. Do not treat their presence in
-`src/model/types.ts` as evidence anything consumes them.
+**Build state: Phase 2 of 4.** `control`, `rule` and `movements` are written and
+read; **nothing draws a movement yet** (Phase 3). `Junction.signal_plan` is still
+what it has always been — **a field nothing reads** — and so are `Movement`'s
+`from_lanes`/`to_lanes`. Do not treat their presence in `src/model/types.ts` as
+evidence anything consumes them.
 
 ## The three parts of a junction, and which layer owns each
 
@@ -81,15 +82,22 @@ and leave the control unsignalized. The nudge makes the common case correct with
 nothing to read; it does not make the contradiction unrepresentable, because
 representing it is sometimes right.
 
-## The two actions
+## The five actions
 
 | Action | Shape it copies | Note |
 |---|---|---|
 | `setJunctionControl(id, control)` | `setMarkingKind` (guard) + `setJunctionView` (the nudge) | clears `rule` going to `signal`; moves a default glyph |
 | `setJunctionRule(id, rule?)` | `setSignLink` | `rule` absent clears the key |
+| `addMovement(id, from, to)` | `setLinkLanes` (minted from the panel, not a gesture) | mints `M_<from>_<to>`, classified by `movementKind` |
+| `deleteMovement(id, movement)` | — | the last one takes the `movements` key with it |
+| `setMovementKind(id, movement, kind)` | `setLaneKind` | the hand override |
 
-Both are **deliberate clicks**, so neither appears in `coalesceKeyFor` and each is
+All five are **deliberate clicks**, so none appears in `coalesceKeyFor` and each is
 its own undo step (`rules/history.md`).
+
+The three movement actions take the **junction node** as `id` and the movement as a
+second field — `setLaneKind`'s shape, because a movement lives inside a `Junction`
+the way a lane lives inside a `Link`.
 
 **`rule` is an absent key, never `undefined`** — the one-representation rule
 `Lane.kind`, `LinkView.align`, `Marking.lane` and `Sign.associated_link` all
@@ -126,6 +134,104 @@ Each action returns `state` **itself** when there is nothing to do, so
 `state.test.ts` asserts both by reference. Neither is visible behaviourally: the
 cost of getting it wrong is an undo step that undoes nothing.
 
+## A movement is a relation, not an object on the canvas
+
+Both prior decoration specs answered "how is one placed?" with a pointer gesture —
+`addMarking` projects a click onto a road, `addSign` drops one where the pointer is.
+**A movement has no such question**: it is a pair of links already in the document,
+so it is created by *naming* them. Three consequences, and they are why this
+subsystem is *smaller* than markings and signs rather than larger:
+
+- **No tool, no `TOOL_KEYS` entry, no canvas gesture.** The junction panel is a
+  movement's only home, the way a `Lane` is minted by the Lanes stepper and never by
+  pointing at anything.
+- **No fifth `Selection` arm.** A movement is selected the way a lane is: by being a
+  row in the panel of the thing that owns it. So `deleteSelection` never sees one,
+  the Delete key does nothing to one, and **delete is a per-row button**.
+- **Every write is a nested update.** `doc.junctions` is an array searched by
+  `node_id` and a movement lives inside one, so all three actions go through
+  `withMovements`, which rewrites exactly one `Junction`.
+
+### The id *is* the pair
+
+`movementId(from, to)` is `` `M_${from}_${to}` `` — `M_L1_L3`, `graph.rs`'s own
+documented example. Not a `nextId` mint: that helper parses a **numeric** suffix so
+it could not produce this shape, and `M1` already means a marking.
+
+That is load-bearing rather than cosmetic. **The uniqueness rule is one movement per
+ordered pair**, so `addMovement`'s duplicate check is an id lookup rather than a
+second predicate, the panel subtracts what is already permitted from what
+`legalMovements` offers by keying a `Set` on it, and Phase 4's Derive will match a
+hand-added movement the same way.
+
+The cost, accepted: a hand-edited file naming the same pair under a different id
+gets a second movement for it. Nothing the app can produce reaches that state.
+
+### Direction is real, and the drawn arms deliberately do not carry it
+
+A `Link` is **directed**, so a movement through node `N` is well defined:
+`from_link` ends at `N` (traffic arriving) and `to_link` starts there (traffic
+leaving). That is the whole legality rule, it is pure, and it is what
+`legalMovements(doc, nodeId)` returns every ordered pair of — **u-turns included**,
+because the picker offers everything the model can express and it is Phase 4's
+Derive that will decline to mint one. A link with no drawable polyline is skipped
+(the picker must not offer a turn the drawing cannot show); a self-loop is not
+paired with itself, on `carriageways`' precedent for the same degenerate link.
+
+`movementKind(doc, nodeId, from, to)` classifies, in this order:
+
+1. **the topological u-turn**: `from.from_node === to.to_node` is exactly "leaves
+   back down the road it arrived on". No geometry — and running it *first* is what
+   spares the angular bands a `left`/`u-turn` boundary, since a ~180° pair either is
+   one of these or genuinely is not a u-turn.
+2. the bands, off the **drawn** polylines: `dot > cos 45°` is `through`, then
+   positive `cross` is `right` and everything else is `left`.
+
+**Positive cross is a *right* turn** because SVG's y grows downward — `DRIVE_SIDE`'s
+trap in the other subsystem. Getting it backwards is self-consistent and would pass
+a test written from the same wrong premise, which is why `geometry.test.ts` pins
+*named* turns on *named* bearings, on two different axes.
+
+`armDirection` is `junctionArms`' body for one link, and points **away** from the
+node whichever way its traffic runs — so travel *into* the junction is the negation
+of the approach's arm. The drawn arms cannot supply the direction themselves and
+that is by design: `gorePair` needs a symmetric geometric frame, so an `Arm` carries
+no incoming/outgoing information at all. The arm supplies position; the model
+supplies direction.
+
+`movementKind` is **total**: an unknown link, one that misses the node, and one with
+no drawable polyline all fall back to `through`, which the row's dropdown repairs.
+
+### The third cascade answer
+
+Deleting a link has now needed a different answer three times:
+
+| Owner | Deleting its link | Where |
+|---|---|---|
+| `Marking` | **drops it** — nothing draws a marking whose road is gone | `keepMarkings` |
+| `Sign` | **clears `associated_link`, keeps the sign** — a sign is free-standing | `clearSignLinks` |
+| `Movement` | **drops it** — a turn from nowhere to nowhere is not a turn | `dropMovements` |
+
+So a movement takes the marking's answer, for the marking's reason. Structurally,
+though, it is `clearSignLinks`: it *rewrites* junctions rather than removing them, so
+a `map` always returns a fresh array and **the identity has to be recovered by a
+pre-check**, not by a length comparison. Without it every link deletion in a document
+with a junction hands history a fresh `doc.junctions` for something nothing changed
+in.
+
+Both delete arms need it, and the node arm's job is about **other** junctions: the
+deleted node's own record goes whole, and then the `dropped` set that arm already
+builds cleans its incident links out of any neighbour that permitted a turn onto
+one.
+
+### An empty list is an absent key
+
+`withMovements` states it once: `movements: []` is never stored. Rust elides an
+empty vec (`skip_serializing_if = "Vec::is_empty"`), so the two encodings save to
+the same bytes while differing by document identity — the one-representation rule
+`rule`, `lane` and `associated_link` all follow. Deleting the last movement, and a
+cascade that strands every one, both leave no key behind.
+
 ## The panel
 
 `JunctionFields` (`components/Inspector.tsx`) renders, in this order:
@@ -134,7 +240,9 @@ cost of getting it wrong is an undo step that undoes nothing.
    record exists;
 2. **Rule** — `segmented segmented-wrap segmented-labels segmented-rules`
    (`RULES`, "None" first), only while `control === "unsignalized"`;
-3. **Glyph**, 4. **Size** — as before.
+3. **Movements** — `MovementRows`, or a `.readout` reading `None`;
+4. **Add movement** — `MovementAdd`, only while some legal pair is unclaimed;
+5. **Glyph**, 6. **Size** — as before.
 
 Semantics above presentation, which also puts the nudge's cause above its visible
 effect. `segmented-labels` is load-bearing: `.seg` sets
@@ -143,9 +251,24 @@ effect. `segmented-labels` is load-bearing: `.seg` sets
 `RULES` is a segmented row rather than `SignLink`'s `<select>` because the
 discriminator that control's own comment gives is *where the options come from* —
 its option count is the document's (every link in the file), this one's is the
-vocabulary's (three rules and the absence of one).
+vocabulary's (three rules and the absence of one). `MOVEMENT_KINDS` is a `<select>`
+by the same discriminator turned the other way: there is one per movement and a
+junction can carry a dozen, so four buttons a row would make the panel a wall.
 
-There is no test file for the Inspector; both rows are a `bun run dev` check.
+**What the pickers offer is the panel's question, not the model's.**
+`legalMovements` answers "what does the model allow here"; `JunctionFields`
+subtracts the pairs already permitted, so Add never offers one whose dispatch would
+no-op, and the exit picker offers only what pairs with the chosen approach — which
+is why an arriving→arriving turn cannot be asked for at all.
+
+**`MovementAdd` holds the panel's only local state**, and it has to: a movement
+needs *two* names before it is anything, so unlike every other control here it
+cannot dispatch on change. Both picks are **derived against the live options**
+(`arriving.includes(from)`) rather than corrected by an effect, so a pick that a
+later render made illegal is simply inactive; the component is keyed on the node id
+as well, so switching junctions resets it outright.
+
+There is no test file for the Inspector; every row here is a `bun run dev` check.
 
 ## Where each piece lives
 
@@ -153,26 +276,43 @@ There is no test file for the Inspector; both rows are a `bun run dev` check.
 |---|---|
 | `findJunction` | `src/model/document.ts` |
 | `setJunctionControl`, `setJunctionRule`, `nudgedGlyph` | `src/editor/state.ts` |
-| `CONTROLS`, `RULES`, `JunctionFields` | `src/components/Inspector.tsx` |
-| `.segmented-rules` | `src/styles.css` (chrome — **not** `src/styles/diagram.css`; nothing here reaches an export) |
+| `addMovement`, `deleteMovement`, `setMovementKind`, `withMovements`, `dropMovements` | `src/editor/state.ts` |
+| `movementId`, `movementKind`, `legalMovements`, `armDirection` | `src/editor/geometry.ts` |
+| `CONTROLS`, `RULES`, `MOVEMENT_KINDS`, `JunctionFields`, `MovementRows`, `MovementAdd` | `src/components/Inspector.tsx` |
+| `.segmented-rules`, `.movement-*` | `src/styles.css` (chrome — **not** `src/styles/diagram.css`; nothing here reaches an export) |
 | The glyphs themselves | `JunctionGlyphShape`, `src/components/Diagram.tsx` — see `rules/road-rendering.md` for the arms and the pad |
 
-## Still unbuilt (spec Phases 2–4)
+## The two turn vocabularies, and the hyphen between them
 
-Movements — `addMovement`/`deleteMovement`/`setMovementKind`/`deriveMovements`,
-`legalMovements`/`movementKind`/`movementArc`, the Movements list in the panel,
-and arcs drawn **inside** `JunctionGlyphShape` (never as a sibling layer:
-`.jn-pad` is opaque asphalt and would paint over them). Signal plans are cut
-entirely and deferred to a follow-up spec — a fixed-time plan is a table, not a
-picture.
+There are **two** enumerations of a turn in the project, they are not the same, and
+the difference is one character:
 
-Two things the spec settles ahead of that work, worth knowing before touching
-`Movement`:
+| | Values | Where |
+|---|---|---|
+| `MovementKind` | `through`, `left`, `right`, **`u-turn`** | semantics; Rust `#[serde(rename = "u-turn")]` |
+| `TurnDirection` | `through`, `left`, `right`, `slight_left`, `slight_right`, **`u_turn`** | a *painted arrow* — decoration |
 
-- **`MovementKind` spells its u-turn `"u-turn"` with a hyphen**, because that is
-  Assimilator's spelling on the wire. `TurnDirection` — a *painted arrow*, pure
-  decoration — spells its own `"u_turn"`, and has two values (`slight_left`,
-  `slight_right`) the semantic model has no room for. The two vocabularies stay
-  separate, and deriving one from the other is a named non-goal.
-- **A movement id is `M_<from>_<to>`** (`M_L1_L3`), not a `nextId` mint — that
-  helper parses a numeric suffix, and `M1` already means a marking.
+`MovementKind`'s hyphen is **Assimilator's spelling and must not be "fixed"** — it
+is what the `network.yaml` carries. `TurnDirection`'s underscore is Zukai's own, has
+two values the semantic model has no room for, and belongs to `MarkingKind`. They
+stay separate: deriving a lane's turn arrow from the movements that use it is a
+named non-goal, because a painted arrow is a human's decoration rather than a
+derivation.
+
+## Still unbuilt (spec Phases 3–4)
+
+- **Phase 3 — the drawing.** `movementArc` in `geometry.ts` and a `MovementShape`
+  rendered **inside `JunctionGlyphShape`**, never as a sibling layer: `.jn-pad` is
+  opaque asphalt and would paint over the arcs while every source-order assertion
+  still passed. Drawn from the two arms found **by link id** (`Arm.id`), never from
+  an arm's direction.
+- **Phase 4 — `deriveMovements`.** `legalMovements` **less the u-turn pairs**,
+  classified through `movementKind`, added as one undoable action and **merging
+  rather than replacing** — matched by ordered pair, which its id already is.
+- **Signal plans are cut entirely** and deferred to a follow-up spec: a fixed-time
+  plan is a table, not a picture, and the one drawable part (which movements share a
+  stage) needed movements to exist first.
+- **`Movement.from_lanes`/`to_lanes` stay empty.** Assimilator accepts that
+  ("empty for a movement with no lane detail"), and a lane-pair matrix at a 4-arm
+  junction is a large editor for something the schematic does not show. Likely
+  wanted by the export spec rather than by this one.

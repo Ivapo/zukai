@@ -18,6 +18,9 @@ import {
   LinkStyle,
   LineStyle,
   Marking,
+  MovementId,
+  MovementKind,
+  NodeId,
   SignKind,
   TurnDirection,
   Vec2,
@@ -1855,4 +1858,143 @@ export function polygonsPath(polygons: Vec2[][]): string {
  */
 export function polylinesPath(lines: Vec2[][]): string {
   return lines.map((l) => polylinePath(l)).join(" ");
+}
+
+/**
+ * A movement's id: **the ordered pair it is**, spelled `M_<from>_<to>` — which is
+ * `graph.rs`'s own documented example, `M_L1_L3`.
+ *
+ * Not a `nextId` mint, for two reasons pointing the same way: that helper parses a
+ * **numeric** suffix and so could not produce this shape, and the `M` prefix
+ * already belongs to markings — an `M1` meaning a movement in one file and a
+ * marking in another is a reading hazard even though the two ids live in separate
+ * namespaces (junction semantics OQ-6).
+ *
+ * The pair *being* the id is load-bearing downstream: it makes `addMovement`'s
+ * duplicate check an id lookup rather than a second predicate, and it is what
+ * Phase 4's Derive will match a hand-added movement on.
+ */
+export function movementId(from: LinkId, to: LinkId): MovementId {
+  return `M_${from}_${to}`;
+}
+
+/** An ordered (arriving, leaving) pair of links at one junction node. */
+export interface MovementPair {
+  from: LinkId;
+  to: LinkId;
+}
+
+/**
+ * The unit direction a link leaves `nodeId` in, **as drawn** — `junctionArms`'
+ * body for a single link, so the two cannot come to disagree about where a road
+ * runs. `undefined` for a link that does not touch the node, or one with no
+ * drawable polyline.
+ *
+ * Away from the node whichever way its traffic runs, which is the frame
+ * {@link movementKind} negates for the arriving side.
+ */
+function armDirection(
+  doc: Document,
+  link: Link,
+  nodeId: NodeId,
+  offsets: Record<LinkId, number>,
+): Vec2 | undefined {
+  const atStart = link.from_node === nodeId;
+  if (!atStart && link.to_node !== nodeId) return undefined;
+  const poly = drawnPolyline(doc, link, offsets);
+  if (!poly || poly.length < 2) return undefined;
+  const [n0, n1] = atStart
+    ? [poly[0], poly[1]]
+    : [poly[poly.length - 1], poly[poly.length - 2]];
+  const dx = n1.x - n0.x;
+  const dy = n1.y - n0.y;
+  const len = Math.hypot(dx, dy) || 1;
+  return { x: dx / len, y: dy / len };
+}
+
+/** cos 45°: the half-width of the `through` band, in dot-product form. */
+const THROUGH_COS = Math.SQRT1_2;
+
+/**
+ * Which kind of turn a movement is — the classification `addMovement` stores and
+ * `setMovementKind` overrides (junction semantics §2.4).
+ *
+ * **The topological test runs first, and buys more than it costs.** A u-turn is
+ * exactly `from.from_node === to.to_node` — "leaves back down the road it arrived
+ * on" — which needs no geometry at all; and taking it first is what spares the
+ * angular bands below a `left`/`u-turn` boundary, because a ~180° pair either *is*
+ * topologically a u-turn or genuinely is not one.
+ *
+ * **Positive cross is a *right* turn**, and the sign is not the obvious one: SVG's
+ * y axis points down, so rotating `(1, 0)` towards `(0, 1)` is clockwise on screen.
+ * Getting it backwards is self-consistent and would pass a test written from the
+ * same wrong premise, which is why `geometry.test.ts` pins *named* turns on *named*
+ * bearings. Same trap {@link DRIVE_SIDE} spends four lines on.
+ *
+ * Total by construction: an unknown link, one that does not touch the node, and one
+ * with no drawable polyline all fall back to `through` — the case a hand-edited
+ * document reaches and `setMovementKind` repairs.
+ */
+export function movementKind(
+  doc: Document,
+  nodeId: NodeId,
+  from: LinkId,
+  to: LinkId,
+): MovementKind {
+  const fromLink = findLink(doc, from);
+  const toLink = findLink(doc, to);
+  if (!fromLink || !toLink) return "through";
+  if (fromLink.from_node === toLink.to_node) return "u-turn";
+
+  const offsets = carriageways(doc);
+  const arriving = armDirection(doc, fromLink, nodeId, offsets);
+  const leaving = armDirection(doc, toLink, nodeId, offsets);
+  if (!arriving || !leaving) return "through";
+
+  // The arms point *away* from the node whichever way their traffic runs, so
+  // travel **into** the junction is the negation of the approach's arm while
+  // travel **out** is the exit's arm as given.
+  const din = { x: -arriving.x, y: -arriving.y };
+  const dot = din.x * leaving.x + din.y * leaving.y;
+  if (dot > THROUGH_COS) return "through";
+  const cross = din.x * leaving.y - din.y * leaving.x;
+  // `otherwise → left` deliberately swallows the exact tie (`cross === 0` with the
+  // pair outside the through band — two roads leaving on the approach's own
+  // bearing), degenerate and float-unreachable in practice; `gorePair` disposes of
+  // its own tie the same way.
+  return cross > 0 ? "right" : "left";
+}
+
+/**
+ * Every ordered (arriving, leaving) pair of links at a junction node — what the
+ * panel's two pickers are populated from, and what Phase 4's Derive starts from.
+ *
+ * A `Link` is **directed**, and a two-way street is two links with opposite ends,
+ * so the whole legality rule is that `from` ends at the node and `to` starts there.
+ * **U-turn pairs are included**: the picker offers everything the model can
+ * express, and it is `deriveMovements` that will decline to mint one — a u-turn is
+ * a permission a human grants deliberately (§2.4).
+ *
+ * A link with no **drawable** polyline is skipped, so the picker never offers a
+ * turn the drawing could not show; `movementKind` still classifies one a
+ * hand-edited document carries. A **self-loop** is not a pair with itself either,
+ * on `carriageways`' precedent for the same degenerate link — `completeLink`
+ * refuses to draw one, and a movement from a link to itself is not a turn.
+ */
+export function legalMovements(doc: Document, nodeId: NodeId): MovementPair[] {
+  const offsets = carriageways(doc);
+  const drawable = (link: Link) => {
+    const poly = drawnPolyline(doc, link, offsets);
+    return poly !== undefined && poly.length >= 2;
+  };
+  const arriving = doc.links.filter((l) => l.to_node === nodeId && drawable(l));
+  const leaving = doc.links.filter((l) => l.from_node === nodeId && drawable(l));
+
+  const pairs: MovementPair[] = [];
+  for (const a of arriving) {
+    for (const b of leaving) {
+      if (a.id !== b.id) pairs.push({ from: a.id, to: b.id });
+    }
+  }
+  return pairs;
 }
