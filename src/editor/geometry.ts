@@ -1972,8 +1972,8 @@ export function movementKind(
  * A `Link` is **directed**, and a two-way street is two links with opposite ends,
  * so the whole legality rule is that `from` ends at the node and `to` starts there.
  * **U-turn pairs are included**: the picker offers everything the model can
- * express, and it is `deriveMovements` that will decline to mint one — a u-turn is
- * a permission a human grants deliberately (§2.4).
+ * express, and it is {@link derivableMovements} that declines to mint one — a
+ * u-turn is a permission a human grants deliberately (§2.4).
  *
  * A link with no **drawable** polyline is skipped, so the picker never offers a
  * turn the drawing could not show; `movementKind` still classifies one a
@@ -1997,6 +1997,30 @@ export function legalMovements(doc: Document, nodeId: NodeId): MovementPair[] {
     }
   }
   return pairs;
+}
+
+/**
+ * What Derive mints: {@link legalMovements} **less the u-turn pairs** — the other
+ * half of §2.4's deliberate split, and the whole of what separates the button from
+ * the picker.
+ *
+ * The picker offers everything the model can express, u-turns included. Derive is a
+ * convenience, and granting a u-turn at every junction in the document silently is
+ * exactly what a convenience must not do — so a u-turn stays something a human asks
+ * for by name.
+ *
+ * The exclusion goes **through {@link movementKind}** rather than restating
+ * `from.from_node === to.to_node`, because that comparison is already that
+ * function's first line — before any geometry — so filtering on the kind it returns
+ * *is* the topological test, said once, in the vocabulary the model stores.
+ *
+ * Both the reducer and the panel ask this, which is the point: the button is
+ * `disabled` exactly when `deriveMovements` would no-op.
+ */
+export function derivableMovements(doc: Document, nodeId: NodeId): MovementPair[] {
+  return legalMovements(doc, nodeId).filter(
+    (p) => movementKind(doc, nodeId, p.from, p.to) !== "u-turn",
+  );
 }
 
 /**

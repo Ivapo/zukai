@@ -648,7 +648,11 @@ body {
   gap: 6px;
 }
 
-.movement-add-btn {
+/* Derive is the same control as Add, so it is the same button: one mints a turn a
+   human named, the other every turn the junction can legally carry. A comma says
+   they are one thing more honestly than a copy of the four declarations would. */
+.movement-add-btn,
+.movement-derive-btn {
   width: 100%;
   padding: 7px;
   border: 1px solid var(--line);
@@ -660,13 +664,21 @@ body {
   cursor: pointer;
 }
 
-.movement-add-btn:hover:not(:disabled) {
+.movement-add-btn:hover:not(:disabled),
+.movement-derive-btn:hover:not(:disabled) {
   border-color: var(--paint-yellow);
 }
 
-.movement-add-btn:disabled {
+.movement-add-btn:disabled,
+.movement-derive-btn:disabled {
   opacity: 0.35;
   cursor: not-allowed;
+}
+
+/* This one shares its field with the rows above it - `.movement-add` supplies its
+   own column gap, and a lone button in a block `.field` has nothing to sit off. */
+.movement-derive-btn {
+  margin-top: 7px;
 }
 
 /* The one thing in the panel a human types into: what a text marking says.

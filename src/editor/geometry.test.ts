@@ -54,6 +54,7 @@ import {
   boundaryTaken,
   carriageways,
   classWidthFactor,
+  derivableMovements,
   distance,
   drawnPolyline,
   gore,
@@ -2199,6 +2200,26 @@ describe("movements through a junction", () => {
 
     expect(pairs).toHaveLength(4);
     expect(pairs.some((p) => p.from === "L6" || p.to === "L5")).toBe(false);
+  });
+
+  /**
+   * The other half of §2.4's split, and the whole of what Derive is: the same 9
+   * pairs **less the 3 u-turns**. A u-turn stays a permission a human asks for by
+   * name, so the picker offers one and the button never mints one.
+   */
+  it("derives the six pairs that are not u-turns", () => {
+    const pairs = derivableMovements(tee(), "N2");
+
+    // Spelled out rather than counted: the three that are gone are exactly the
+    // three that leave back down the road they arrived on.
+    expect(pairs.map((p) => `${p.from}→${p.to}`)).toEqual([
+      "L1→L3",
+      "L1→L5",
+      "L4→L2",
+      "L4→L5",
+      "L6→L2",
+      "L6→L3",
+    ]);
   });
 });
 

@@ -35,7 +35,12 @@ import {
   TurnDirection,
   UnsignalizedRule,
 } from "../model/types";
-import { legalMovements, movementId, MovementPair } from "../editor/geometry";
+import {
+  derivableMovements,
+  legalMovements,
+  movementId,
+  MovementPair,
+} from "../editor/geometry";
 import { Action, EditorState } from "../editor/state";
 
 interface InspectorProps {
@@ -1088,6 +1093,16 @@ function JunctionFields({
         (p) => !taken.has(movementId(p.from, p.to)),
       )
     : [];
+  // Derive's own remainder, built the same way from the same `Set`, so the button
+  // is `disabled` exactly when `deriveMovements` would return the document by
+  // identity. The two lists differ only by the u-turns (§2.4) — which is why this
+  // is not `addable.length`: a junction whose every turn but the u-turns is
+  // permitted still has something to *add* and nothing left to derive.
+  const derivable = junction
+    ? derivableMovements(state.doc, node.id).filter(
+        (p) => !taken.has(movementId(p.from, p.to)),
+      )
+    : [];
   return (
     <>
       {junction && (
@@ -1145,6 +1160,17 @@ function JunctionFields({
               dispatch={dispatch}
             />
           )}
+          {/* Shown even when spent, unlike the Add field below, because the empty
+              junction is exactly when Derive is wanted and "None" is the worst
+              place to hide the control that fixes it. Greying it afterwards is
+              how "everything legal is already permitted" gets said. */}
+          <button
+            className="movement-derive-btn"
+            disabled={derivable.length === 0}
+            onClick={() => dispatch({ type: "deriveMovements", id: node.id })}
+          >
+            Derive all turns
+          </button>
         </Field>
       )}
 

@@ -1745,4 +1745,124 @@ describe("junction movements", () => {
       expect("movements" in findJunction(gone.doc, "N4")!).toBe(false);
     });
   });
+
+  /**
+   * Derive — the convenience `addMovement` exists without, since a two-way 4-arm
+   * cross carries twelve legal turns and that is twelve trips through two pickers
+   * (junction semantics Phase 4).
+   *
+   * Two rules make it more than "add them all": it mints **no u-turn** (§2.4's
+   * split — the picker offers one, the button declines), and it **merges** rather
+   * than replaces, matched on the id that *is* the ordered pair.
+   */
+  describe("deriving every legal turn at once", () => {
+    const derive = { type: "deriveMovements", id: "N2" } as const;
+
+    /**
+     * 3 arriving × 3 leaving = 9 ordered pairs, less the 3 that turn back down the
+     * road they arrived on = **6**. Named turns on named bearings, because §2.4's
+     * handedness is self-consistently invertible.
+     */
+    it("mints the six legal turns, classified, and no u-turn", () => {
+      const derived = reducer(tee(), derive);
+      const movements = findJunction(derived.doc, "N2")!.movements!;
+
+      expect(movements.map((m) => `${m.from_link}→${m.to_link} ${m.type}`)).toEqual([
+        "L1→L3 through", // west approach, straight on
+        "L1→L5 right", // west approach, into the south arm
+        "L4→L2 through", // east approach, straight on
+        "L4→L5 left", // east approach, into the south arm
+        "L6→L2 left", // south approach, travelling north, into the west arm
+        "L6→L3 right", // south approach, into the east arm
+      ]);
+      // The other junction in the document is untouched — it has its own arms.
+      expect("movements" in findJunction(derived.doc, "N4")!).toBe(false);
+    });
+
+    /**
+     * The two halves of §2.4's split, in one document: a u-turn is offerable by
+     * hand and never derived, so a hand-added one has to **survive** the button
+     * that would never have minted it.
+     */
+    it("leaves a hand-added u-turn alone, and still mints none of its own", () => {
+      const derived = run(
+        tee(),
+        { type: "addMovement", id: "N2", from: "L1", to: "L2" },
+        derive,
+      );
+      const movements = findJunction(derived.doc, "N2")!.movements!;
+
+      expect(movements).toHaveLength(7);
+      expect(movements[0]).toEqual({
+        id: "M_L1_L2",
+        from_link: "L1",
+        to_link: "L2",
+        type: "u-turn",
+      });
+      expect(movements.filter((m) => m.type === "u-turn")).toHaveLength(1);
+    });
+
+    /**
+     * The merge assertion, and the one a replace-implementation fails: a human who
+     * has re-kinded a turn against what the bearings say has said something the
+     * classifier cannot, and Derive must not say it back.
+     */
+    it("keeps a hand-set kind on a movement it would have derived", () => {
+      const derived = run(
+        tee(),
+        { type: "addMovement", id: "N2", from: "L1", to: "L3" },
+        { type: "setMovementKind", id: "N2", movement: "M_L1_L3", kind: "left" },
+        derive,
+      );
+      const movements = findJunction(derived.doc, "N2")!.movements!;
+
+      expect(movements).toHaveLength(6);
+      expect(movements.find((m) => m.id === "M_L1_L3")!.type).toBe("left");
+    });
+
+    /** One click, one entry — the whole batch comes back on a single undo. */
+    it("is one undo step, however many turns it minted", () => {
+      const derived = reducer(tee(), derive);
+
+      expect(derived.dirty).toBe(true);
+      const back = reducer(derived, { type: "undo" });
+      expect("movements" in findJunction(back.doc, "N2")!).toBe(false);
+    });
+
+    /**
+     * The second Derive mints nothing, and must return `doc` **by identity** or
+     * `recordHistory` snapshots a document nothing changed in
+     * (`rules/history.md`) — the rule every rejection in this file follows.
+     */
+    it("no-ops, by identity, on a junction with nothing left to derive", () => {
+      const once = reducer(tee(), derive);
+      const twice = reducer(once, derive);
+
+      expect(twice.doc).toBe(once.doc);
+      // And undo still lands on the T, not on the first Derive.
+      const back = reducer(twice, { type: "undo" });
+      expect("movements" in findJunction(back.doc, "N2")!).toBe(false);
+    });
+
+    /** Phase 1's hand-edited case, and the guard every action here carries. */
+    it("no-ops, by identity, on a junction-kind node with no record", () => {
+      const start: EditorState = {
+        ...tee(),
+        doc: { ...tee().doc, junctions: [] },
+      };
+
+      expect(reducer(start, derive).doc).toBe(start.doc);
+    });
+
+    /**
+     * Nothing legal to derive is not an empty list to store: `withMovements` is
+     * never reached, so no `movements: []` key is left behind either.
+     */
+    it("no-ops, by identity, at a junction no turn can pass through", () => {
+      // N4 has one arm, so its only pair is the u-turn Derive declines.
+      const start = tee();
+
+      expect(reducer(start, { type: "deriveMovements", id: "N4" }).doc).toBe(start.doc);
+    });
+  });
 });

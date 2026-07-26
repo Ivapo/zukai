@@ -8,8 +8,8 @@ nothing here crosses IPC on new terms, reaches disk in a new shape, or moves
 `SCHEMA_VERSION` (still **2**). The design rationale lives in
 `specs/junction_semantics_spec.md`; hand-maintained.
 
-**Build state: Phase 3 of 4.** `control`, `rule` and `movements` are written,
-read and **drawn**; `deriveMovements` is Phase 4 and does not exist yet.
+**Build state: the spec is complete** (all four phases). `control`, `rule` and
+`movements` are written, read, **drawn**, and derivable in one click.
 `Junction.signal_plan` is still what it has always been — **a field nothing
 reads** — and so are `Movement`'s `from_lanes`/`to_lanes`. Do not treat their
 presence in `src/model/types.ts` as evidence anything consumes them.
@@ -161,7 +161,7 @@ it could not produce this shape, and `M1` already means a marking.
 That is load-bearing rather than cosmetic. **The uniqueness rule is one movement per
 ordered pair**, so `addMovement`'s duplicate check is an id lookup rather than a
 second predicate, the panel subtracts what is already permitted from what
-`legalMovements` offers by keying a `Set` on it, and Phase 4's Derive will match a
+`legalMovements` offers by keying a `Set` on it, and `deriveMovements` matches a
 hand-added movement the same way.
 
 The cost, accepted: a hand-edited file naming the same pair under a different id
@@ -173,10 +173,10 @@ A `Link` is **directed**, so a movement through node `N` is well defined:
 `from_link` ends at `N` (traffic arriving) and `to_link` starts there (traffic
 leaving). That is the whole legality rule, it is pure, and it is what
 `legalMovements(doc, nodeId)` returns every ordered pair of — **u-turns included**,
-because the picker offers everything the model can express and it is Phase 4's
-Derive that will decline to mint one. A link with no drawable polyline is skipped
-(the picker must not offer a turn the drawing cannot show); a self-loop is not
-paired with itself, on `carriageways`' precedent for the same degenerate link.
+because the picker offers everything the model can express and it is
+`derivableMovements` that declines to mint one. A link with no drawable polyline is
+skipped (the picker must not offer a turn the drawing cannot show); a self-loop is
+not paired with itself, on `carriageways`' precedent for the same degenerate link.
 
 `movementKind(doc, nodeId, from, to)` classifies, in this order:
 
@@ -232,6 +232,40 @@ the same bytes while differing by document identity — the one-representation r
 `rule`, `lane` and `associated_link` all follow. Deleting the last movement, and a
 cascade that strands every one, both leave no key behind.
 
+### Derive — every legal turn at once, less the u-turns
+
+`deriveMovements(nodeId)` is the convenience `addMovement` exists without: a two-way
+four-arm cross carries **twelve** legal turns, which is twelve trips through two
+pickers. Two rules make it more than "add them all".
+
+**It mints no u-turn**, and that is the other half of §2.4's split rather than an
+omission: `legalMovements` *includes* the u-turn pairs and the Add picker offers
+them, because the picker offers everything the model can express, while Derive is a
+convenience and a convenience must not silently grant a u-turn at every junction in
+the document. So a u-turn stays a permission a human asks for by name.
+`derivableMovements(doc, nodeId)` is the one place that subtraction lives.
+
+**The exclusion goes through `movementKind`**, not through a second copy of
+`from.from_node === to.to_node`. That comparison is already `movementKind`'s first
+line, before any geometry, so filtering on the kind it returns *is* the topological
+test — said once, in the vocabulary the movement is stored in.
+
+**It merges rather than replaces**, matched on `M_<from>_<to>`, which is the third
+thing the id-*is*-the-pair rule pays for. So a movement a human added by hand, or
+re-kinded with `setMovementKind` against what the bearings say, survives every later
+Derive untouched. A replace-implementation passes the count assertion and fails only
+this one.
+
+**A second Derive mints nothing and returns the state by identity**, `rules/history.md`'s
+rule and the same one the absent-`Junction` guard returns for.
+
+`derivableMovements` is exported rather than inlined because **the reducer and the
+panel have to ask the same question**: the button is `disabled` exactly when the
+action would no-op, and a private u-turn predicate in `Inspector.tsx` would be a
+second statement of the rule in the file least able to test it. Note that it is
+*not* `addable.length` — a junction with every crossing turn permitted still has
+u-turns left to *add* and nothing left to derive.
+
 ## The panel
 
 `JunctionFields` (`components/Inspector.tsx`) renders, in this order:
@@ -240,7 +274,8 @@ cascade that strands every one, both leave no key behind.
    record exists;
 2. **Rule** — `segmented segmented-wrap segmented-labels segmented-rules`
    (`RULES`, "None" first), only while `control === "unsignalized"`;
-3. **Movements** — `MovementRows`, or a `.readout` reading `None`;
+3. **Movements** — `MovementRows` (or a `.readout` reading `None`), then the
+   **Derive all turns** button;
 4. **Add movement** — `MovementAdd`, only while some legal pair is unclaimed;
 5. **Glyph**, 6. **Size** — as before.
 
@@ -260,6 +295,12 @@ junction can carry a dozen, so four buttons a row would make the panel a wall.
 subtracts the pairs already permitted, so Add never offers one whose dispatch would
 no-op, and the exit picker offers only what pairs with the chosen approach — which
 is why an arriving→arriving turn cannot be asked for at all.
+
+**Derive is shown even when spent, and Add is not** — the one place the two rows
+diverge, deliberately. `MovementAdd` is a control a human is mid-way through using,
+so an empty one is clutter; Derive is wanted precisely at the junction that has no
+movements yet, and `None` is the worst place to hide the button that fixes it. It
+greys instead, which is also how "everything legal is already permitted" gets said.
 
 **`MovementAdd` holds the panel's only local state**, and it has to: a movement
 needs *two* names before it is anything, so unlike every other control here it
@@ -364,11 +405,11 @@ pad, which is already inside the frame.
 |---|---|
 | `findJunction` | `src/model/document.ts` |
 | `setJunctionControl`, `setJunctionRule`, `nudgedGlyph` | `src/editor/state.ts` |
-| `addMovement`, `deleteMovement`, `setMovementKind`, `withMovements`, `dropMovements` | `src/editor/state.ts` |
-| `movementId`, `movementKind`, `legalMovements`, `armDirection` | `src/editor/geometry.ts` |
+| `addMovement`, `deleteMovement`, `setMovementKind`, `deriveMovements`, `withMovements`, `dropMovements` | `src/editor/state.ts` |
+| `movementId`, `movementKind`, `legalMovements`, `derivableMovements`, `armDirection` | `src/editor/geometry.ts` |
 | `MovementEnd`, `MovementArc`, `movementArc`, `movementPath` | `src/editor/geometry.ts` |
 | `CONTROLS`, `RULES`, `MOVEMENT_KINDS`, `JunctionFields`, `MovementRows`, `MovementAdd` | `src/components/Inspector.tsx` |
-| `.segmented-rules`, `.movement-*` | `src/styles.css` (chrome — **not** `src/styles/diagram.css`; nothing here reaches an export) |
+| `.segmented-rules`, `.movement-*` (Derive shares Add's four declarations by comma) | `src/styles.css` (chrome — **not** `src/styles/diagram.css`; nothing here reaches an export) |
 | `MovementShape`, `MOVEMENT_HEAD`, the `pad` gate and `byLink` | `src/components/Diagram.tsx` |
 | `.jn-movement`, `.jn-movement-line`, `.jn-movement-head` | `src/styles/diagram.css` (paint — it travels into every export) |
 | The glyphs themselves | `JunctionGlyphShape`, `src/components/Diagram.tsx` — see `rules/road-rendering.md` for the arms and the pad |
@@ -390,11 +431,10 @@ stay separate: deriving a lane's turn arrow from the movements that use it is a
 named non-goal, because a painted arrow is a human's decoration rather than a
 derivation.
 
-## Still unbuilt (spec Phase 4)
+## Still unbuilt
 
-- **Phase 4 — `deriveMovements`.** `legalMovements` **less the u-turn pairs**,
-  classified through `movementKind`, added as one undoable action and **merging
-  rather than replacing** — matched by ordered pair, which its id already is.
+The spec is closed; what follows was cut from it by decision, not left undone.
+
 - **Signal plans are cut entirely** and deferred to a follow-up spec: a fixed-time
   plan is a table, not a picture, and the one drawable part (which movements share a
   stage) needed movements to exist first.

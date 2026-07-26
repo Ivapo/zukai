@@ -38,6 +38,7 @@ import {
   Vec2,
 } from "../model/types";
 import {
+  derivableMovements,
   IDENTITY_VIEW,
   movementId,
   movementKind,
@@ -126,6 +127,9 @@ export type EditAction =
       movement: MovementId;
       kind: MovementKind;
     }
+  // The only one carrying nothing but the junction: it mints every turn that
+  // junction can legally carry, less the u-turns, in a single undo step.
+  | { type: "deriveMovements"; id: NodeId }
   | { type: "startLink"; from: NodeId }
   | { type: "completeLink"; to: NodeId }
   | { type: "cancelLink" }
@@ -435,6 +439,9 @@ function editReducer(state: EditorState, action: EditAction): EditorState {
 
     case "setMovementKind":
       return setMovementKind(state, action.id, action.movement, action.kind);
+
+    case "deriveMovements":
+      return deriveMovements(state, action.id);
 
     case "startLink":
       return { ...state, linkFrom: action.from };
@@ -834,6 +841,51 @@ function setMovementKind(
         nodeId,
         movements.map((m) => (m.id === id ? { ...m, type: kind } : m)),
       ),
+    },
+  };
+}
+
+/**
+ * Permit every turn the junction can legally carry, in **one** undoable step — the
+ * convenience {@link addMovement} exists without: a two-way four-arm cross has
+ * twelve legal turns, which is twelve trips through two pickers.
+ *
+ * **Less the u-turns**, per {@link derivableMovements}: the picker offers a u-turn
+ * and Derive declines to mint one, which is §2.4's split and the only thing that
+ * makes this more than "add them all".
+ *
+ * **It merges rather than replaces.** A movement the human added by hand — or
+ * re-kinded with {@link setMovementKind} against what the bearings say — survives
+ * untouched, because the merge is keyed on `M_<from>_<to>` and that id *is* the
+ * ordered pair (§2.3). So a hand-added u-turn outlives every later Derive, which is
+ * the other half of the same split.
+ *
+ * A second Derive mints nothing and returns `state` **by identity**, or
+ * {@link recordHistory} pushes a snapshot of a document nothing changed in — the
+ * same rule the absent junction returns for.
+ */
+function deriveMovements(state: EditorState, nodeId: NodeId): EditorState {
+  const { doc } = state;
+  const junction = findJunction(doc, nodeId);
+  if (!junction) return state;
+
+  const movements = junction.movements ?? [];
+  const taken = new Set(movements.map((m) => m.id));
+  const minted: Movement[] = derivableMovements(doc, nodeId)
+    .map((p) => ({
+      id: movementId(p.from, p.to),
+      from_link: p.from,
+      to_link: p.to,
+      type: movementKind(doc, nodeId, p.from, p.to),
+    }))
+    .filter((m) => !taken.has(m.id));
+  if (minted.length === 0) return state;
+
+  return {
+    ...state,
+    doc: {
+      ...doc,
+      junctions: withMovements(doc.junctions, nodeId, [...movements, ...minted]),
     },
   };
 }

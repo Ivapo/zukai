@@ -81,8 +81,7 @@ phase from a spec still `status: draft`** — it must pass the review loop
 - `specs/signs_and_text_spec.md` — letters in the drawing: the embedded font,
   painted road text, and roadside signs (implemented; 4 phases)
 - `specs/junction_semantics_spec.md` — what a junction *means*: control,
-  right-of-way rule, and the turn movements through it (Phases 1–3 of 4
-  implemented)
+  right-of-way rule, and the turn movements through it (implemented; 4 phases)
 
 **`rules/` — current-state reference (the *what is*).** Terse, authoritative maps
 of subsystems, read on demand. Unlike specs, rules describe the code as it is now;
@@ -144,7 +143,11 @@ there's real cross-file knowledge worth extracting, not for every file.
   paint none, the arms found by link id because an arm carries no direction, the
   cubic whose second control point is the whole reason a `through` and a `u-turn`
   need no special case, and the arc constant a flat `chord/3` fails while still
-  passing the gate
+  passing the gate — and Derive: the u-turn subtraction that goes through
+  `movementKind` rather than through a second copy of the topological test, the
+  merge that is the third thing the id-*is*-the-pair rule pays for, why the
+  remainder is exported rather than inlined (the button must be dead exactly when
+  the action would be), and the one panel row shown when spent rather than hidden
 
 Specs are authoritative for *intent and plan*; `rules/`, this file, and the code
 are authoritative for *current state*. When a shipped phase changes what a rule

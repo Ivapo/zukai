@@ -1,9 +1,9 @@
 ---
-status: Phases 1–3 shipped 2026-07-26; Phase 4 next (reviewed, converged in 2 rounds)
+status: implemented — all 4 phases shipped 2026-07-26 (reviewed, converged in 2 rounds)
 last_updated: 2026-07-26
 note: Make a junction *mean* something — control, right-of-way rule, and the turn movements through it. The semantic half of the thing the glyph has been drawing since the first commit.
-implemented: ["Phase 1", "Phase 2", "Phase 3"]
-not_implemented: ["Phase 4"]
+implemented: ["Phase 1", "Phase 2", "Phase 3", "Phase 4"]
+not_implemented: []
 related: [specs/ramps_and_tapers_spec.md, specs/road_markings_spec.md, specs/signs_and_text_spec.md]
 reference: "Assimilator's `network.yaml` `junctions` block — `control`, `rule`, `movements`, `signal_plan` — which `graph.rs` already mirrors field for field. Explicitly *not* Assimilator's simulation-only per-junction detail (`conflict_pairs`, `collision_avoidance`, `gap_acceptance`), which `graph.rs:11-15` records as deliberately omitted."
 ---
@@ -635,6 +635,45 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
     the count and that the arcs read rather than tangling.
 - **Docs touched:** the rule file; the project-memory roadmap; mark this spec
   `implemented`, and open the signal-plan follow-up if OQ-1 held.
+- **As built (2026-07-26)** — the phase landed as scoped, and is the smallest in
+  the spec: one action, one pure function, one button, no model change and no
+  Rust (`cargo check` run once to confirm). Every gate assertion passed as
+  written, including the literal **6**. Three decisions the scope line left open,
+  and two assertions beyond the gate:
+  - **`derivableMovements` is its own exported pure function**, not a filter
+    inlined into the reducer, because **the panel has to ask the same question**:
+    the button must be `disabled` exactly when the action would return the
+    document by identity, and a private u-turn predicate in `Inspector.tsx` would
+    be a second statement of §2.4's split in the one file with no test. It is
+    also *not* `addable.length` — a junction with every crossing turn permitted
+    still has u-turns left to **add** and nothing left to derive, which is the
+    same split seen from the panel.
+  - **The u-turn subtraction goes through `movementKind`**, not through a second
+    copy of `from.from_node === to.to_node`. That comparison is already that
+    function's *first* line, before any geometry, so filtering on the kind it
+    returns **is** the topological test — said once, in the vocabulary the
+    movement is stored in. Nothing in the spec required this; it fell out of
+    Phase 2's decision to run the topological test first.
+  - **The button is shown when spent rather than hidden** (asked, not assumed),
+    which makes it the one row in this panel that does not follow `MovementAdd`'s
+    hide-when-empty idiom. The reason is that the two are wanted at opposite
+    moments: Add is a control a human is mid-way through using, while Derive is
+    wanted precisely at the junction whose Movements field reads `None` — the
+    worst possible place to hide the button that fixes it. Greying it is also how
+    "everything legal is already permitted" gets said at all.
+  - **Beyond the gate, and the one a `withMovements` call for nothing would
+    fail**: Derive at a junction where the *only* pair is a u-turn returns `doc`
+    by identity and leaves no `movements: []` key behind. Also asserted: Derive
+    leaves the document's **other** junction untouched, the identity habit this
+    file has kept since Phase 1.
+  - The dev pass drove the real app rather than the export path: a two-way 4-arm
+    cross built through the UI, one click on **Derive all turns** → **12** rows
+    and 12 arcs, the button enabled → disabled, one undo clearing the lot and one
+    redo returning it. Both halves of §2.4's split were then read live in a single
+    document — a hand-added `L2 → L1` u-turn sitting first in the list and
+    surviving a Derive that minted none of its own (13 rows). All twelve kinds
+    were correct on all four approaches, which is the handedness pinned once more
+    on two axes it was never tested on.
 
 ## 5. Review log
 
