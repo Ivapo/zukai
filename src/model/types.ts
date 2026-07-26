@@ -176,7 +176,8 @@ export type JunctionGlyph =
   | "roundabout"
   | "signalized_cross"
   | "priority_cross"
-  | "t_junction";
+  | "t_junction"
+  | "gore";
 
 /** Where a node sits on the canvas. */
 export interface NodeView {
@@ -226,5 +227,13 @@ export interface Document {
   signs: Sign[];
 }
 
-/** Current Zukai document schema version (matches the Rust `SCHEMA_VERSION`). */
-export const SCHEMA_VERSION = 1;
+/**
+ * Current Zukai document schema version (matches the Rust `SCHEMA_VERSION` —
+ * the two must move together).
+ *
+ * 2 since the `gore` junction glyph: a new *field* costs no bump, but a new
+ * enum **variant** does. An older build fails to deserialize the whole document
+ * on an unknown variant, and `persist.rs`'s probe can only turn that into a
+ * readable message if the version moves with it.
+ */
+export const SCHEMA_VERSION = 2;

@@ -15,9 +15,12 @@ import {
   LinkStyle,
   LinkView,
   NodeId,
+  Vec2,
 } from "../model/types";
 import {
   DRIVE_SIDE,
+  GORE_LENGTH,
+  GoreArm,
   JointEnd,
   LANE_PX,
   MIN_ROAD_WIDTH,
@@ -30,9 +33,12 @@ import {
   carriageways,
   classWidthFactor,
   distance,
+  gore,
+  gorePair,
   laneBands,
   offsetPolyline,
   rayCircleExit,
+  rayIntersection,
   roadWidth,
   taperEdge,
   taperWedge,
@@ -618,6 +624,179 @@ describe("tapers", () => {
 
       expect(taperEdge(flat, 1.5)).toEqual([flat[0], flat[2]]);
     });
+  });
+});
+
+describe("gores", () => {
+  /** Half the lane region of a 4-lane arterial: the mainline in §1's exit. */
+  const H4 = (roadWidth(defaults(4)) - ROAD_MARGIN) / 2;
+
+  /** An arm leaving the node at `deg` off due east, from `at` (the node itself
+   *  unless a divided carriageway has stepped it off). */
+  function arm(
+    id: LinkId,
+    deg: number,
+    halfSpan = H4,
+    at = { x: 0, y: 0 },
+  ): GoreArm {
+    const rad = (deg * Math.PI) / 180;
+    return { id, at, away: { x: Math.cos(rad), y: Math.sin(rad) }, halfSpan };
+  }
+
+  /** Every component of every corner, for the finiteness checks. */
+  function components(tri: [Vec2, Vec2, Vec2]): number[] {
+    return tri.flatMap((p) => [p.x, p.y]);
+  }
+
+  it("pins GORE_LENGTH at half again a taper's", () => {
+    expect(GORE_LENGTH).toBe(36);
+    expect(GORE_LENGTH).toBeGreaterThan(TAPER_LENGTH);
+  });
+
+  /**
+   * The nose of two symmetric diverging arms lands on their axis of symmetry —
+   * an assertion the maths can be checked against rather than a literal: two
+   * inner edges each `h` off a shared origin, splayed by `deg` either side of
+   * due east, meet at `x = h / sin deg` on `y = 0`.
+   *
+   * Asserted as that expression, not as 69.55, so a change to the lane widths
+   * cannot quietly make the test agree with a wrong implementation.
+   */
+  it("puts the nose of two symmetric arms on their axis of symmetry", () => {
+    const deg = 15;
+    const [nose] = gore(arm("L1", deg), arm("L2", -deg), { x: 0, y: 0 }, GORE_LENGTH);
+
+    expect(nose.y).toBeCloseTo(0);
+    expect(nose.x).toBeCloseTo(H4 / Math.sin((deg * Math.PI) / 180));
+    // Downstream of the node, which is what makes it a diverge's nose.
+    expect(nose.x).toBeGreaterThan(0);
+  });
+
+  /** The triangle is the nose plus a whole `length` along each arm — so each leg
+   *  stays on the edge line the nose was found on. */
+  it("runs a whole length along each arm from the nose", () => {
+    const a = arm("L1", 15);
+    const b = arm("L2", -15);
+    const [nose, fa, fb] = gore(a, b, { x: 0, y: 0 }, GORE_LENGTH);
+
+    expect(distance(nose, fa)).toBeCloseTo(GORE_LENGTH);
+    expect(distance(nose, fb)).toBeCloseTo(GORE_LENGTH);
+    expect(fa).toEqual({
+      x: nose.x + a.away.x * GORE_LENGTH,
+      y: nose.y + a.away.y * GORE_LENGTH,
+    });
+  });
+
+  /**
+   * Parallel arms have no nose. The failure this pins is not "the wrong point"
+   * but `Infinity`/`NaN` reaching the markup, where it renders as nothing at all
+   * and no `points=` assertion catches it (§2.5's degenerate case).
+   */
+  it("falls back to the node for parallel arms rather than dividing by zero", () => {
+    const node = { x: 7, y: -3 };
+    const pairs: [GoreArm, GoreArm][] = [
+      // Side by side, same way — the two carriageways of nothing in particular.
+      [arm("L1", 0, H4, { x: 7, y: 10 }), arm("L2", 0, H4, { x: 7, y: -16 })],
+      // Anti-parallel: a divided road's own pair, if a human puts a gore on it.
+      [arm("L1", 0), arm("L2", 180)],
+    ];
+
+    for (const [a, b] of pairs) {
+      const tri = gore(a, b, node, GORE_LENGTH);
+      expect(tri[0]).toEqual(node);
+      for (const c of components(tri)) expect(Number.isFinite(c)).toBe(true);
+    }
+  });
+
+  /**
+   * Arms already apart and splaying further meet only *behind* both origins, so
+   * there is no nose ahead of them either. `rayIntersection` says so directly;
+   * `gore` turns that into the node.
+   */
+  it("falls back when the two edges meet only behind both origins", () => {
+    const a = arm("L1", 15, H4, { x: 0, y: 40 });
+    const b = arm("L2", -15, H4, { x: 0, y: -40 });
+    const node = { x: 0, y: 0 };
+
+    expect(gore(a, b, node, GORE_LENGTH)[0]).toEqual(node);
+  });
+
+  /**
+   * "Behind **both**" is the rule, and the distinction is load-bearing: the same
+   * crossing point is rejected when neither ray reaches it and kept when one
+   * does. Rejecting on "behind either" would drop a perfectly good nose whenever
+   * a divided carriageway steps one arm past it.
+   */
+  it("rejects a crossing behind both origins and keeps one behind only one", () => {
+    const p = { x: 0, y: 0 };
+    const q = { x: -10, y: -10 };
+
+    // Both rays point away from (-10, 0): nothing to draw.
+    expect(rayIntersection(p, { x: 1, y: 0 }, q, { x: 0, y: -1 })).toBeUndefined();
+    // The second ray runs through it, so it is still where the two edges meet.
+    expect(rayIntersection(p, { x: 1, y: 0 }, q, { x: 0, y: 1 })).toEqual({
+      x: -10,
+      y: 0,
+    });
+  });
+
+  /**
+   * The arm pair, from the same three-arm layout read both ways. An `Arm` points
+   * away from the node whichever way its traffic runs, so the rule never asks:
+   * at a diverge the ramp leaves downstream and pairs with the *downstream*
+   * mainline arm; at a merge it arrives from upstream and pairs with the
+   * *upstream* one. 30° apart against 150° and 180°.
+   */
+  it("picks the diverging pair at a diverge and the converging pair at a merge", () => {
+    const downstream = arm("L2", 0);
+    const upstream = arm("L1", 180);
+
+    const diverge = gorePair([upstream, downstream, arm("L3", 30)])!;
+    expect(diverge.map((a) => a.id).sort()).toEqual(["L2", "L3"]);
+
+    const merge = gorePair([upstream, downstream, arm("L3", 150)])!;
+    expect(merge.map((a) => a.id).sort()).toEqual(["L1", "L3"]);
+  });
+
+  it("draws nothing from fewer than two arms", () => {
+    expect(gorePair([])).toBeUndefined();
+    expect(gorePair([arm("L1", 0)])).toBeUndefined();
+  });
+
+  /**
+   * A T of three arms at exact right angles ties two of its three pairs at
+   * exactly 0, and the winner is then whatever the tie-break says. It must be
+   * the ids and not the array order, or re-drawing the same three roads in a
+   * different document order moves the gore. (Written with literal directions
+   * rather than `arm(…, deg)`: `Math.cos(Math.PI / 2)` is 6.1e-17, not 0, so a
+   * degrees-based fixture would not tie at all and would test nothing.)
+   */
+  it("breaks an exact tie on link id, not on arm order", () => {
+    const at = { x: 0, y: 0 };
+    const arms: GoreArm[] = [
+      { id: "L2", at, away: { x: 1, y: 0 }, halfSpan: H4 },
+      { id: "L3", at, away: { x: 0, y: 1 }, halfSpan: H4 },
+      { id: "L1", at, away: { x: 0, y: -1 }, halfSpan: H4 },
+    ];
+
+    for (const order of [arms, [...arms].reverse()]) {
+      expect(gorePair(order)!.map((a) => a.id).sort()).toEqual(["L1", "L2"]);
+    }
+  });
+
+  /**
+   * The gore is bounded by the roads' **painted** edges, not their casing rims —
+   * the opposite of a taper wedge, which is asphalt and takes `width / 2`. The
+   * two differ by half the casing lip, which is exactly `RoadShape`'s own
+   * `edgeInset`, so the gore's legs continue the edge lines either side of it.
+   */
+  it("measures its arms at the painted edge, not the casing rim", () => {
+    const w = roadWidth(defaults(4));
+    const casing = gore(arm("L1", 15, w / 2), arm("L2", -15, w / 2), { x: 0, y: 0 }, GORE_LENGTH);
+    const painted = gore(arm("L1", 15), arm("L2", -15), { x: 0, y: 0 }, GORE_LENGTH);
+
+    expect(H4).toBe(w / 2 - 1.5);
+    expect(painted[0].x).toBeLessThan(casing[0].x);
   });
 });
 

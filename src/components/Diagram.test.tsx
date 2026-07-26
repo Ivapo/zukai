@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
+  GORE_LENGTH,
   LANE_PX,
   ROAD_MARGIN,
   SCHEMATIC_MEDIAN,
@@ -901,6 +902,164 @@ describe("junction interiors", () => {
     // 2 lanes: max(20, 28.35) unfloored, against a 24-unit reach.
     expect(ring(round())).toBeCloseTo(28.35);
     expect(ring(round(0.5))).toBeCloseTo(24);
+  });
+});
+
+describe("gores", () => {
+  /**
+   * §1's exit, drawn due east: a 4-lane motorway becoming 3 at N2 with a 1-lane
+   * ramp leaving to the south-east, both mainline links held on their **offside**
+   * edge so the outer edge runs straight through and the lane goes from the
+   * nearside. N2 carries the `gore` glyph. `extra` hangs further actions off it.
+   */
+  function exit(...extra: Action[]): Document {
+    return run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "addNode", pos: { x: 120, y: 0 } },
+      { type: "addNode", pos: { x: 240, y: 0 } },
+      { type: "addNode", pos: { x: 200, y: 120 } },
+      { type: "startLink", from: "N1" },
+      { type: "completeLink", to: "N2" },
+      { type: "startLink", from: "N2" },
+      { type: "completeLink", to: "N3" },
+      { type: "startLink", from: "N2" },
+      { type: "completeLink", to: "N4" },
+      { type: "setLinkLanes", id: "L1", count: 4 },
+      { type: "setLinkLanes", id: "L2", count: 3 },
+      { type: "setLinkLanes", id: "L3", count: 1 },
+      { type: "setLinkStyle", id: "L1", style: "motorway" },
+      { type: "setLinkStyle", id: "L2", style: "motorway" },
+      { type: "setLinkStyle", id: "L3", style: "ramp" },
+      { type: "setLinkAlign", id: "L1", align: "offside" },
+      { type: "setLinkAlign", id: "L2", align: "offside" },
+      { type: "setNodeKind", id: "N2", kind: "junction" },
+      { type: "setJunctionGlyph", id: "N2", glyph: "gore" },
+      ...extra,
+    ).doc;
+  }
+
+  /** The gore triangle's three corners: nose first, then one along each arm. */
+  function corners(svg: string): [number, number][] {
+    const m = svg.match(/class="jn-gore" points="(\S+) (\S+) (\S+)"/)!;
+    return m.slice(1, 4).map((p) => p.split(",").map(Number) as [number, number]);
+  }
+
+  /** A gore is the paint *between* two arms, so there is nothing to pad. */
+  it("draws no junction pad at all", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={exit()} />);
+
+    expect(svg).not.toContain("jn-pad");
+    expect(svg).toContain('<g class="gore">');
+  });
+
+  /**
+   * The nose is where the two roads' **painted** edges meet, not their casing
+   * rims — so it lands exactly on the downstream mainline's own edge line, which
+   * this asserts against the drawn line rather than against a constant. A gore
+   * measured at `width / 2` would sit 1.5 units off it, which reads as an
+   * antialiasing artefact and never gets diagnosed.
+   *
+   * The glyph's group is translated to N2 at `(120, 0)`, and N2 is on the
+   * mainline's own y, so the nose's `y` is directly comparable to the road's.
+   */
+  it("puts the nose on the mainline's own edge line", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={exit()} />);
+    const [nose] = corners(svg);
+
+    // A 3-lane offside-aligned motorway: polyline at 13.5, nearside edge at 27.
+    expect(svg).toContain('class="road-edge" d="M 120 27 L 240 27"');
+    expect(nose[1]).toBeCloseTo(27);
+    // Downstream of the node, where the ramp has actually pulled clear.
+    expect(nose[0]).toBeGreaterThan(0);
+  });
+
+  /**
+   * The pair is the two *diverging* arms, and nothing about it consults the
+   * direction of travel — `junctionArms` points every arm away from the node, so
+   * it could not. Picking the two mainline arms instead would put the legs
+   * anti-parallel, which is what these two assertions distinguish.
+   */
+  it("runs its legs down the ramp and the mainline, not the two mainline arms", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={exit()} />);
+    const [nose, along, down] = corners(svg);
+
+    // Due east along the mainline…
+    expect(along[1]).toBeCloseTo(nose[1]);
+    expect(along[0]).toBeGreaterThan(nose[0]);
+    // …and south-east down the ramp, which is where the second leg has to go.
+    expect(down[0]).toBeGreaterThan(nose[0]);
+    expect(down[1]).toBeGreaterThan(nose[1]);
+    for (const c of [along, down]) {
+      expect(Math.hypot(c[0] - nose[0], c[1] - nose[1])).toBeCloseTo(GORE_LENGTH);
+    }
+  });
+
+  /**
+   * §2.5's trap, and the only failure mode here that no other assertion catches:
+   * the `<defs>` used to be gated on a hard shoulder alone, so a document with a
+   * gore and no shoulder would reference a `<pattern>` that was never emitted —
+   * and render as an *unpainted* triangle, with the markup otherwise identical.
+   */
+  it("emits the hatch pattern for a gore in a document with no shoulder lane", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={exit()} />);
+
+    expect(svg).not.toContain("lane-band");
+    expect(svg).toContain('<pattern id="road-hatch"');
+    expect(svg).toContain('class="jn-gore-hatch"');
+    expect(svg).toContain('fill="url(#road-hatch)"');
+  });
+
+  /** Two layers, because the hatch pattern is transparent and the gore's base is
+   *  out past both roads, over bare paper. */
+  it("paints asphalt under the hatch, on the same three corners", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={exit()} />);
+    const surface = svg.match(/class="jn-gore" points="([^"]+)"/)![1];
+
+    expect(svg).toContain(`class="jn-gore-hatch" points="${surface}"`);
+  });
+
+  /**
+   * §2.5's stated bounds: two arms is enough (the closest pair is the only
+   * pair), one is not. Neither case draws a pad either — a gore glyph is a gore
+   * or it is nothing.
+   */
+  it("draws from two arms and nothing at all from one", () => {
+    const two = run(
+      { ...initialState(), doc: exit() },
+      { type: "select", selection: { kind: "link", id: "L1" } },
+      { type: "deleteSelection" },
+    ).doc;
+    expect(renderToStaticMarkup(<Diagram doc={two} />)).toContain('class="jn-gore"');
+
+    const one = run(
+      { ...initialState(), doc: two },
+      { type: "select", selection: { kind: "link", id: "L3" } },
+      { type: "deleteSelection" },
+    ).doc;
+    const svg = renderToStaticMarkup(<Diagram doc={one} />);
+    expect(svg).not.toContain("jn-gore");
+    expect(svg).not.toContain("jn-pad");
+  });
+
+  /**
+   * A pad-less glyph would leave the Inspector's Size control inert, so Size
+   * moves the one thing a gore has: its length. It cannot misalign anything —
+   * the legs stay on the roads' edge lines and only the base slides — so the
+   * nose must not move with it.
+   */
+  it("lets Size lengthen the gore without moving its nose", () => {
+    const full = corners(renderToStaticMarkup(<Diagram doc={exit()} />));
+    const half = corners(
+      renderToStaticMarkup(
+        <Diagram doc={exit({ type: "setJunctionScale", id: "N2", scale: 0.5 })} />,
+      ),
+    );
+
+    expect(half[0]).toEqual(full[0]);
+    expect(Math.hypot(half[1][0] - half[0][0], half[1][1] - half[0][1])).toBeCloseTo(
+      GORE_LENGTH / 2,
+    );
   });
 });
 

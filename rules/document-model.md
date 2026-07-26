@@ -27,8 +27,10 @@ round-trip. Lane index is `u32`.
   seed. This is why the split is physical, not just conceptual.
 - A **junction is a plain graph node** (`type: junction`) plus a `Junction` record
   and a `JunctionView { glyph, rotation, scale }`. The glyph (roundabout /
-  signalized_cross / …) is a render hint; the arms are the incident links. There
-  is no composite "roundabout object".
+  signalized_cross / gore / …) is a render hint; the arms are the incident links.
+  There is no composite "roundabout object" — and equally no "gore object": a
+  gore is a node the human labelled, and which two of its arms it is drawn
+  between is read off the geometry at render time.
 
 ## Rust ↔ TypeScript mirror
 
@@ -52,7 +54,20 @@ direction — which is why `LinkView.align` was added at `SCHEMA_VERSION = 1`. A
 new variant of an existing enum is not symmetric: an older build fails to
 deserialize the *whole document*, and `persist.rs`'s version probe only rejects
 files declaring a **newer** version, so it cannot turn that into a useful message
-unless the version moves with the variant.
+unless the version moves with the variant. `JunctionGlyph::Gore` is the variant
+that took the version to **2**.
+
+Three things move together on a bump, and the third is easy to miss:
+
+- `SCHEMA_VERSION` in `src-tauri/src/model/mod.rs` **and** its TypeScript mirror
+  in `src/model/types.ts`;
+- `persist.rs`'s `rejects_a_newer_schema_version` fixture, which has to stay
+  *above* the constant. Left behind it the test silently stops testing anything —
+  the probe passes and, since every other `Document` field is
+  `#[serde(default)]`, so does the full parse, so `expect_err` fails.
+- A **migration arm is only needed if the bump breaks an older file.** Neither
+  bump so far does: a version-1 document is a valid version-2 document, and
+  `persist.rs` carries a test that one still loads.
 
 Pair every defaulted field with a `skip_serializing_if` so a document that never
 set it saves byte-for-byte as before — `Vec::is_empty` for `bends`,

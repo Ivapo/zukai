@@ -1,9 +1,9 @@
 ---
-status: in-progress (Phases 1–3 shipped 2026-07-25; Phase 4 next)
+status: implemented (all 4 phases shipped 2026-07-25)
 last_updated: 2026-07-25
 note: Draw the transitions between roads — lane-count tapers, ramp gores, and junction interiors that follow a divided road's carriageways.
-implemented: ["Phase 1", "Phase 2", "Phase 3"]
-not_implemented: ["Phase 4"]
+implemented: ["Phase 1", "Phase 2", "Phase 3", "Phase 4"]
+not_implemented: []
 related: [specs/road_rendering_spec.md, specs/diagram_export_spec.md]
 reference: "Motorway diagram convention as road atlases and variable-message signage use it — tapered lane drops, hatched gore areas at a diverge, a continuous outer edge through a lane change. Not to-scale interchange geometry (that is Assimilator's job), and not the painted chevrons inside a gore, which are markings and belong to the decorations spec."
 ---
@@ -553,11 +553,13 @@ unchanged" as the expected outcome rather than the suspicious one.
   after it (which needs the wedge to subtract from an already-drawn stroke)?
   (design-call; proposed: keep the additive rule, since the alternative forces
   §2.4's rejected polygon rewrite.)
-- **OQ-2** — **`TAPER_LENGTH` and `GORE_LENGTH` values.** Proposed 24 and 36
-  world units respectively — a taper of roughly two-and-a-half lane widths reads
-  as a taper and not as a chamfer, and a gore half again as long reads as an
-  area rather than a wedge. Both want checking against a real drawing before
-  they are pinned. (design-call.)
+- **OQ-2 — RESOLVED (Phases 3 and 4): both proposals stand.** `TAPER_LENGTH = 24`
+  and `GORE_LENGTH = 36`, each checked against a real drawing before pinning: a
+  lane closing over two-and-a-half lane widths reads as a taper rather than a
+  chamfer, and at a 35° ramp the gore's base comes out about 2.4 lane widths,
+  which reads as an area rather than a wedge. The gore's length is additionally
+  multiplied by the glyph's Size (Phase 4's shipped note), which is the only
+  control a pad-less glyph has.
 - **OQ-3 — RESOLVED (review round 1): yes, Phase 4 bumps `SCHEMA_VERSION` to 2.**
   A new `JunctionGlyph` variant makes a document unreadable by an older build,
   and the version probe cannot produce a useful message unless the version moves
@@ -590,7 +592,11 @@ unchanged" as the expected outcome rather than the suspicious one.
   a centreline is a painted line. (answerable-from-code — the analysis above is
   the answer; what is open is only which spec carries it. Does not block any
   phase here.)
-- **OQ-7** — **`t_junction` renders identically to `generic` today.**
+- **OQ-7 — left open by decision (Phase 4), for the junction-semantics spec.**
+  Phase 4 took the proposal below: this spec's glyph work was the gore, and
+  `t_junction` still falls through to the plain pad. Nothing in Phase 4 made it
+  worse, and the branch it would need is the same one the gore now sits beside.
+  **`t_junction` renders identically to `generic` today.**
   `JunctionGlyphShape` branches on `roundabout` (`Diagram.tsx:436-445`),
   `signalized_cross` (`:447`) and `priority_cross` (`:472`); every other glyph,
   `t_junction` included, falls through to the plain pad at `:444`. It is a pre-existing gap, adjacent to
@@ -763,6 +769,32 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
 - **Docs touched:** `rules/road-rendering.md` (the gore, and the widened
   `<defs>` condition — which `rules/diagram-export.md` also references); add this
   spec to `CLAUDE.md`'s spec list; update the project-memory roadmap.
+- **Shipped 2026-07-25.** As specified. `GORE_LENGTH = 36` is pinned (OQ-2's
+  proposal, checked against the drawing at a 35° ramp: the base comes out about
+  2.4 lane widths, which reads as an area). Three decisions the spec did not
+  force, recorded because each is visible in the picture:
+  - **Two polygons, not one.** §2.5 says "filled with the shoulder hatch", but
+    the pattern is transparent by design — a shoulder band takes its asphalt from
+    the casing underneath it, and a gore has no casing under its *base*, where
+    the two roads have long since separated. So `.jn-gore` paints the surface and
+    `.jn-gore-hatch` overlays it; a hatch-only polygon would float on bare paper.
+  - **The edge lines take no inset**, unlike `taperEdge`'s 1.5. The gore is
+    bounded by the lane region, and `(roadWidth − ROAD_MARGIN)/2` is *exactly*
+    `RoadShape`'s `edgeInset` — the same number — so the legs are literal
+    continuations of the two roads' own edge lines. Insetting them would jog
+    visibly at the nose. (The consequence is that the legs paint over lines that
+    are already there, which is the correct picture and not a redundancy to
+    remove: a gore whose arm is shorter than `GORE_LENGTH` still needs them.)
+  - **`GORE_LENGTH` scales with the glyph's Size**, unlike `TAPER_LENGTH`, which
+    belongs to no glyph. A pad-less gore would otherwise leave the Inspector's
+    Size control inert, and lengthening cannot misalign anything: the legs stay
+    on the roads' edge lines and only the base slides, so the nose does not move.
+
+  Also worth naming for whoever reads §1 next: **a gore node draws no taper**,
+  because three incident links is not a through joint (§2.4). That is right, not
+  a gap — §1's dropped lane leaves *as* the ramp, and the gore is what closes the
+  picture. `Arm` gained an `id` for `gorePair`'s tie-break, and `hasShoulder`
+  became `needsHatch`.
 
 ## 5. Review log
 

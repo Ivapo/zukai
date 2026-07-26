@@ -111,12 +111,13 @@ exactly the clipping this function exists to prevent.
 needs no allowance: it is centred so its outer edge lands exactly on the
 coincident `.jn-edge` circle, which is pure geometry `getBBox` already includes.
 
-**A taper wedge needs no allowance either, and that is a conclusion rather than
-luck.** `getBBox` excludes stroke width but *includes* fill, and a wedge is a
-filled `<polygon>` inside the measured `<g>` — so it is in the box already, and
-its corners sit on the casing rim the allowance is derived from, which it can
-never reach past. Widening `strokeAllowance` for a tapered document would pad
-every export for nothing; `export.test.ts` pins the unchanged value.
+**A taper wedge and a gore need no allowance either, and that is a conclusion
+rather than luck.** `getBBox` excludes stroke width but *includes* fill, and both
+are filled `<polygon>`s inside the measured `<g>` — so they are in the box
+already. A wedge's corners sit on the casing rim the allowance is derived from
+and can never reach past it; a gore's sit *inside* the lane region, further in
+still. Widening `strokeAllowance` for either would pad every export for nothing;
+`export.test.ts` pins the unchanged value for both.
 
 A document with nothing to measure yields `null` bounds, which `diagramSvg`
 frames as `viewBox="-26 -26 52 52"` — a blank diagram is a blank picture, never
@@ -213,6 +214,11 @@ Same three surfaces as save/open and undo/redo:
     inside the file, does not taint the canvas, and rasterizes — verified against
     a real PNG. The stylesheet assertions that forbid `url(` still apply to
     `diagram.css` in full; this reference lives in the markup.
+  - **A gore reaches the same pattern**, so a document with a gore and no
+    shoulder lane still emits it — the `<defs>` gate is `needsHatch(doc)`, not
+    `hasShoulder(doc)`. That widening is what keeps the file's *only* `url()` the
+    one fragment reference above rather than a dangling one, and `export.test.ts`
+    pins the whole list for a gore document.
 - **No text, no fonts.** The diagram renders zero `<text>` today. The moment a
   marking or sign renders glyphs, an exported file needs the font embedded as a
   data-URI `@font-face` in `diagram.css`, or the SVG falls back to whatever the

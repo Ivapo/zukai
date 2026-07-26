@@ -166,6 +166,10 @@ pub enum JunctionGlyph {
     PriorityCross,
     /// Three-arm T-junction.
     TJunction,
+    /// The gore of a diverge or a merge: no pad at all, but the hatched
+    /// triangle of paint between the two arms that separate. The pair is chosen
+    /// by geometry rather than by traffic, so one variant covers both.
+    Gore,
 }
 
 fn default_scale() -> f64 {
@@ -213,5 +217,23 @@ mod tests {
         let view: LinkView = serde_yaml::from_str("style: motorway\n").expect("deserialize");
 
         assert_eq!(view.align, LinkAlign::Centre);
+    }
+
+    /// The glyph the `SCHEMA_VERSION` bump was for. Spelled in the same
+    /// snake_case the TypeScript mirror uses, or a document built in the
+    /// frontend serializes to YAML this side cannot read.
+    #[test]
+    fn the_gore_glyph_round_trips_as_snake_case() {
+        let view = JunctionView {
+            glyph: JunctionGlyph::Gore,
+            ..JunctionView::default()
+        };
+        let yaml = serde_yaml::to_string(&view).expect("serialize");
+
+        assert!(yaml.contains("glyph: gore"), "unexpected glyph in {yaml:?}");
+        assert_eq!(
+            view,
+            serde_yaml::from_str::<JunctionView>(&yaml).expect("deserialize")
+        );
     }
 }

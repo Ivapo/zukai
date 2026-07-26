@@ -42,6 +42,7 @@ const GLYPHS: { value: JunctionGlyph; label: string }[] = [
   { value: "signalized_cross", label: "Signals" },
   { value: "priority_cross", label: "Priority" },
   { value: "t_junction", label: "T-junction" },
+  { value: "gore", label: "Gore" },
 ];
 
 export function Inspector({ state, dispatch }: InspectorProps) {

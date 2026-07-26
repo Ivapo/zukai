@@ -201,6 +201,15 @@
   stroke-width: 1.5;
 }
 
+/* The gore's surface. The hatch over it is a paint server, which cannot be
+   named here (see `.road-hatch-line`), so it reaches the polygon as an inline
+   attribute; this is the asphalt underneath it. A shoulder band needs no
+   equivalent because the road casing is already under the band, whereas a gore
+   widens out past both roads onto bare paper (ramps spec 2.5). */
+.jn-gore {
+  fill: var(--asphalt);
+}
+
 .jn-stopbar {
   stroke: var(--paint-white);
   stroke-width: 4;

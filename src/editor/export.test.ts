@@ -326,6 +326,86 @@ describe("tapers in an exported file", () => {
   });
 });
 
+describe("gores in an exported file", () => {
+  /** §1's exit: a 4-lane motorway shedding a lane to a ramp at (120, 0), with
+   *  N2 carrying the gore glyph — and no shoulder lane anywhere. */
+  function gored(): Document {
+    return run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "addNode", pos: { x: 120, y: 0 } },
+      { type: "addNode", pos: { x: 240, y: 0 } },
+      { type: "addNode", pos: { x: 200, y: 120 } },
+      { type: "startLink", from: "N1" },
+      { type: "completeLink", to: "N2" },
+      { type: "startLink", from: "N2" },
+      { type: "completeLink", to: "N3" },
+      { type: "startLink", from: "N2" },
+      { type: "completeLink", to: "N4" },
+      { type: "setLinkLanes", id: "L1", count: 4 },
+      { type: "setLinkLanes", id: "L2", count: 3 },
+      { type: "setLinkLanes", id: "L3", count: 1 },
+      { type: "setLinkStyle", id: "L3", style: "ramp" },
+      { type: "setLinkAlign", id: "L1", align: "offside" },
+      { type: "setLinkAlign", id: "L2", align: "offside" },
+      { type: "setNodeKind", id: "N2", kind: "junction" },
+      { type: "setJunctionGlyph", id: "N2", glyph: "gore" },
+    ).doc;
+  }
+
+  /**
+   * The hatch is the file's one paint-server reference, and a gore is now a
+   * second way to reach it — so the rule it was carved out of has to still hold
+   * for a document that carries a gore and *no* shoulder lane. An in-document
+   * fragment does not taint the canvas the PNG path draws into; anything else
+   * would (`rules/diagram-export.md`, "Standing constraints").
+   */
+  it("references the hatch and nothing else, with the stylesheet unchanged in kind", () => {
+    const svg = diagramSvg(gored(), { x: 0, y: 0, width: 240, height: 120 });
+    const css = embeddedCss(svg);
+
+    expect(svg).toContain('<pattern id="road-hatch"');
+    expect([...svg.matchAll(/url\([^)]*\)/g)].map((m) => m[0])).toEqual([
+      "url(#road-hatch)",
+    ]);
+    expect(css).not.toContain("url(");
+    expect(css).not.toMatch(/[<&]/);
+    expect(css).toContain(".jn-gore");
+    expect(diagramInner(gored())).not.toMatch(/xlink|href|https?:/);
+    expect(svg).not.toMatch(CHROME);
+    expect(svg).not.toMatch(/vector-effect/);
+  });
+
+  /**
+   * Same conclusion as the wedge, and for the same reason: a gore is fill
+   * geometry inside the measured `<g>`, so `getBBox` already has it. The one
+   * wrinkle is that its points are in the glyph's own translated frame, which is
+   * why they are compared against the frame with the node added back.
+   */
+  it("needs no allowance of its own either", () => {
+    const doc = gored();
+
+    expect(strokeAllowance(doc)).toBe(strokeAllowance(road(4)));
+
+    const corners = diagramInner(doc)
+      .match(/class="jn-gore" points="([^"]+)"/)![1]
+      .split(" ")
+      .map((p) => p.split(",").map(Number) as [number, number]);
+    const [x, y, w, h] = diagramSvg(doc, { x: 0, y: 0, width: 240, height: 120 })
+      .match(/viewBox="([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+)"/)!
+      .slice(1)
+      .map(Number);
+
+    for (const [cx, cy] of corners) {
+      // The glyph group is translated to N2 at (120, 0).
+      expect(cx + 120).toBeGreaterThan(x);
+      expect(cx + 120).toBeLessThan(x + w);
+      expect(cy).toBeGreaterThan(y);
+      expect(cy).toBeLessThan(y + h);
+    }
+  });
+});
+
 describe("exportFormat", () => {
   it("reads PNG from the extension, whatever its case", () => {
     expect(exportFormat("x.png")).toBe("png");

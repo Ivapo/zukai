@@ -22,13 +22,18 @@ import {
   Vec2,
 } from "../model/types";
 import {
+  GORE_LENGTH,
+  GoreArm,
   JointEnd,
   MIN_ROAD_WIDTH,
+  ROAD_MARGIN,
   TAPER_LENGTH,
   alignmentShift,
   carriageways,
   distance,
   endDirection,
+  gore,
+  gorePair,
   laneBands,
   offsetPolyline,
   polylinePath,
@@ -70,7 +75,7 @@ export function Diagram({
 
   return (
     <g className="diagram">
-      {hasShoulder(doc) && <HatchPattern />}
+      {needsHatch(doc) && <HatchPattern />}
 
       {doc.links.map((link) => {
         const pts = drawnPolyline(doc, link, offsets);
@@ -132,12 +137,28 @@ export function Diagram({
   );
 }
 
-/** Id of the hard-shoulder hatch, referenced by {@link RoadShape}'s bands. */
+/** Id of the hard-shoulder hatch, referenced by {@link RoadShape}'s bands and
+ *  by {@link GoreShape}'s surface. */
 const HATCH_ID = "road-hatch";
 
-/** Whether any lane anywhere in the document is a hard shoulder. */
-function hasShoulder(doc: Document): boolean {
-  return doc.links.some((l) => l.lanes.some((lane) => lane.kind === "shoulder"));
+/**
+ * Whether anything in the document references the hatch pattern — a hard
+ * shoulder **or** a gore glyph.
+ *
+ * Both halves matter. The `<defs>` has to stay conditional, because an empty
+ * document renders as exactly `<g class="diagram"></g>`; and it has to cover the
+ * gore, because a document with a gore and no shoulder would otherwise reference
+ * a `<pattern>` that was never emitted. That failure draws an *unpainted*
+ * triangle and no markup assertion catches it unless one is written for it
+ * (ramps spec §2.5).
+ */
+function needsHatch(doc: Document): boolean {
+  return (
+    doc.links.some((l) => l.lanes.some((lane) => lane.kind === "shoulder")) ||
+    doc.nodes.some(
+      (n) => n.type === "junction" && doc.layout.junctions[n.id]?.glyph === "gore",
+    )
+  );
 }
 
 /**
@@ -229,6 +250,9 @@ function lateralShift(
 
 /** An arm meeting a junction, as drawn. */
 interface Arm {
+  /** The link it comes from — the tie-break when a gore has two equally close
+   *  pairs to choose between (`gorePair`). */
+  id: LinkId;
   /** Unit direction away from the node, along the drawn carriageway. */
   dir: Vec2;
   /**
@@ -270,6 +294,7 @@ function junctionArms(
     const dy = n1.y - n0.y;
     const len = Math.hypot(dx, dy) || 1;
     arms.push({
+      id: link.id,
       dir: { x: dx / len, y: dy / len },
       origin: n0,
       width: roadWidth(link.lanes, linkStyle(doc, link.id)),
@@ -653,6 +678,14 @@ function JunctionGlyphShape({
           <circle className="jn-edge" r={ro} vectorEffect={nse} />
           <circle className="jn-edge" r={ri} vectorEffect={nse} />
         </>
+      ) : glyph === "gore" ? (
+        // A diverge has no pad: the whole glyph is the paint *between* two arms.
+        <GoreShape
+          arms={arms}
+          center={center}
+          scale={scale}
+          interaction={interaction}
+        />
       ) : (
         <circle className="jn-pad" r={rp} />
       )}
@@ -696,6 +729,74 @@ function JunctionGlyphShape({
           vectorEffect={nse}
         />
       )}
+    </g>
+  );
+}
+
+/**
+ * The gore: the paint between two arms as they separate, drawn as a triangle
+ * with its nose where their painted edges meet.
+ *
+ * Which two arms is `gorePair`'s business, and it needs no direction of travel —
+ * see its own doc comment. Everything here is the *frame*: the glyph's group is
+ * already translated to the node, so each arm enters as `origin - center`, and
+ * the degenerate nose falls back to `(0, 0)`, which is the node in that frame.
+ */
+function GoreShape({
+  arms,
+  center,
+  scale,
+  interaction,
+}: {
+  arms: Arm[];
+  center: Vec2;
+  scale: number;
+  interaction?: Interaction;
+}) {
+  const pair = gorePair(
+    arms.map(
+      (a): GoreArm => ({
+        id: a.id,
+        at: { x: a.origin.x - center.x, y: a.origin.y - center.y },
+        away: a.dir,
+        // The lane region's half-span, which is exactly `RoadShape`'s own
+        // `edgeInset`: a gore is paint bounded by the roads' *painted* edges,
+        // not asphalt bounded by their casing rims the way a wedge is.
+        halfSpan: (a.width - ROAD_MARGIN) / 2,
+      }),
+    ),
+  );
+  if (!pair) return null;
+
+  const [nose, fa, fb] = gore(
+    pair[0],
+    pair[1],
+    { x: 0, y: 0 },
+    GORE_LENGTH * scale,
+  );
+  const points = `${nose.x},${nose.y} ${fa.x},${fa.y} ${fb.x},${fb.y}`;
+  return (
+    <g className="gore">
+      {/* Two layers, where a shoulder band needs one: a band sits on the casing,
+          which supplies its asphalt, but a gore's base is out where the two
+          roads have long since separated and there is nothing but paper under
+          it. The hatch pattern is transparent by design, so the surface has to
+          be painted first. */}
+      <polygon className="jn-gore" points={points} />
+      <polygon
+        className="jn-gore-hatch"
+        points={points}
+        fill={`url(#${HATCH_ID})`}
+      />
+      {/* The two legs, as one polyline through the nose so the base stays open.
+          No inset of its own, unlike `taperEdge`: the legs lie on the
+          lane-region edge, which is exactly where `RoadShape` paints, so they
+          continue the edge lines either side of the gore instead of jogging. */}
+      <path
+        className="road-edge jn-gore-edge"
+        d={polylinePath([fa, nose, fb])}
+        vectorEffect={hairline(interaction)}
+      />
     </g>
   );
 }

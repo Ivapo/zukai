@@ -1,9 +1,10 @@
 # Road rendering
 
 How a link becomes a picture of a road: lane geometry, road class, two-way
-carriageways, alignment, lane kinds, and the junction arms derived from them.
-Frontend only apart from the single `LinkView.align` field — nothing else here
-crosses IPC, reaches disk, or changes the schema. The design rationale lives in
+carriageways, alignment, lane kinds, tapers, gores, and the junction arms derived
+from them. Frontend only apart from two model additions — the `LinkView.align`
+field and the `gore` junction glyph — and nothing else here crosses IPC, reaches
+disk, or changes the schema. The design rationale lives in
 `specs/road_rendering_spec.md`, and from `Arm.origin` onward in
 `specs/ramps_and_tapers_spec.md`; hand-maintained.
 
@@ -252,6 +253,54 @@ byte-identical markup.
 through joint. That is a non-goal (ramps spec §2.8), not an oversight; the fix
 belongs with a wider pass over carriageway pairing.
 
+## Gores: the paint between two arms that separate
+
+A `gore` junction glyph draws **no pad at all** — the whole glyph is the hatched
+triangle between two arms, nosed where their painted edges meet. One variant
+covers both a diverge and a merge, because the geometry is identical and the
+rule that picks the two arms never asks which way traffic goes.
+
+- **The pair is the one with the smallest angle between their directions**
+  (`gorePair`), which is the diverging pair at a diverge and the converging pair
+  at a merge. It **cannot** be read off the traffic: `junctionArms` orients every
+  incident link away from the node whichever way its traffic runs, so an `Arm`
+  carries no incoming/outgoing information at all. Unit directions, so smallest
+  angle is largest dot; an exact tie breaks on the pair's **link ids**, never on
+  `doc.links` order, or the same three roads would draw differently in a
+  differently-ordered document. Fewer than two arms draws nothing; more than
+  three is not rejected — the closest pair still wins.
+- **It is bounded by the roads' *painted* edges, not their casing rims** — the
+  opposite of a taper wedge, which is asphalt and takes `width / 2`. So a
+  `GoreArm`'s `halfSpan` is `(roadWidth - ROAD_MARGIN) / 2`, which is *exactly*
+  `RoadShape`'s `edgeInset`: the gore's legs are literal continuations of the two
+  edge lines either side of it, and `jn-gore-edge` therefore takes **no inset of
+  its own** (`taperEdge`'s 1.5 would visibly jog it at the nose).
+- **The nose is a ray intersection with two degenerate cases**, both falling back
+  to the node: parallel arms, and arms whose edges meet only *behind* both
+  origins. "Behind **both**" is the rule — rejecting on "behind either" would
+  drop a good nose whenever a divided carriageway steps one arm past it. The
+  failure the fallback prevents is not a wrong point but an `Infinity`/`NaN` in
+  the markup, which renders as nothing and no `points=` assertion catches.
+- **Two polygons, not one.** The hatch `<pattern>` is transparent by design — a
+  shoulder band gets its asphalt from the casing underneath it — but a gore
+  widens out past both roads onto bare paper, so `.jn-gore` paints the surface
+  and `.jn-gore-hatch` overlays it. The base is left open and unlined: that blunt
+  end is the physical nose, and it is where the drawing should stop.
+- **`GORE_LENGTH` (36) is scaled by the glyph's Size**, unlike `TAPER_LENGTH`.
+  A pad-less glyph would otherwise leave the control inert, and lengthening
+  cannot misalign anything — the legs stay on the roads' edge lines and only the
+  base slides, so the nose does not move.
+
+**The `<defs>` condition widened with it.** `needsHatch(doc)` fires for a
+shoulder lane **or** a gore glyph. It cannot become unconditional — an empty
+document is pinned to exactly `<g class="diagram"></g>` — and it cannot stay
+shoulder-only, or a gore in a document with no shoulder references a `<pattern>`
+that was never emitted and draws an *unpainted* triangle, with markup otherwise
+identical. `Diagram.test.tsx` tests that case directly for exactly that reason.
+
+**The gore is the one glyph that needed a `SCHEMA_VERSION` bump** — a new enum
+*variant*, not a new field. See `rules/document-model.md`.
+
 ## Lane kinds, and what a line means
 
 `Lane.kind` drives two things, both from `laneBands`:
@@ -287,8 +336,10 @@ So the pattern is markup in `Diagram.tsx`, inside a `<defs>`, referenced by an
 inline `stroke="url(#road-hatch)"` on the band. Three constraints on it:
 
 - **The `<defs>` is conditional** — emitted only when the document actually
-  carries a shoulder lane, because `Diagram.test.tsx` pins an empty document to
-  exactly `<g class="diagram"></g>`.
+  references the pattern (`needsHatch`: a shoulder lane **or** a gore glyph),
+  because `Diagram.test.tsx` pins an empty document to exactly
+  `<g class="diagram"></g>`. Anything new that references the pattern has to
+  widen that predicate too; see "Gores" above for what the miss looks like.
 - **The pattern's own stroke comes from a class** (`.road-hatch-line`), not an
   inline colour: `var()` does not resolve inside a *presentation attribute*, and
   the rule travels inside an exported file like every other, so the pattern stays
@@ -328,17 +379,18 @@ spec, not a rendering one — the fix is a field, which this spec ruled out.
 
 | Piece | Where | Tested by |
 |---|---|---|
-| `laneBands`, `roadWidth`, `classWidthFactor`, `carriageways`, `alignmentShift`, `rayCircleExit`, `taperWedge`/`taperWedges`/`taperEdge`, `UNITS_PER_METRE`, `MIN_ROAD_WIDTH`, `DRIVE_SIDE`, `SCHEMATIC_MEDIAN`, `TAPER_LENGTH`, `TAPER_MAX_BEND` | `src/editor/geometry.ts` | `geometry.test.ts` (pure) |
-| `RoadShape`, `HatchPattern`, `drawnPolyline`/`lateralShift`, `junctionArms`, `jointEnd`/`tapers`/`TaperShape`, `JunctionGlyphShape` | `src/components/Diagram.tsx` | `Diagram.test.tsx` via `renderToStaticMarkup` |
+| `laneBands`, `roadWidth`, `classWidthFactor`, `carriageways`, `alignmentShift`, `rayCircleExit`, `taperWedge`/`taperWedges`/`taperEdge`, `rayIntersection`/`gorePair`/`gore`, `UNITS_PER_METRE`, `MIN_ROAD_WIDTH`, `DRIVE_SIDE`, `SCHEMATIC_MEDIAN`, `TAPER_LENGTH`, `TAPER_MAX_BEND`, `GORE_LENGTH` | `src/editor/geometry.ts` | `geometry.test.ts` (pure) |
+| `RoadShape`, `HatchPattern`/`needsHatch`, `drawnPolyline`/`lateralShift`, `junctionArms`, `jointEnd`/`tapers`/`TaperShape`, `JunctionGlyphShape`/`GoreShape` | `src/components/Diagram.tsx` | `Diagram.test.tsx` via `renderToStaticMarkup` |
 | Colour, tints, line treatments | `src/styles/diagram.css` | `export.test.ts` — reaches exports free |
 | `setLaneKind`, `setLinkLanes`, `setLinkAlign` | `src/editor/state.ts` | `state.test.ts` |
-| `LinkAlign` and `LinkView.align` — the one mirrored field | `src/model/types.ts` **and** `src-tauri/src/model/layout.rs`; read through `linkAlign`/`linkStyle` in `src/model/document.ts` | `layout.rs` serde tests |
-| The lane-kind and alignment controls | `src/components/Inspector.tsx`, chrome CSS in `src/styles.css` | — |
+| `LinkAlign`/`LinkView.align` and `JunctionGlyph::Gore` — the two mirrored model additions | `src/model/types.ts` **and** `src-tauri/src/model/layout.rs`; read through `linkAlign`/`linkStyle` in `src/model/document.ts` | `layout.rs` serde tests |
+| The lane-kind, alignment and glyph controls | `src/components/Inspector.tsx`, chrome CSS in `src/styles.css` | — |
 
-Almost all of this is frontend-only. The **one** exception is `LinkView.align`,
-which is a real model field and so obeys `rules/document-model.md`'s Rust↔TS
-mirror discipline — it did not need a `SCHEMA_VERSION` bump, but it did need
-`cargo fmt`/`clippy`. The one cross-subsystem obligation is `strokeAllowance`
+Almost all of this is frontend-only. The **two** exceptions are `LinkView.align`
+and the `gore` glyph, both real model changes, so both obey
+`rules/document-model.md`'s Rust↔TS mirror discipline and both needed
+`cargo fmt`/`clippy`. Only the glyph needed a `SCHEMA_VERSION` bump — a field is
+free, a variant is not. The one cross-subsystem obligation is `strokeAllowance`
 (`src/editor/export.tsx`), which must keep measuring roads at their own lane
 widths **and their own class** or wide roads clip in exports; alignment and tapers
 need nothing from it, since `measureDiagram` frames the *drawn* tree — a shifted

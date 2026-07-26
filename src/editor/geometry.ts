@@ -424,6 +424,160 @@ export function taperEdge(
 }
 
 /**
+ * How far a gore runs from its nose, in world units.
+ *
+ * A build constant like {@link TAPER_LENGTH}, and half again as long: a taper
+ * has to read as a taper rather than a chamfer, while a gore has to read as an
+ * *area* rather than a wedge (ramps spec OQ-2). Scaled by the glyph's own Size,
+ * which is the only thing that control can move on a pad-less glyph — and moving
+ * it is safe, because lengthening a gore slides its base along two legs that
+ * stay on the roads' own edge lines.
+ */
+export const GORE_LENGTH = 36;
+
+/**
+ * One arm of a gore, **as drawn**, in whatever frame the gore is drawn in — the
+ * junction glyph's group is already translated to the node, so `Diagram.tsx`
+ * passes arm positions relative to it.
+ *
+ * Like {@link JointEnd}, every direction is passed in rather than re-derived.
+ */
+export interface GoreArm {
+  /** The link this arm came from. Used only to break an exact tie in
+   *  {@link gorePair}, so the drawing never depends on document order. */
+  id: LinkId;
+  /** Where the carriageway meets the node. */
+  at: Vec2;
+  /** Unit direction **away** from the node, along the drawn carriageway. */
+  away: Vec2;
+  /**
+   * Half the **lane region's** span — `(roadWidth - ROAD_MARGIN) / 2`, the same
+   * quantity {@link alignmentShift} holds an edge at, and exactly `RoadShape`'s
+   * `edgeInset`. A gore is paint bounded by the roads' *painted* edges, not
+   * asphalt bounded by their casing rims the way a taper wedge is, so its legs
+   * are literal continuations of the two edge lines either side of it.
+   */
+  halfSpan: number;
+}
+
+/**
+ * Where the ray from `p` along unit `d` crosses the ray from `q` along unit `e`
+ * — `undefined` when they are parallel, or when they meet only *behind* both
+ * origins.
+ *
+ * The two rejected cases are the gore's degenerate ones (ramps spec §2.5), and
+ * returning `undefined` rather than a point is what keeps an `Infinity` or a
+ * `NaN` out of the drawing: a caller falls back to the node, which is
+ * degenerate but drawable. "Behind **both**" is deliberate — a nose behind one
+ * origin and ahead of the other is still where those two edges meet.
+ */
+export function rayIntersection(
+  p: Vec2,
+  d: Vec2,
+  q: Vec2,
+  e: Vec2,
+): Vec2 | undefined {
+  const denom = d.x * e.y - d.y * e.x;
+  if (Math.abs(denom) < SAME_EDGE) return undefined;
+  const rx = q.x - p.x;
+  const ry = q.y - p.y;
+  const t = (rx * e.y - ry * e.x) / denom;
+  const u = (rx * d.y - ry * d.x) / denom;
+  if (t < 0 && u < 0) return undefined;
+  return { x: p.x + d.x * t, y: p.y + d.y * t };
+}
+
+/**
+ * The two arms a gore is drawn between: **the pair with the smallest angle
+ * between their directions**, which is the diverging pair at a diverge and the
+ * converging pair at a merge.
+ *
+ * Not read off the traffic, because it cannot be: `junctionArms` orients *every*
+ * incident link so its direction points away from the node, whichever way its
+ * traffic runs, so a {@link GoreArm} carries no incoming/outgoing information at
+ * all. It does not need to — the closest pair is the right pair both times, with
+ * no direction of travel consulted either way (ramps spec §2.5).
+ *
+ * Every direction is a unit vector, so smallest angle is **largest dot**. Fewer
+ * than two arms gives `undefined`; more than three is not rejected — the closest
+ * pair still wins, which is the same "the human chose this glyph" posture the
+ * rest of the drawing takes. An exact tie (a genuinely symmetric Y, not a float
+ * wobble) breaks on the pair's link ids.
+ */
+export function gorePair(arms: GoreArm[]): [GoreArm, GoreArm] | undefined {
+  let best: [GoreArm, GoreArm] | undefined;
+  let bestDot = -Infinity;
+  for (let i = 0; i < arms.length; i++) {
+    for (let j = i + 1; j < arms.length; j++) {
+      const a = arms[i];
+      const b = arms[j];
+      const dot = a.away.x * b.away.x + a.away.y * b.away.y;
+      if (
+        dot > bestDot ||
+        (best !== undefined && dot === bestDot && pairKey(a, b) < pairKey(best[0], best[1]))
+      ) {
+        bestDot = dot;
+        best = [a, b];
+      }
+    }
+  }
+  return best;
+}
+
+/** A pair of arms as one comparable string, so a tie breaks the same way twice. */
+function pairKey(a: GoreArm, b: GoreArm): string {
+  return a.id < b.id ? `${a.id}\0${b.id}` : `${b.id}\0${a.id}`;
+}
+
+/**
+ * The gore: the triangle of paint between two arms as they separate.
+ *
+ * Three steps, and only the first needs any reasoning (ramps spec §2.5):
+ *
+ * 1. Each arm's **inner edge** is a ray from its own position along its own
+ *    direction, stepped sideways by its `halfSpan` *toward the other arm*. Which
+ *    perpendicular that is falls out of the geometry rather than out of
+ *    `DRIVE_SIDE`: the one whose dot with the other arm's direction is positive,
+ *    a quantity that is `±sin θ` and so non-zero for any angle strictly between
+ *    parallel and anti-parallel.
+ * 2. The two rays cross at the **nose**. Collinear arms make step 1's sign
+ *    arbitrary *and* step 2 parallel, so both fall together into `fallback` —
+ *    the node — which is degenerate but drawable.
+ * 3. The triangle runs `length` from the nose along each arm. The nose lies on
+ *    both inner edges, so each leg stays on its road's own edge line.
+ */
+export function gore(
+  a: GoreArm,
+  b: GoreArm,
+  fallback: Vec2,
+  length: number,
+): [Vec2, Vec2, Vec2] {
+  const ea = innerEdge(a, b.away);
+  const eb = innerEdge(b, a.away);
+  const nose = rayIntersection(ea, a.away, eb, b.away) ?? fallback;
+  return [
+    nose,
+    { x: nose.x + a.away.x * length, y: nose.y + a.away.y * length },
+    { x: nose.x + b.away.x * length, y: nose.y + b.away.y * length },
+  ];
+}
+
+/** Where `arm`'s inner edge starts: its own position, stepped `halfSpan` toward
+ *  the arm heading `other`. */
+function innerEdge(arm: GoreArm, other: Vec2): Vec2 {
+  // The perpendicular leaning toward the other arm. Its dot with `other` is
+  // `±sin θ`; at θ = 0 or 180° either choice is as good as the other, because
+  // the rays are then parallel and the nose falls back to the node regardless.
+  const nx = -arm.away.y;
+  const ny = arm.away.x;
+  const side = nx * other.x + ny * other.y >= 0 ? 1 : -1;
+  return {
+    x: arm.at.x + nx * side * arm.halfSpan,
+    y: arm.at.y + ny * side * arm.halfSpan,
+  };
+}
+
+/**
  * Which side of its own travel direction a carriageway of a divided road sits
  * on: `+1` is right-hand traffic.
  *

@@ -28,7 +28,18 @@ use layout::Layout;
 
 /// The current Zukai document schema version. Bump on a breaking change to the
 /// save format (distinct from Assimilator's `network.yaml` `schema_version`).
-pub const SCHEMA_VERSION: u32 = 1;
+///
+/// A new optional *field* is not a breaking change — nothing here derives
+/// `deny_unknown_fields`, so an older build ignores one it does not know, which
+/// is why [`layout::LinkView::align`] arrived at version 1. A new enum
+/// **variant** is: an older build fails to deserialize the whole document, and
+/// [`crate::persist::load_document`]'s version probe can only turn that into a
+/// readable message if the version moves with it. Version 2 is
+/// [`layout::JunctionGlyph::Gore`].
+///
+/// No migration arm is needed for it: a version-1 document is a valid version-2
+/// document.
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// A complete schematic: semantic graph, its presentation, and decorations.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
