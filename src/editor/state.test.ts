@@ -901,3 +901,248 @@ describe("markings", () => {
     });
   });
 });
+
+describe("signs", () => {
+  /** `twoNodesLinked` with one sign standing beside the road, freshly selected. */
+  function signed(): EditorState {
+    return run(twoNodesLinked(), { type: "addSign", pos: { x: 40, y: 30 } });
+  }
+
+  /**
+   * Placement is **{@link addNode}'s shape, not {@link addMarking}'s** (signs spec
+   * §2.5): both halves are written from the click alone, with no lane and no
+   * arc-length derived from it — and the layout entry is a **bare `Vec2`**, not
+   * the `{ pos }` wrapper a node's is.
+   */
+  it("stands a sign where the pointer was, in both halves of the document", () => {
+    const state = signed();
+
+    expect(state.doc.signs).toEqual([
+      { id: "S1", kind: { type: "custom", label: "" } },
+    ]);
+    expect(state.doc.layout.signs).toEqual({ S1: { x: 40, y: 30 } });
+    // Absent, never `undefined` — the representation rule every optional field
+    // here follows, matching Rust's `skip_serializing_if`.
+    expect("associated_link" in state.doc.signs[0]).toBe(false);
+    expect(state.selection).toEqual({ kind: "sign", id: "S1" });
+    expect(state.dirty).toBe(true);
+  });
+
+  it("mints ids from the signs already there", () => {
+    const two = run(signed(), { type: "addSign", pos: { x: 0, y: 0 } });
+
+    expect(two.doc.signs.map((s) => s.id)).toEqual(["S1", "S2"]);
+  });
+
+  it("is undoable across both halves at once", () => {
+    const undone = reducer(signed(), { type: "undo" });
+    expect(undone.doc.signs).toEqual([]);
+    expect(undone.doc.layout.signs).toEqual({});
+
+    const redone = reducer(undone, { type: "redo" });
+    expect(redone.doc.signs).toHaveLength(1);
+    expect(redone.doc.layout.signs.S1).toEqual({ x: 40, y: 30 });
+  });
+
+  /**
+   * **A drag is one undo step**, the rule `moveNode` already follows: the canvas
+   * dispatches one `moveSign` per pointer-move, and without a key in
+   * `coalesceKeyFor` a single drag would burn a snapshot per frame.
+   */
+  it("collapses a run of moveSign into a single undo step", () => {
+    const start = signed();
+    const dragged = run(
+      start,
+      { type: "select", selection: { kind: "sign", id: "S1" } },
+      { type: "moveSign", id: "S1", pos: { x: 41, y: 30 } },
+      { type: "moveSign", id: "S1", pos: { x: 42, y: 30 } },
+      { type: "moveSign", id: "S1", pos: { x: 43, y: 30 } },
+    );
+
+    expect(dragged.doc.layout.signs.S1).toEqual({ x: 43, y: 30 });
+    // Exactly one snapshot more than before the drag: the pre-drag document.
+    expect(dragged.past).toHaveLength(start.past.length + 1);
+
+    const undone = reducer(dragged, { type: "undo" });
+    expect(undone.doc.layout.signs.S1).toEqual({ x: 40, y: 30 });
+  });
+
+  it("deletes exactly the sign, from both halves, and nothing else", () => {
+    const start = signed();
+    const gone = reducer(start, { type: "deleteSelection" });
+
+    expect(gone.doc.signs).toEqual([]);
+    expect(gone.doc.layout.signs).toEqual({});
+    expect(gone.doc.nodes).toBe(start.doc.nodes);
+    expect(gone.doc.links).toBe(start.doc.links);
+    expect(gone.doc.layout.nodes).toBe(start.doc.layout.nodes);
+    expect(gone.selection).toBeNull();
+  });
+
+  /**
+   * The identity trap `rules/history.md` names, and the sign arm has **two**
+   * places to rebuild rather than one — so it has to check before touching either.
+   */
+  it("does not dirty the document when the sign is already gone", () => {
+    const stale: EditorState = {
+      ...twoNodesLinked(),
+      selection: { kind: "sign", id: "S7" },
+      dirty: false,
+      past: [],
+    };
+
+    const next = reducer(stale, { type: "deleteSelection" });
+
+    expect(next.doc).toBe(stale.doc);
+    expect(next.dirty).toBe(false);
+    expect(next.past).toEqual([]);
+    // The stale selection is cleared even so — there is nothing to point at.
+    expect(next.selection).toBeNull();
+  });
+
+  /**
+   * **The fourth `Selection` arm, and this time the compiler helped.** Both sites
+   * that used to fail silently — `selectionValid` and `deleteSelection` — are
+   * `switch`es with `default: return unreachable(sel)`, so this arm was a build
+   * error until it was handled (markings spec §2.6's payoff). The behaviour is
+   * asserted anyway: it is what the compile error was protecting.
+   */
+  it("survives undo and redo (selectionValid)", () => {
+    const state = run(signed(), { type: "setLinkLanes", id: "L1", count: 2 });
+    const selected = reducer(state, {
+      type: "select",
+      selection: { kind: "sign", id: "S1" },
+    });
+
+    const undone = reducer(selected, { type: "undo" });
+    expect(undone.selection).toEqual({ kind: "sign", id: "S1" });
+
+    const redone = reducer(undone, { type: "redo" });
+    expect(redone.selection).toEqual({ kind: "sign", id: "S1" });
+  });
+
+  it("drops the selection when undo takes the sign away", () => {
+    expect(reducer(signed(), { type: "undo" }).selection).toBeNull();
+  });
+
+  it("repaints a sign as another kind, keeping what it names", () => {
+    const named = run(
+      signed(),
+      { type: "setSignLink", id: "S1", link: "L1" },
+      { type: "setSignKind", id: "S1", kind: { type: "speed_limit", kph: 50 } },
+    );
+
+    expect(named.doc.signs[0].kind).toEqual({ type: "speed_limit", kph: 50 });
+    expect(named.doc.signs[0].associated_link).toBe("L1");
+  });
+
+  it("clears associated_link by dropping the key, never by storing undefined", () => {
+    const cleared = run(
+      signed(),
+      { type: "setSignLink", id: "S1", link: "L1" },
+      { type: "setSignLink", id: "S1" },
+    );
+
+    expect("associated_link" in cleared.doc.signs[0]).toBe(false);
+  });
+
+  it("is a no-op, by identity, on a sign or a link that is not there", () => {
+    const start = run(signed(), { type: "setSignLink", id: "S1", link: "L1" });
+    for (const action of [
+      { type: "moveSign", id: "S9", pos: { x: 1, y: 1 } },
+      { type: "setSignKind", id: "S9", kind: { type: "stop" } },
+      { type: "setSignLink", id: "S9", link: "L1" },
+      { type: "setSignLink", id: "S1", link: "L9" },
+    ] as const) {
+      expect(reducer(start, action).doc).toBe(start.doc);
+    }
+  });
+
+  /**
+   * Typing is one undo step, the rule signs Phase 1 established for the Words
+   * field. The boundary is the interesting half again — but it falls out
+   * differently here: the empty label arrives from `addSign`, a different action,
+   * so the placement is outside the run without the carve-out doing anything. The
+   * carve-out is there for Phase 3's Kind picker, which will mint
+   * `custom { label: "" }` through this very action.
+   */
+  it("collapses a typed label into one undo step, but not the placement", () => {
+    const type = (state: EditorState, label: string) =>
+      reducer(state, {
+        type: "setSignKind",
+        id: "S1",
+        kind: { type: "custom", label },
+      });
+
+    const typed = ["T", "TO", "TOLL"].reduce(type, signed());
+    expect(typed.doc.signs[0].kind).toEqual({ type: "custom", label: "TOLL" });
+
+    // One undo clears the word and leaves the sign standing.
+    const once = reducer(typed, { type: "undo" });
+    expect(once.doc.signs[0].kind).toEqual({ type: "custom", label: "" });
+    // A second removes the sign itself — so the placement and the typing are two
+    // steps, not one and not four.
+    expect(reducer(once, { type: "undo" }).doc.signs).toEqual([]);
+  });
+
+  /**
+   * **The cascade, in the other direction** (§2.5). A marking cannot outlive its
+   * road because nothing draws one whose link is gone; a sign is free-standing, so
+   * a deleted road must clear the reference and leave the sign exactly where it
+   * stood. Both delete arms, because the node arm strands the same reference.
+   */
+  describe("a sign outlives the road it names", () => {
+    /** `signed()` with `S1` pointing at `L1`. */
+    function named(): EditorState {
+      return run(signed(), { type: "setSignLink", id: "S1", link: "L1" });
+    }
+
+    it("keeps the sign and clears the field when the link goes", () => {
+      const gone = run(
+        named(),
+        { type: "select", selection: { kind: "link", id: "L1" } },
+        { type: "deleteSelection" },
+      );
+
+      expect(gone.doc.links).toEqual([]);
+      expect(gone.doc.signs).toHaveLength(1);
+      expect("associated_link" in gone.doc.signs[0]).toBe(false);
+      // Its position is untouched: nothing about a sign depended on the road.
+      expect(gone.doc.layout.signs.S1).toEqual({ x: 40, y: 30 });
+    });
+
+    it("clears it through a node whose deletion takes the link with it", () => {
+      const gone = run(
+        named(),
+        { type: "select", selection: { kind: "node", id: "N2" } },
+        { type: "deleteSelection" },
+      );
+
+      expect(gone.doc.signs).toHaveLength(1);
+      expect("associated_link" in gone.doc.signs[0]).toBe(false);
+      expect(gone.doc.layout.signs.S1).toEqual({ x: 40, y: 30 });
+    });
+
+    /**
+     * **The identity half, which no behavioural assertion sees.** Clearing a field
+     * is a `map` where dropping a marking is a `filter`, so `keepMarkings`'s
+     * same-length trick does not transfer — `clearSignLinks` has to check first.
+     * Without it, every link deletion in a document with signs hands history a
+     * fresh array to stop sharing.
+     */
+    it("hands back the same array when no sign named the deleted link", () => {
+      const before = run(
+        named(),
+        { type: "addNode", pos: { x: 80, y: 80 } },
+        { type: "startLink", from: "N2" },
+        { type: "completeLink", to: "N3" },
+        { type: "select", selection: { kind: "link", id: "L2" } },
+      );
+
+      const after = reducer(before, { type: "deleteSelection" });
+
+      expect(after.doc.signs[0].associated_link).toBe("L1");
+      expect(after.doc.signs).toBe(before.doc.signs);
+    });
+  });
+});

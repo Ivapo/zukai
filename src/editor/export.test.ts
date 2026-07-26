@@ -36,13 +36,23 @@ function classed(lanes: number, style: LinkStyle): Document {
   }).doc;
 }
 
+/** {@link road} with one sign standing clear of it, carrying `label`. */
+function signed(label: string): Document {
+  const base = road(3);
+  return {
+    ...base,
+    signs: [{ id: "S1", kind: { type: "custom", label } }],
+    layout: { ...base.layout, signs: { S1: { x: 60, y: 60 } } },
+  };
+}
+
 /**
  * Chrome is matched by class token, not by bare word: `--paint-white` contains
  * the substring "hit", so a `/hit/` test can never pass on a file that carries
  * the palette.
  */
 const CHROME =
-  /road-hit|jn-hit|marking-hit|-halo|is-selected|link-preview|grid|cursor/;
+  /road-hit|jn-hit|marking-hit|sign-hit|-halo|is-selected|link-preview|grid|cursor/;
 
 /**
  * The text between the **first** `<style>` and the first `</style>` — the
@@ -686,6 +696,64 @@ describe("road markings in an exported file", () => {
     it("needs no more stroke allowance than the road it is painted on", () => {
       expect(strokeAllowance(lettered)).toBe(strokeAllowance(road(3)));
     });
+
+    /**
+     * **The gate is deliberately conservative about signs, and that asymmetry is
+     * the design** (signs spec §2.3). A sign whose label is empty draws a plate
+     * and no `<text>` — and the face travels anyway, because refining the
+     * predicate to "signs whose kind draws a glyph" would put the kind vocabulary
+     * in the export path, where it can fall out of step with what Phase 3 draws.
+     * 18 kB on a rare sign-without-letters document is the price, recorded here so
+     * a later pass does not read it as an oversight.
+     *
+     * The marking half is not conservative and must not become one: it counts
+     * exactly what the tree emits a `<text>` for.
+     */
+    it("embeds the face for a signed document, glyph or no glyph", () => {
+      for (const label of ["TOLL", ""]) {
+        const svg = diagramSvg(signed(label), box);
+
+        expect(svg.match(/@font-face/g)).toHaveLength(1);
+        expect(svg.match(/<style>/g)).toHaveLength(2);
+        expect(svg).toContain("The Overpass Project Authors");
+        expectSelfContained(svg);
+      }
+      // The two halves, stated rather than implied: no label, no glyph.
+      expect(diagramSvg(signed(""), box)).not.toMatch(/<text[\s>]/);
+      expect(diagramSvg(signed("TOLL"), box)).toContain(
+        'font-family="Overpass Mono"',
+      );
+    });
+  });
+});
+
+describe("signs in an exported file", () => {
+  const box = { x: 0, y: 0, width: 120, height: 40 };
+
+  it("carries the plate's paint as a rule, like every other", () => {
+    const svg = diagramSvg(signed("TOLL"), box);
+    const css = embeddedCss(svg);
+
+    expect(svg).toContain('<g class="sign sign-custom"');
+    expect(svg).toContain('class="sign-plate"');
+    expect(svg).toContain('class="sign-label"');
+    expect(css).toContain(".sign-plate");
+    expect(css).toContain(".sign-label");
+    expectSelfContained(svg);
+    expect(css).not.toMatch(/[<&]/);
+    expect(svg).not.toMatch(CHROME);
+    // A sign is a symbol, and its outline holds its weight only on the canvas.
+    expect(svg).not.toMatch(/vector-effect/);
+  });
+
+  /**
+   * A plate is a filled rect with a 1-unit outline, so half of it is well under
+   * the `2` floor — and `getBBox` measures fill with no allowance at all.
+   * Confirmed rather than assumed: §2.8 flagged the frame as the one place a sign
+   * could have needed widening.
+   */
+  it("needs no more stroke allowance than the road it stands beside", () => {
+    expect(strokeAllowance(signed("HEATHROW"))).toBe(strokeAllowance(road(3)));
   });
 });
 

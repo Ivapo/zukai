@@ -3,7 +3,7 @@
 import type React from "react";
 import { useRef, useState } from "react";
 import { findLink, linkStyle, nodePos } from "../model/document";
-import { Link, Marking, Node, NodeId, Vec2 } from "../model/types";
+import { Link, Marking, Node, NodeId, Sign, SignId, Vec2 } from "../model/types";
 import {
   LANE_PX,
   UNITS_PER_METRE,
@@ -25,6 +25,7 @@ interface CanvasProps {
 /** Active pointer drag, tracked in a ref so it doesn't trigger re-renders. */
 type Drag =
   | { kind: "node"; id: NodeId; offX: number; offY: number }
+  | { kind: "sign"; id: SignId; offX: number; offY: number }
   | { kind: "pan"; startTx: number; startTy: number; startX: number; startY: number };
 
 export function Canvas({ state, dispatch }: CanvasProps) {
@@ -53,6 +54,13 @@ export function Canvas({ state, dispatch }: CanvasProps) {
     }
     if (tool === "node") {
       dispatch({ type: "addNode", pos: worldPoint(e) });
+      return;
+    }
+    // A sign carries its own position, so it lands wherever the pointer is — and
+    // that includes *over a road*, which costs nothing: `onLinkPointerDown` lets
+    // every tool but its own fall through to here (signs spec §2.5).
+    if (tool === "sign") {
+      dispatch({ type: "addSign", pos: worldPoint(e) });
       return;
     }
     if (tool === "link") {
@@ -166,6 +174,36 @@ export function Canvas({ state, dispatch }: CanvasProps) {
     }
   }
 
+  /**
+   * A sign's own clicks. Signs are the topmost layer, so this event can reach no
+   * road, marking or glyph group — but *not* stopping propagation would send it to
+   * the `<svg>`, whose select tail clears the selection and starts a pan, and
+   * whose sign-tool arm would drop a second sign. Same trap
+   * {@link onMarkingPointerDown} guards against.
+   *
+   * **Under the sign tool, clicking a sign selects and drags it rather than
+   * dropping another on top — the *node* tool's rule, not the marking tool's.** A
+   * marking belongs to a road with room for two and has a 12-unit hit strip that
+   * is hard to avoid, so placing another there is the less surprising behaviour; a
+   * sign is a free-standing object at a point, and a second one minted exactly
+   * beneath the first would be invisible — you would drag one and find another
+   * under it.
+   */
+  function onSignPointerDown(e: React.PointerEvent, sign: Sign) {
+    e.stopPropagation();
+    if (e.button === 1) {
+      beginPan(e);
+      return;
+    }
+    dispatch({ type: "select", selection: { kind: "sign", id: sign.id } });
+    const p = doc.layout.signs[sign.id];
+    const w = worldPoint(e);
+    if (p) {
+      drag.current = { kind: "sign", id: sign.id, offX: w.x - p.x, offY: w.y - p.y };
+      svgRef.current?.setPointerCapture(e.pointerId);
+    }
+  }
+
   function onPointerMove(e: React.PointerEvent) {
     if (tool === "link" && linkFrom) setCursor(worldPoint(e));
 
@@ -183,11 +221,17 @@ export function Canvas({ state, dispatch }: CanvasProps) {
       });
     } else {
       const w = screenToWorld(view, s.x, s.y);
-      dispatch({
-        type: "moveNode",
-        id: d.id,
-        pos: { x: w.x - d.offX, y: w.y - d.offY },
-      });
+      const pos = { x: w.x - d.offX, y: w.y - d.offY };
+      // Two drags share one piece of offset arithmetic and differ only in what
+      // they move. Left as an unconditional `moveNode` this would fail
+      // **silently** for a sign: that reducer's guard is a layout lookup, and
+      // `layout.nodes["S1"]` is simply absent, so the sign would refuse to move
+      // with nothing thrown and nothing logged.
+      dispatch(
+        d.kind === "sign"
+          ? { type: "moveSign", id: d.id, pos }
+          : { type: "moveNode", id: d.id, pos },
+      );
     }
   }
 
@@ -237,6 +281,7 @@ export function Canvas({ state, dispatch }: CanvasProps) {
             onNodePointerDown,
             onLinkPointerDown,
             onMarkingPointerDown,
+            onSignPointerDown,
           }}
         />
       </g>

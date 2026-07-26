@@ -1,9 +1,9 @@
 ---
-status: in progress (Phase 1 implemented; reviewed in 2 rounds, 2026-07-26)
+status: in progress (Phases 1–2 implemented; reviewed in 2 rounds, 2026-07-26)
 last_updated: 2026-07-26
 note: Put text and roadside signs in the drawing — the font that must travel inside an exported file, painted road text, and the sign vocabulary. Closes export spec OQ-4.
-implemented: ["Phase 1"]
-not_implemented: ["Phase 2", "Phase 3", "Phase 4"]
+implemented: ["Phase 1", "Phase 2"]
+not_implemented: ["Phase 3", "Phase 4"]
 related: [specs/road_markings_spec.md, specs/diagram_export_spec.md, specs/road_rendering_spec.md]
 reference: "Road-atlas and motorway-signage convention — a speed roundel, an octagonal stop, an inverted give-way triangle, a destination plate, and text painted flat on the carriageway. Not to-scale sign dimensions, not a national sign catalogue (no symbol library), and not Assimilator's business at all: `decoration.rs` says signs never export to `network.yaml`."
 ---
@@ -592,6 +592,45 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
 - **Docs touched:** a new `rules/signs.md` or a section in `rules/road-markings.md`
   — decide in the plan, on the same "who chose it" line markings Phase 1 used;
   `rules/history.md` for `moveSign`'s coalescing.
+- **As built (2026-07-26)** — six departures from the plan above, each recorded
+  because Phases 3–4 read this section as the contract:
+  - **`signPlate(label)` sizes the plate to its text, which was Phase 4's job.**
+    A fixed `SIGN_SIZE` box overflows at about five characters, and `custom` is
+    precisely the free-text kind — so `max(SIGN_SIZE, textWidth(label) + 2 *
+    PLATE_PAD)` landed here instead, with `SIGN_SIZE` demoted to the floor that
+    keeps an empty label drawable. **Phase 4 is correspondingly smaller**: the
+    `direction` kind and its Inspector field, with its plate assertions (monotonic
+    growth, an empty string still drawable, centred at every length) already met
+    in `geometry.test.ts`.
+  - **A new `rules/signs.md`**, not a section of `rules/road-markings.md` — §2.5
+    spends its length proving a sign is not a marking, and that file's first
+    section is "The anchor", which a sign does not have.
+  - **The plate's height is `TEXT_SIZE * 2`, and the baseline is arithmetic from
+    `TEXT_SIZE * CAP_HEIGHT`** — not from `SIGN_SIZE` as §2.7 says. §2.7's
+    *constraint* (no `dominant-baseline`) holds; its arithmetic was loose. Using
+    Phase 1's number is what keeps one centring rule for both text sites, and
+    `geometry.test.ts` asserts the plate's baseline against `markingText`'s
+    directly rather than against a literal they both happen to match. A square
+    plate also reads as a card rather than as a sign.
+  - **The halo is gated on `selected`, not on `interaction`** as Phase 2's scope
+    line says — the latter would ring every sign on the canvas. `MarkingShape`'s
+    existing split (hit target on `interaction`, halo on `selected`).
+  - **`isSelected`'s `kind` parameter is typed off `Selection`** rather than
+    widened by hand. §2.6's table calls the site "silent"; passing `"sign"` to the
+    hand-written union was in fact a compile error, so what is *genuinely* silent
+    is forgetting to call it at all — which the markup assertion covers and no
+    signature can.
+  - **`rules/diagram-export.md` was touched too**, which the line above omits: its
+    standing description of `needsText` said the predicate counts exactly what the
+    tree emits a `<text>` for, and that is now true of one arm and deliberately
+    false of the other.
+  - Two traps worth naming, both caught by running the thing rather than by
+    review: **`Canvas.tsx`'s `onPointerMove` fails silently** if its `else` arm
+    keeps dispatching `moveNode` — a sign id there is an identity no-op via that
+    reducer's layout guard, so the sign simply refuses to move; and
+    **`clearSignLinks` is a `map` where `keepMarkings` is a `filter`**, so array
+    identity has to be recovered by a pre-check rather than by a length
+    comparison.
 
 ### Phase 3 — The vocabulary: the shapes that carry the meaning  (depends on Phase 2)
 
@@ -613,7 +652,9 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
 
 - **Scope:** `direction { text }` — the one kind whose geometry depends on its
   content. `signPlate(text)` from §2.4's `textWidth`, padded by a build constant;
-  and a text field in the Inspector.
+  and a text field in the Inspector. **`signPlate` landed in Phase 2** (see its
+  As-built note), so what remains here is the kind itself and its field; the
+  geometry gate below is already met and is kept as the regression net.
 - **Exit gate:** `bun run build` + `bun run test` green. `geometry.test.ts`: a
   plate's width is `textWidth(text) + 2 × padding` and grows monotonically with
   the text; an empty string still yields a drawable plate rather than a zero-width

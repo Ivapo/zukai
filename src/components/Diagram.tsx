@@ -20,6 +20,7 @@ import {
   Marking,
   Node,
   NodeId,
+  Sign,
   Vec2,
 } from "../model/types";
 import {
@@ -54,6 +55,8 @@ import {
   polylinesPath,
   rayCircleExit,
   roadWidth,
+  SignPlate,
+  signPlate,
   taperEdge,
   taperWedges,
 } from "../editor/geometry";
@@ -74,6 +77,13 @@ export interface Interaction {
    * of its own (markings spec §2.4).
    */
   onMarkingPointerDown: (e: React.PointerEvent, marking: Marking) => void;
+  /**
+   * Signs are the **topmost** layer, so a sign's hit target is a descendant of no
+   * road, marking or junction group at all — and SVG events bubble only to
+   * ancestors, so nothing already here can fire from one. A callback of its own,
+   * on `onMarkingPointerDown`'s precedent (signs spec §2.7).
+   */
+  onSignPointerDown: (e: React.PointerEvent, sign: Sign) => void;
 }
 
 /** The whole drawing under one group; `interaction` absent means export mode. */
@@ -179,6 +189,29 @@ export function Diagram({
           />
         );
       })}
+
+      {/* Signs last, so they are the topmost thing in the drawing. Markings sit
+          *below* the junction glyphs because a pad is the intersection's own
+          surface and paint under one is genuinely covered; a sign stands beside
+          the road rather than on it and must never be occluded (signs §2.7).
+
+          An unwrapped map, never a `<g class="signs">` around it: a document with
+          no sign has to render as exactly `<g class="diagram"></g>`, the way one
+          with no marking does. */}
+      {doc.signs.map((sign) => {
+        // A sign with no layout entry has no position to draw at, which only a
+        // hand-edited document can produce — the node layer's own skip.
+        const p = doc.layout.signs[sign.id];
+        if (!p) return null;
+        return (
+          <SignShape
+            key={sign.id}
+            sign={sign}
+            pos={p}
+            interaction={interaction}
+          />
+        );
+      })}
     </g>
   );
 }
@@ -216,13 +249,21 @@ function needsHatch(doc: Document): boolean {
  * the tree, and one predicate for both is what stops a file carrying a face with
  * no text, or worse, text with no face (signs spec §2.3).
  *
- * It counts exactly what {@link markingPaint} emits a `<text>` for: **non-empty**
- * content. An empty one draws the transverse bar instead, so it stays visible and
- * selectable while needing no font at all.
+ * **The two arms are deliberately asymmetric.** The marking half counts exactly
+ * what {@link markingPaint} emits a `<text>` for — **non-empty** content, an empty
+ * one drawing the transverse bar instead — so the font and the glyph cannot
+ * disagree. The sign half counts *every* sign, and is deliberately **not** refined
+ * to "signs whose kind draws a glyph": a give-way triangle and a priority diamond
+ * carry no letters and a freshly placed sign's label is empty, but teaching the
+ * export path the kind vocabulary to save 18 kB on a rare sign-without-letters
+ * document is a table that can fall out of step with what Phase 3 draws. One
+ * conservative predicate, recorded here so a later pass does not read it as an
+ * oversight (§2.3).
  */
 export function needsText(doc: Document): boolean {
-  return doc.markings.some(
-    (m) => m.kind.type === "text" && m.kind.content !== "",
+  return (
+    doc.markings.some((m) => m.kind.type === "text" && m.kind.content !== "") ||
+    doc.signs.length > 0
   );
 }
 
@@ -462,9 +503,18 @@ function TaperShape({
   );
 }
 
+/**
+ * Whether `sel` names this element.
+ *
+ * **The one `Selection` site the compiler only half polices** (signs spec §2.6).
+ * `kind` is typed off `Selection` itself rather than hand-listed, so the union can
+ * never lag the type — but nothing makes a new shape *call* this at all, and an
+ * element that simply never lights up is no build error. `Diagram.test.tsx`
+ * asserting that a selected sign carries its halo is the whole of the net here.
+ */
 function isSelected(
   sel: Selection | null,
-  kind: "node" | "link" | "marking",
+  kind: Selection["kind"],
   id: string,
 ) {
   return sel?.kind === kind && sel.id === id;
@@ -1057,4 +1107,103 @@ function SignalHead({
 /** Points for a diamond (rotated square) of half-diagonal `s`, centred at origin. */
 function diamondPoints(s: number): string {
   return `0,${-s} ${s},0 0,${s} ${-s},0`;
+}
+
+/**
+ * A roadside sign: one plate, the label on it, and the chrome every selectable
+ * thing carries.
+ *
+ * **Node-shaped, not marking-shaped** (signs spec §2.5). Its position is its own,
+ * so the group is translated to it and everything below is drawn about the origin
+ * from build constants — the way {@link NodeShape} and {@link JunctionGlyphShape}
+ * are, and unlike a marking, which derives every point from the road it is painted
+ * on.
+ *
+ * **One hit box and one halo for every kind**, whatever the plate becomes. That is
+ * the marking layer's rule (its hit target is the anchor's bar for all six kinds)
+ * applied here for the same reason: selecting a sign has to feel identical across
+ * the vocabulary, so Phase 3 changes only the paint.
+ *
+ * Phase 2 draws the one kind needing no vocabulary — `custom`, a plate carrying its
+ * label — and every other kind falls through to the same bare plate meanwhile,
+ * which is {@link markingPaint}'s fall-through posture. An **empty** label emits no
+ * `<text>` at all, and the plate is what keeps a freshly placed sign visible and
+ * selectable: the empty text marking's bar again.
+ *
+ * The plate's outline takes `non-scaling-stroke` on the canvas, on
+ * `.jn-priority`'s precedent rather than the marking layer's: a sign is a *symbol*,
+ * and a 1-unit outline that scaled away at low zoom would stop separating a white
+ * plate from light paper.
+ */
+function SignShape({
+  sign,
+  pos,
+  interaction,
+}: {
+  sign: Sign;
+  pos: Vec2;
+  interaction?: Interaction;
+}) {
+  const label = sign.kind.type === "custom" ? sign.kind.label : "";
+  const plate = signPlate(label);
+  const selected = isSelected(interaction?.selection ?? null, "sign", sign.id);
+  // `speed_limit` → `speed-limit`, so every kind takes its token from the model
+  // rather than from a table that could fall out of step with it.
+  const kind = sign.kind.type.replace(/_/g, "-");
+  const nse = hairline(interaction);
+
+  return (
+    <g
+      className={`sign sign-${kind}${selected ? " is-selected" : ""}`}
+      transform={`translate(${pos.x} ${pos.y})`}
+      onPointerDown={
+        interaction &&
+        ((e: React.PointerEvent) => interaction.onSignPointerDown(e, sign))
+      }
+    >
+      {/* Both grown from the plate itself, corners included, so each is the shape
+          it stands for — `.marking-halo`'s butt caps follow the same rule. */}
+      {interaction && <rect className="sign-hit" {...inflate(plate, 3)} />}
+      {selected && (
+        <rect className="sign-halo" {...inflate(plate, 4)} vectorEffect={nse} />
+      )}
+      <rect
+        className="sign-plate"
+        x={plate.box.x}
+        y={plate.box.y}
+        width={plate.box.width}
+        height={plate.box.height}
+        rx={plate.radius}
+        vectorEffect={nse}
+      />
+      {label ? (
+        <text
+          className="sign-label"
+          x={plate.baseline.x}
+          y={plate.baseline.y}
+          /* The face and the size are attributes rather than rules in
+             `diagram.css`, for the reason painted road text's are (§2.3). No
+             `transform`: a sign's text is never at an angle (§2.9). */
+          fontFamily={FONT_FAMILY}
+          fontSize={plate.size}
+          textAnchor="middle"
+        >
+          {label}
+        </text>
+      ) : null}
+    </g>
+  );
+}
+
+/** The plate's box grown by `pad` on every side, rounding included — the geometry
+ *  a sign's hit target and its halo share. */
+function inflate(plate: SignPlate, pad: number) {
+  const { x, y, width, height } = plate.box;
+  return {
+    x: x - pad,
+    y: y - pad,
+    width: width + 2 * pad,
+    height: height + 2 * pad,
+    rx: plate.radius + pad,
+  };
 }

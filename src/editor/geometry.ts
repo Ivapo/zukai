@@ -1383,6 +1383,82 @@ export function markingText(anchor: MarkingAnchor): TextRun {
 }
 
 /**
+ * How big a sign is drawn, in world units — the symbol size, and the floor a
+ * plate's width never goes below.
+ *
+ * A sign is a **symbol, not a scale model** (signs spec §2.7): it stands beside
+ * the road rather than on it, so unlike a turn arrow's proportions it is not
+ * derived from a lane band — the same sign beside a narrow ramp is the same sign.
+ * A schematic build constant in the manner of {@link GORE_LENGTH}, and settled in
+ * the app as {@link MARKING_PITCH} was.
+ *
+ * Phase 3's roundel, octagon, triangle and diamond take it in **both** directions;
+ * {@link signPlate} takes it as a minimum only, since a plate is as wide as what
+ * it carries.
+ */
+export const SIGN_SIZE = 22;
+
+/**
+ * The clear space either side of a label on its plate, in world units.
+ *
+ * Two thirds of the type size, so a plate has visible border rather than letters
+ * running to its edge — and about a character wide, which is what makes a short
+ * label read as centred rather than cramped.
+ */
+export const PLATE_PAD = 4;
+
+/** A sign's plate and the run of text centred on it, drawn about the origin. */
+export interface SignPlate {
+  /** The plate as a rect, centred on the sign's own position. */
+  box: { x: number; y: number; width: number; height: number };
+  /** Corner rounding, so a plate reads as signage rather than as a bare box. */
+  radius: number;
+  /**
+   * The label's baseline **midpoint** — `text-anchor="middle"` centres the string
+   * on it, which is what keeps the string out of this arithmetic, exactly as
+   * {@link TextRun} does for painted road text.
+   */
+  baseline: Vec2;
+  /** Carried here so the renderer writes one attribute rather than reading two constants. */
+  size: number;
+}
+
+/**
+ * The plate a sign carries its label on, **sized to that label**.
+ *
+ * **Origin-centred**, because a sign carries its own canvas position and its shape
+ * is translated there — the way a node and a junction glyph are drawn, and unlike
+ * a marking, whose every point comes out of the road (§2.5).
+ *
+ * Three decisions worth stating:
+ *
+ * - **The width is the text's, floored at {@link SIGN_SIZE}.** Exact because the
+ *   face is monospaced ({@link textWidth}) and pure because nothing measures a
+ *   DOM, which is the whole reason §2.4 chose a monospace face. The floor is what
+ *   keeps an empty label a drawable plate rather than a sliver.
+ * - **The height is the type it carries, not `SIGN_SIZE`** — two type sizes, so
+ *   there is half a size of clearance above and below the cap. A square plate
+ *   reads as a card rather than as a sign.
+ * - **The label is centred by arithmetic, not `dominant-baseline`**, whose support
+ *   inside a rasterized SVG is precisely the class of thing that fails silently in
+ *   the PNG path (§2.7, OQ-1). Glyphs sit above their baseline, so it drops half a
+ *   cap height below the plate's centre — the identical rule {@link markingText}
+ *   centres a run on its lane band with, and the one number both text sites in the
+ *   drawing must agree on. (§2.7 says "arithmetic from `SIGN_SIZE`"; it is not —
+ *   it is `TEXT_SIZE * CAP_HEIGHT`, which is what Phase 1 already fixed.)
+ */
+export function signPlate(label: string): SignPlate {
+  const width = Math.max(SIGN_SIZE, textWidth(label) + 2 * PLATE_PAD);
+  const height = TEXT_SIZE * 2;
+  return {
+    box: { x: -width / 2, y: -height / 2, width, height },
+    radius: TEXT_SIZE / 3,
+    baseline: { x: 0, y: (TEXT_SIZE * CAP_HEIGHT) / 2 },
+    size: TEXT_SIZE,
+  };
+}
+
+/**
  * How far apart a double line's two strokes sit, centre to centre.
  *
  * A schematic build constant like {@link CROSSWALK_DEPTH}, and **decided in the

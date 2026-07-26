@@ -255,10 +255,16 @@ Same three surfaces as save/open and undo/redo:
   substitution in permanently. What changed is that the face is now embedded.
   Four rules hold it together, and each is a separate way to get it wrong:
   - **`needsText(doc)` (exported from `Diagram.tsx`) gates the whole thing**, on
-    `needsHatch`'s model. It counts exactly what `markingPaint` emits a `<text>`
-    for — a `text` marking with **non-empty** content — so one predicate answers
-    both "is there a glyph" and "is there a face", and they cannot disagree. An
-    empty one draws the placeholder bar and costs nothing.
+    `needsHatch`'s model. Two arms, and they count different things **on
+    purpose**. For markings it counts exactly what `markingPaint` emits a `<text>`
+    for — non-empty content — so one predicate answers both "is there a glyph" and
+    "is there a face", and they cannot disagree; an empty one draws the
+    placeholder bar and costs nothing. For **signs** it counts every sign, label
+    or no label, because refining it to "kinds that draw a glyph" would put the
+    sign vocabulary in the export path, where it can fall out of step with what
+    the drawing actually does. A sign with an empty label therefore carries ≈18 kB
+    for no glyph — the deliberate price, pinned in `export.test.ts` so it reads as
+    a decision rather than an oversight (`rules/signs.md`).
   - **The `@font-face` is a second `<style>`, emitted *after* `diagram.css`'s.**
     Not a rule inside it, which travels in every export and would name a face
     most files have no bytes for; and not an `@import`, which is the external

@@ -13,6 +13,8 @@ import {
   Node,
   NodeId,
   SCHEMA_VERSION,
+  Sign,
+  SignId,
   Vec2,
 } from "./types";
 
@@ -182,4 +184,16 @@ export function findLink(doc: Document, id: LinkId): Link | undefined {
 /** Look up a road-surface marking by id. */
 export function findMarking(doc: Document, id: MarkingId): Marking | undefined {
   return doc.markings.find((m) => m.id === id);
+}
+
+/**
+ * Look up a roadside sign by id.
+ *
+ * There is deliberately **no `signPos` twin of {@link nodePos}**: that helper
+ * exists because a `NodeView` wraps its point, while `layout.signs[id]` *is* the
+ * `Vec2` (mirroring Rust's `BTreeMap<SignId, Vec2>`), so a helper would add a name
+ * and nothing else. Readers index it directly.
+ */
+export function findSign(doc: Document, id: SignId): Sign | undefined {
+  return doc.signs.find((s) => s.id === id);
 }

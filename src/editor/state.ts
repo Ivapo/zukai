@@ -7,6 +7,7 @@ import {
   findLink,
   findMarking,
   findNode,
+  findSign,
   nextId,
   normalizeDocument,
   RawDocument,
@@ -25,18 +26,22 @@ import {
   MarkingKind,
   NodeId,
   NodeKind,
+  Sign,
+  SignId,
+  SignKind,
   Vec2,
 } from "../model/types";
 import { IDENTITY_VIEW, ViewTransform } from "./geometry";
 
 /** The active drawing tool. */
-export type Tool = "select" | "node" | "link" | "marking";
+export type Tool = "select" | "node" | "link" | "marking" | "sign";
 
 /** What is currently selected on the canvas. */
 export type Selection =
   | { kind: "node"; id: NodeId }
   | { kind: "link"; id: LinkId }
-  | { kind: "marking"; id: MarkingId };
+  | { kind: "marking"; id: MarkingId }
+  | { kind: "sign"; id: SignId };
 
 /** The complete editor state. */
 export interface EditorState {
@@ -105,6 +110,12 @@ export type EditAction =
   | { type: "addMarking"; link: LinkId; position: number; lane?: LaneIdx }
   | { type: "setMarkingKind"; id: MarkingId; kind: MarkingKind }
   | { type: "setMarkingLane"; id: MarkingId; lane?: LaneIdx }
+  | { type: "addSign"; pos: Vec2 }
+  | { type: "moveSign"; id: SignId; pos: Vec2 }
+  | { type: "setSignKind"; id: SignId; kind: SignKind }
+  // `link?`, not `link: LinkId | null`: **absent is the one representation** for
+  // an optional field, the rule `setMarkingLane`'s `lane?` already follows.
+  | { type: "setSignLink"; id: SignId; link?: LinkId }
   | { type: "select"; selection: Selection | null }
   | { type: "deleteSelection" };
 
@@ -215,9 +226,10 @@ function sameList(a: string[], b: string[]): boolean {
  * stepper, say) are separate edits and each get their own undo step.
  *
  * **Typing is the second gesture, and the only one that is not a drag.** The
- * Inspector's text field dispatches a whole `setMarkingKind` per keystroke so the
- * paint follows the typing, and without a key here a five-letter word would burn
- * five of the hundred snapshots the stack holds (signs spec Phase 1).
+ * Inspector's two text fields — a marking's Words and a sign's Label — dispatch a
+ * whole `setMarkingKind`/`setSignKind` per keystroke so the paint follows the
+ * typing, and without a key here a five-letter word would burn five of the hundred
+ * snapshots the stack holds (signs spec Phase 1).
  *
  * **Empty content is deliberately outside the gesture.** The Kind picker mints a
  * fresh text marking as `content: ""`, and if that shared the run's key the first
@@ -225,11 +237,19 @@ function sameList(a: string[], b: string[]): boolean {
  * would jump back past the repaint to whatever the marking was before, rather
  * than back to an empty one. The cost is that clearing a field back to empty also
  * closes the run, which is the honest reading of deleting a word.
+ *
+ * The sign label keeps that carve-out even though its own empty seed arrives from
+ * {@link addSign} — a different action, so the placement is its own step already.
+ * It is there for Phase 3's Kind picker, which will mint `custom { label: "" }`
+ * through *this* action and meet Phase 1's hazard exactly.
  */
 function coalesceKeyFor(action: EditAction): string | null {
   if (action.type === "moveNode") return `moveNode:${action.id}`;
+  if (action.type === "moveSign") return `moveSign:${action.id}`;
   if (action.type === "setMarkingKind" && action.kind.type === "text")
     return action.kind.content === "" ? null : `markingText:${action.id}`;
+  if (action.type === "setSignKind" && action.kind.type === "custom")
+    return action.kind.label === "" ? null : `signLabel:${action.id}`;
   return null;
 }
 
@@ -316,6 +336,8 @@ function selectionValid(doc: Document, sel: Selection | null): boolean {
       return findLink(doc, sel.id) !== undefined;
     case "marking":
       return findMarking(doc, sel.id) !== undefined;
+    case "sign":
+      return findSign(doc, sel.id) !== undefined;
     default:
       return unreachable(sel);
   }
@@ -391,6 +413,18 @@ function editReducer(state: EditorState, action: EditAction): EditorState {
 
     case "setMarkingLane":
       return setMarkingLane(state, action.id, action.lane);
+
+    case "addSign":
+      return addSign(state, action.pos);
+
+    case "moveSign":
+      return moveSign(state, action.id, action.pos);
+
+    case "setSignKind":
+      return setSignKind(state, action.id, action.kind);
+
+    case "setSignLink":
+      return setSignLink(state, action.id, action.link);
 
     case "select":
       return { ...state, selection: action.selection };
@@ -594,6 +628,38 @@ function keepMarkings(
 }
 
 /**
+ * `signs` with every `associated_link` the caller says is `gone` **cleared**, and
+ * the **same array** back when none was.
+ *
+ * A sign is free-standing by design, so a deleted road must not take one with it
+ * (signs spec §2.5) — {@link keepMarkings}'s cascade lesson applied in the other
+ * direction. What a deleted road *can* leave is a dangling reference, and the
+ * answer is to clear the field rather than delete the sign.
+ *
+ * **That makes this a `map` where {@link keepMarkings} is a `filter`, so the
+ * identity has to be recovered deliberately rather than falling out of a length
+ * comparison** — a `map` always returns a fresh array. Not about dirtying: both
+ * arms that call this rebuild `doc` regardless, since each is removing a link or a
+ * node. It is about a document whose signs never named the deleted road still
+ * *sharing the array* with its history snapshots, the way `rules/history.md`
+ * assumes every untouched sub-tree does. Untouched signs keep their own identity
+ * too, because `map` returns them unchanged.
+ *
+ * A cleared sign **drops the key** rather than holding `undefined`, the rule
+ * {@link setSignLink} follows.
+ */
+function clearSignLinks(signs: Sign[], gone: (link: LinkId) => boolean): Sign[] {
+  const stranded = (s: Sign) =>
+    s.associated_link !== undefined && gone(s.associated_link);
+  if (!signs.some(stranded)) return signs;
+  return signs.map((s) => {
+    if (!stranded(s)) return s;
+    const { associated_link: _dropped, ...rest } = s;
+    return rest;
+  });
+}
+
+/**
  * Paint a marking on a link, at `position` **metres** along it.
  *
  * Always a `stop_line`: one kind is all the renderer draws, and the Inspector's
@@ -703,6 +769,128 @@ function setMarkingLane(
 }
 
 /**
+ * Stand a sign on the canvas at `pos`.
+ *
+ * **{@link addNode}'s shape, not {@link addMarking}'s** (signs spec §2.5): a sign
+ * carries its own canvas position rather than deriving one from a road, so this
+ * writes both halves — the `Sign` into `doc.signs` and the point into
+ * `doc.layout.signs` — and nothing about the click is projected onto a polyline or
+ * matched against a lane band.
+ *
+ * Two things about the layout entry are easy to get wrong. It is a **bare
+ * `Vec2`**, not the `{ pos }` wrapper `layout.nodes` uses, mirroring Rust's
+ * `BTreeMap<SignId, Vec2>`; and `associated_link` is **omitted** rather than
+ * stored as `undefined`, the one-representation rule every optional field here
+ * follows.
+ *
+ * Always a `custom { label: "" }`: one kind is all Phase 2 draws, and the
+ * Inspector is what fills the label in — the posture {@link addMarking} takes with
+ * `stop_line`, for the same reason (no kind argument, no placement dialog).
+ */
+function addSign(state: EditorState, pos: Vec2): EditorState {
+  const { doc } = state;
+  const id = nextId(
+    doc.signs.map((s) => s.id),
+    "S",
+  );
+  const sign: Sign = { id, kind: { type: "custom", label: "" } };
+  return {
+    ...state,
+    doc: {
+      ...doc,
+      signs: [...doc.signs, sign],
+      layout: { ...doc.layout, signs: { ...doc.layout.signs, [id]: pos } },
+    },
+    selection: { kind: "sign", id },
+  };
+}
+
+/**
+ * Move a sign to `pos` — {@link moveNode}'s shape, guard included (§2.5).
+ *
+ * A sign with no layout entry is not drawn and cannot be dragged, so this returns
+ * `state` **itself** and {@link recordHistory} records nothing. Guarded on the
+ * *layout* entry rather than on `findSign` for the reason `moveNode` is: the
+ * position is what this action writes, and the layout is what holds it.
+ */
+function moveSign(state: EditorState, id: SignId, pos: Vec2): EditorState {
+  const { doc } = state;
+  if (!doc.layout.signs[id]) return state;
+  return {
+    ...state,
+    doc: {
+      ...doc,
+      layout: { ...doc.layout, signs: { ...doc.layout.signs, [id]: pos } },
+    },
+  };
+}
+
+/**
+ * Change what a sign says, keeping where it stands and what it names.
+ *
+ * **Carries the whole tagged `SignKind`**, not just its `type`, on
+ * {@link setMarkingKind}'s precedent — so `speed_limit`'s `kph`, `warning`'s
+ * `symbol` and `direction`'s `text` need no action of their own in Phases 3–4, and
+ * the *caller* owns the payload a fresh pick starts from.
+ *
+ * `associated_link` survives because it is never named here: spreading a sign with
+ * no `associated_link` key yields one with no `associated_link` key.
+ */
+function setSignKind(
+  state: EditorState,
+  id: SignId,
+  kind: SignKind,
+): EditorState {
+  const { doc } = state;
+  if (!findSign(doc, id)) return state;
+  return {
+    ...state,
+    doc: {
+      ...doc,
+      signs: doc.signs.map((s) => (s.id === id ? { ...s, kind } : s)),
+    },
+  };
+}
+
+/**
+ * Point a sign at a link, or at nothing.
+ *
+ * `associated_link` is "for context" and anchors nothing (§2.5) — a sign renders
+ * identically either way — but without a writer the field would be a readout of
+ * something nothing can set, and the clear-on-delete in {@link deleteSelection}
+ * would be reachable only from a hand-edited file.
+ *
+ * **Absent is the one representation**: the old key is destructured away rather
+ * than overwritten with `undefined`, the rule {@link setMarkingLane} follows for
+ * `lane`.
+ *
+ * An unknown link returns `state` itself, the guard {@link setMarkingLane} applies
+ * to a lane index. The picker only ever offers links the document has, so it is
+ * unreachable from the UI — and storing a reference the document cannot resolve is
+ * exactly what {@link clearSignLinks} exists to prevent.
+ */
+function setSignLink(
+  state: EditorState,
+  id: SignId,
+  link: LinkId | undefined,
+): EditorState {
+  const { doc } = state;
+  if (!findSign(doc, id)) return state;
+  if (link !== undefined && !findLink(doc, link)) return state;
+  return {
+    ...state,
+    doc: {
+      ...doc,
+      signs: doc.signs.map((s) => {
+        if (s.id !== id) return s;
+        const { associated_link: _dropped, ...rest } = s;
+        return link === undefined ? rest : { ...rest, associated_link: link };
+      }),
+    },
+  };
+}
+
+/**
  * Classify one lane of one link — the only way `Lane.kind` is reachable from the
  * UI, and so the only reason anything keyed on it renders.
  *
@@ -805,6 +993,13 @@ function setLinkAlign(
  * be invisible (nothing draws a marking whose link is gone), saved (`markings` is
  * serialized whatever it references) and permanent, so the file grows a ghost per
  * deleted road (§2.5). Both the link arm and the node arm drop them.
+ *
+ * **A sign is the other way round, and deliberately.** Nothing about a sign
+ * depends on a link to be drawable — `associated_link` is context, not an anchor —
+ * so deleting a road a sign happens to name clears the reference and **keeps the
+ * sign** (signs spec §2.5); one that vanished because an unrelated road went would
+ * be the surprising behaviour. Both arms again, because the node arm drops every
+ * incident link and so strands exactly the same reference.
  */
 function deleteSelection(state: EditorState): EditorState {
   const { doc, selection } = state;
@@ -821,6 +1016,7 @@ function deleteSelection(state: EditorState): EditorState {
           links: doc.links.filter((l) => l.id !== selection.id),
           layout: { ...doc.layout, links },
           markings: keepMarkings(doc.markings, (m) => m.link !== selection.id),
+          signs: clearSignLinks(doc.signs, (l) => l === selection.id),
         },
         selection: null,
       };
@@ -833,6 +1029,25 @@ function deleteSelection(state: EditorState): EditorState {
       return {
         ...state,
         doc: markings === doc.markings ? doc : { ...doc, markings },
+        selection: null,
+      };
+    }
+
+    case "sign": {
+      // The other arm that can leave `doc` alone, and it has two places to delete
+      // from — `doc.signs` and `doc.layout.signs`. The length test is
+      // {@link keepMarkings}'s identity trick written out: rebuilding either for a
+      // sign that is already gone would dirty the document and push an undo
+      // snapshot while deleting nothing (`rules/history.md`).
+      const signs = doc.signs.filter((s) => s.id !== selection.id);
+      if (signs.length === doc.signs.length) {
+        return { ...state, selection: null };
+      }
+      const signViews = { ...doc.layout.signs };
+      delete signViews[selection.id];
+      return {
+        ...state,
+        doc: { ...doc, signs, layout: { ...doc.layout, signs: signViews } },
         selection: null,
       };
     }
@@ -869,6 +1084,7 @@ function deleteSelection(state: EditorState): EditorState {
             junctions: junctionViews,
           },
           markings: keepMarkings(doc.markings, (m) => !dropped.has(m.link)),
+          signs: clearSignLinks(doc.signs, (l) => dropped.has(l)),
         },
         selection: null,
       };

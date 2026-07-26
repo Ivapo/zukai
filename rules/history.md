@@ -36,7 +36,9 @@ decides history and `dirty` in one pass:
 
 A node drag dispatches one `moveNode` per pointer-move (`onPointerMove`,
 `src/components/Canvas.tsx`); pointer-up dispatches nothing. So `coalesceKeyFor`
-gives `moveNode` the key `"moveNode:<id>"` and every other edit `null`:
+gives `moveNode` the key `"moveNode:<id>"` — and `moveSign` the key
+`"moveSign:<id>"`, the second drag and the only other one, since a marking has no
+position of its own to drag (`rules/signs.md`) — and every other edit `null`:
 
 - key non-null **and** equal to `state.coalesceKey` → the gesture is still open:
   update `doc`, leave `past` alone.
@@ -58,9 +60,11 @@ undo steps, and repainting one as a crossing and then widening it to the whole
 carriageway is two more, which is the honest reading of five deliberate clicks.
 
 **Typing is the second gesture, and the only one that is not a drag.** The
-Inspector's Words field dispatches a whole `setMarkingKind` per keystroke so the
-paint follows the typing, so `coalesceKeyFor` gives it `"markingText:<id>"` —
-without which a five-letter word would burn five of the hundred snapshots.
+Inspector's two text fields — a marking's **Words** and a sign's **Label** —
+dispatch a whole `setMarkingKind`/`setSignKind` per keystroke so the paint follows
+the typing, so `coalesceKeyFor` gives them `"markingText:<id>"` and
+`"signLabel:<id>"` — without which a five-letter word would burn five of the
+hundred snapshots.
 
 **Only for non-empty content, and that boundary is the interesting half.** The
 Kind picker mints a fresh text marking as `content: ""`; if that shared the run's
@@ -70,6 +74,13 @@ Excluded, the pick is its own step and the word is another. The cost, recorded
 rather than discovered: clearing a field back to empty also closes the run, which
 is a fair reading of deleting a word. Verified in the app — `BUS` then undo gives
 an empty text marking, undo again gives back the `stop_line`.
+
+A sign's empty label arrives from `addSign` instead, a different action that gets
+`null` anyway, so the carve-out is doing nothing there **yet**: it is insurance for
+signs Phase 3's Kind picker, which will mint `custom { label: "" }` through
+`setSignKind` and meet the hazard above exactly. Verified the same way — `TOLL`,
+undo, and the sign is still standing with an empty plate; undo again and it is
+gone.
 
 ## The trap on the other side: an action that deletes nothing must return the doc
 
@@ -84,6 +95,13 @@ marking arm returns `doc` itself when the id is not there, and `keepMarkings`
 returns the *same array* when its filter drops nothing, so history snapshots keep
 sharing it. `state.test.ts` asserts both. See `rules/road-markings.md`, "What
 removes a marking".
+
+The **sign** arm has two places to delete from (`doc.signs` and
+`doc.layout.signs`), so it checks before touching either; and `clearSignLinks` is
+a `map` where `keepMarkings` is a `filter`, so it cannot recover identity from a
+length comparison and pre-checks instead — otherwise every link deletion in a
+document with signs would hand history a fresh array to stop sharing
+(`rules/signs.md`).
 
 ## What resets history, and what must not touch it
 

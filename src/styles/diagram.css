@@ -349,3 +349,28 @@
 .jn-green {
   fill: #46a758;
 }
+
+/* ----- signs ----- */
+
+/* A roadside sign: the plate, and the label on it. Phase 2 draws the one kind
+   that needs no vocabulary; Phase 3 adds the shapes that carry the meaning and
+   the palette's first sign colour.
+
+   Light plate, dark ink - the inverse of the road, which is dark asphalt under
+   white paint. That inversion is most of what makes a sign read as an object
+   standing beside the road rather than as paint on it.
+
+   Paint only. How big the plate is and where the label's baseline sits are
+   geometry (`editor/geometry.ts`); the label's typeface and its type size arrive
+   as presentation attributes, for the reason the painted road text's do - see
+   `.marking-text` above, whose comment goes out of its way not to spell either
+   property name, as this one does. */
+.sign-plate {
+  fill: var(--paint-white);
+  stroke: var(--ink);
+  stroke-width: 1;
+}
+
+.sign-label {
+  fill: var(--ink);
+}

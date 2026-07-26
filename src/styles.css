@@ -315,6 +315,26 @@ body {
   stroke-width: 2.5;
 }
 
+/* ----- signs ----- */
+/* The plate itself is in `styles/diagram.css`. */
+
+.sign {
+  cursor: pointer;
+}
+
+.sign-hit {
+  fill: transparent;
+}
+
+/* Rounded to the plate's own corners plus the inset it is grown by, so the halo
+   is the shape it highlights — the rule `.marking-halo`'s butt caps follow for
+   the same reason. */
+.sign-halo {
+  fill: none;
+  stroke: var(--paint-yellow);
+  stroke-width: 2.5;
+}
+
 /* ----- inspector ----- */
 
 .inspector {
@@ -513,7 +533,10 @@ body {
   text-align: right;
 }
 
-.lane-kind-select {
+/* The sign panel's Road picker shares these: same control, and a class named for
+   lanes would be the wrong name on it. */
+.lane-kind-select,
+.sign-link-select {
   flex: 1;
   min-width: 0;
   padding: 5px 7px;
@@ -526,7 +549,8 @@ body {
   cursor: pointer;
 }
 
-.lane-kind-select:hover {
+.lane-kind-select:hover,
+.sign-link-select:hover {
   border-color: var(--chrome-dim);
 }
 

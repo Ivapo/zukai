@@ -8,7 +8,9 @@ import {
   LANE_PX,
   ROAD_MARGIN,
   SCHEMATIC_MEDIAN,
+  SIGN_SIZE,
   classWidthFactor,
+  signPlate,
 } from "../editor/geometry";
 import { Action, EditorState, initialState, reducer } from "../editor/state";
 import {
@@ -56,6 +58,7 @@ function interaction(): Interaction {
     onNodePointerDown: () => {},
     onLinkPointerDown: () => {},
     onMarkingPointerDown: () => {},
+    onSignPointerDown: () => {},
   };
 }
 
@@ -1678,6 +1681,147 @@ describe("road markings", () => {
     expect(svg).not.toContain("marking");
     expect(marked3.indexOf("road-casing")).toBeLessThan(marked3.indexOf("marking-bar"));
     expect(marked3.indexOf("marking-bar")).toBeLessThan(marked3.indexOf("jn-ring"));
+  });
+});
+
+describe("signs", () => {
+  /**
+   * `sample()`'s road and roundabout, with a stop line painted on it and one sign
+   * standing clear of both — so a single document carries every layer whose order
+   * matters.
+   */
+  function signed(label = "TOLL"): Document {
+    return run(
+      { ...initialState(), doc: sample() },
+      { type: "addMarking", link: "L1", position: 14, lane: 0 },
+      { type: "addSign", pos: { x: 60, y: 90 } },
+      { type: "setSignKind", id: "S1", kind: { type: "custom", label } },
+    ).doc;
+  }
+
+  /**
+   * **The whole element, pinned.** Three things nothing else asserts: the group is
+   * translated to the sign's *own* layout position rather than deriving one from a
+   * road (signs spec §2.5); the plate is as wide as the label it carries, floored
+   * at `SIGN_SIZE`; and the face and the size ride as **presentation attributes**,
+   * which is what keeps a typeface out of the stylesheet every text-free export
+   * embeds (§2.3).
+   *
+   * The numbers come from `signPlate` rather than being restated, so this pins the
+   * *markup* — what the renderer does with the geometry — and `geometry.test.ts`
+   * pins the geometry itself.
+   */
+  it("stands a sign at its layout position, on a plate sized to its label", () => {
+    const plate = signPlate("TOLL");
+    const svg = renderToStaticMarkup(<Diagram doc={signed()} />);
+
+    expect(svg).toContain(
+      '<g class="sign sign-custom" transform="translate(60 90)">' +
+        `<rect class="sign-plate" x="${plate.box.x}" y="${plate.box.y}"` +
+        ` width="${plate.box.width}" height="${plate.box.height}" rx="${plate.radius}"></rect>` +
+        `<text class="sign-label" x="0" y="${plate.baseline.y}"` +
+        ' font-family="Overpass Mono" font-size="6" text-anchor="middle">TOLL</text></g>',
+    );
+    // The label is what sets the width, and the floor is what an empty one gets.
+    expect(plate.box.width).toBeGreaterThan(SIGN_SIZE);
+    expect(signPlate("").box.width).toBe(SIGN_SIZE);
+  });
+
+  /**
+   * **A sign is beside the road, not on it, so it must never be occluded** (§2.7)
+   * — the opposite of a marking, which sits *below* the junction glyphs because a
+   * pad is the intersection's own surface. Asserted by source order, which is
+   * paint order in SVG and the only thing a string can see.
+   */
+  it("draws above the roads, the paint and the junction glyphs alike", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={signed()} />);
+    const plate = svg.indexOf("sign-plate");
+
+    expect(plate).toBeGreaterThan(svg.indexOf("road-casing"));
+    expect(plate).toBeGreaterThan(svg.indexOf("marking-bar"));
+    expect(plate).toBeGreaterThan(svg.indexOf("jn-ring"));
+    expect(plate).toBeGreaterThan(svg.indexOf("node-dot"));
+  });
+
+  /**
+   * **The regression net for `isSelected`** (§2.6). Its `kind` parameter is now
+   * typed off `Selection`, so the union cannot lag — but nothing makes a new shape
+   * *call* it, and a sign that simply never lights up is no build error. Both
+   * directions are asserted, because the interesting failure is the halo appearing
+   * for a selection that is not this sign.
+   */
+  it("carries a hit target and a halo on the canvas, and neither in an export", () => {
+    const doc = signed();
+    const selected: Interaction = {
+      ...interaction(),
+      selection: { kind: "sign", id: "S1" },
+    };
+
+    const live = renderToStaticMarkup(<Diagram doc={doc} interaction={selected} />);
+    expect(live).toContain('class="sign-hit"');
+    expect(live).toContain('class="sign-halo"');
+    expect(live).toContain('<g class="sign sign-custom is-selected"');
+
+    // With the *road* selected instead, the sign keeps its hit target and gains
+    // neither halo nor token — the halo follows the selection, not the tool.
+    const unselected = renderToStaticMarkup(
+      <Diagram doc={doc} interaction={interaction()} />,
+    );
+    expect(unselected).toContain('class="sign-hit"');
+    expect(unselected).not.toContain("sign-halo");
+    expect(unselected).toContain('<g class="sign sign-custom" ');
+
+    const exported = renderToStaticMarkup(<Diagram doc={doc} />);
+    expect(exported).not.toMatch(/sign-hit|sign-halo|is-selected/);
+    expect(exported).not.toMatch(/vector-effect/);
+  });
+
+  /** The hand-edited case: a `Sign` with no entry in `layout.signs` has no
+   *  position to draw at, so the layer skips it as the node layer skips a node. */
+  it("emits nothing for a sign with no layout entry", () => {
+    const doc = signed();
+    const stranded: Document = {
+      ...doc,
+      layout: { ...doc.layout, signs: {} },
+    };
+    const svg = renderToStaticMarkup(<Diagram doc={stranded} />);
+
+    expect(svg).not.toContain("sign-plate");
+    expect(svg).not.toContain('<g class="sign');
+    expect(svg).not.toMatch(/NaN|undefined/);
+  });
+
+  /**
+   * An empty label draws the **plate and no `<text>`** — the empty text marking's
+   * bar again: a sign you can see, select and then type into, rather than an
+   * invisible object findable only by accident. It is also what makes the
+   * conservative `needsText` conservative rather than wrong (§2.3).
+   */
+  it("draws a fresh sign as a bare plate, with no text at all", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={signed("")} />);
+
+    expect(svg).toContain(
+      '<g class="sign sign-custom" transform="translate(60 90)">' +
+        `<rect class="sign-plate" x="${-SIGN_SIZE / 2}" y="-6"` +
+        ` width="${SIGN_SIZE}" height="12" rx="2"></rect></g>`,
+    );
+    expect(svg).not.toMatch(/<text[\s>]/);
+  });
+
+  /** The second human-typed string to reach an XML file; React escapes it. */
+  it("escapes a label that would otherwise end the element", () => {
+    expect(renderToStaticMarkup(<Diagram doc={signed("A<B&C")} />)).toContain(
+      ">A&lt;B&amp;C</text>",
+    );
+  });
+
+  /** The sign layer is an unwrapped `.map()`, so it adds nothing to a document
+   *  that has no sign — the rule the marking layer already follows. */
+  it("draws nothing for a document that has no signs", () => {
+    expect(renderToStaticMarkup(<Diagram doc={initialState().doc} />)).toBe(
+      '<g class="diagram"></g>',
+    );
+    expect(renderToStaticMarkup(<Diagram doc={sample()} />)).not.toContain("sign");
   });
 });
 

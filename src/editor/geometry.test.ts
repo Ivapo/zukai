@@ -35,8 +35,10 @@ import {
   MARKING_PITCH,
   MIN_ROAD_WIDTH,
   MarkingAnchor,
+  PLATE_PAD,
   ROAD_MARGIN,
   SCHEMATIC_MEDIAN,
+  SIGN_SIZE,
   TAPER_LENGTH,
   TAPER_MAX_BEND,
   TEXT_SIZE,
@@ -66,6 +68,7 @@ import {
   rayCircleExit,
   rayIntersection,
   roadWidth,
+  signPlate,
   taperEdge,
   taperWedge,
   taperWedges,
@@ -1597,6 +1600,85 @@ describe("textWidth and markingText", () => {
 
     const run = markingText(anchor(offside.offset, offside.width));
     expect(run.at.y).toBeLessThan(0);
+  });
+});
+
+/**
+ * A sign's plate (signs spec Phase 2). Everything here is drawn **about the
+ * origin**, because a sign carries its own canvas position and its shape is
+ * translated there — so unlike every marking above, no road appears in this
+ * describe at all.
+ */
+describe("signPlate", () => {
+  /** A due-east anchor on one band, for the one assertion that compares the two
+   *  text sites directly. */
+  function anchor(offset: number, width: number): MarkingAnchor {
+    return { at: { x: 0, y: 0 }, dir: { x: 1, y: 0 }, span: { offset, width } };
+  }
+
+  /** Every label here is past the floor the next test pins, so this measures the
+   *  text and nothing else. */
+  it("is as wide as the text it carries, plus a margin either side", () => {
+    for (const label of ["TOLL", "M4 WEST", "HEATHROW"]) {
+      expect(signPlate(label).box.width).toBeCloseTo(
+        textWidth(label) + 2 * PLATE_PAD,
+      );
+    }
+  });
+
+  /**
+   * **Monotonic, which is the property a plate has to have** and the one a single
+   * width assertion cannot show. It is what §2.4's monospace decision bought: a
+   * proportional face would need a metrics table to say this much.
+   */
+  it("grows with its label and never shrinks below the sign size", () => {
+    const widths = ["", "M4", "M4 W", "M4 WEST"].map(
+      (s) => signPlate(s).box.width,
+    );
+
+    expect(widths).toEqual([...widths].sort((a, b) => a - b));
+    // The floor is what keeps an empty label a plate rather than a sliver — the
+    // state every freshly placed sign starts in.
+    expect(signPlate("").box.width).toBe(SIGN_SIZE);
+    expect(signPlate("M4").box.width).toBe(SIGN_SIZE);
+  });
+
+  it("stays centred on the sign's own position at every length", () => {
+    for (const label of ["", "TOLL", "HEATHROW"]) {
+      const { box } = signPlate(label);
+      expect(box.x).toBeCloseTo(-box.width / 2);
+      expect(box.y).toBeCloseTo(-box.height / 2);
+    }
+  });
+
+  /**
+   * The height is the **type it carries**, not `SIGN_SIZE`: a square plate reads
+   * as a card rather than as a sign, and the cap has to clear it top and bottom.
+   */
+  it("is as tall as the type it carries, with the cap clearing it", () => {
+    const plate = signPlate("TOLL");
+
+    expect(plate.box.height).toBe(TEXT_SIZE * 2);
+    expect(TEXT_SIZE * CAP_HEIGHT).toBeLessThan(plate.box.height);
+    expect(plate.size).toBe(TEXT_SIZE);
+  });
+
+  /**
+   * **Centred by arithmetic, not `dominant-baseline`** (§2.7) — and by the
+   * *identical* arithmetic `markingText` centres a run on its lane band with,
+   * which is the one number both text sites in the drawing have to agree on.
+   */
+  it("drops the baseline half a cap height, as a painted run does", () => {
+    const plate = signPlate("TOLL");
+
+    expect(plate.baseline.x).toBe(0);
+    expect(plate.baseline.y).toBeCloseTo((TEXT_SIZE * CAP_HEIGHT) / 2);
+    // The same offset a run takes off its band centre, stated as the equality it
+    // is rather than as two numbers that happen to match.
+    const band = laneBands(defaults(3))[0];
+    expect(markingText(anchor(band.offset, band.width)).at.y - band.offset).toBeCloseTo(
+      plate.baseline.y,
+    );
   });
 });
 

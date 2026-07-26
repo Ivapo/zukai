@@ -79,7 +79,7 @@ phase from a spec still `status: draft`** — it must pass the review loop
 - `specs/road_markings_spec.md` — the paint on the road: stop and give-way lines,
   crossings, lane arrows, lane lines (implemented; 4 phases)
 - `specs/signs_and_text_spec.md` — letters in the drawing: the embedded font,
-  painted road text, and roadside signs (Phase 1 implemented; 4 phases)
+  painted road text, and roadside signs (Phases 1–2 implemented; 4 phases)
 
 **`rules/` — current-state reference (the *what is*).** Terse, authoritative maps
 of subsystems, read on demand. Unlike specs, rules describe the code as it is now;
@@ -113,6 +113,13 @@ there's real cross-file knowledge worth extracting, not for every file.
   three failures the compiler does not catch, what removes a marking, and the
   seventh kind — text set along the road, centred by arithmetic rather than
   `dominant-baseline`, and the panel's first `<input>`
+- `rules/signs.md` — the objects beside the road: why a sign is node-shaped
+  rather than marking-shaped, the bare `Vec2` in `layout.signs`, the four actions
+  and their two coalescing keys, clear-instead-of-cascade and the map-vs-filter
+  identity trap it hides, the layer that is topmost rather than under the glyphs,
+  the plate that sizes itself to its label, the deliberately conservative
+  `needsText`, the two pointer dead zones, and the fourth `Selection` arm the
+  compiler only half catches
 
 Specs are authoritative for *intent and plan*; `rules/`, this file, and the code
 are authoritative for *current state*. When a shipped phase changes what a rule

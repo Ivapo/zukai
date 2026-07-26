@@ -5,6 +5,7 @@ import {
   findLink,
   findMarking,
   findNode,
+  findSign,
   linkAlign,
   linkStyle,
 } from "../model/document";
@@ -14,6 +15,7 @@ import {
   LaneIdx,
   LaneKind,
   LineStyle,
+  Link,
   LinkAlign,
   LinkId,
   LinkStyle,
@@ -22,6 +24,9 @@ import {
   MarkingKind,
   Node,
   NodeKind,
+  Sign,
+  SignId,
+  SignKind,
   TurnDirection,
 } from "../model/types";
 import { Action, EditorState } from "../editor/state";
@@ -113,6 +118,22 @@ const LINE_STYLES: { value: LineStyle; label: string }[] = [
   { value: "dashed", label: "Dashed" },
   { value: "double", label: "Double" },
 ];
+/**
+ * How each kind of sign is named in the panel. Exhaustive over `SignKind`, so a
+ * kind added to the model without a label here will not build — the split
+ * `MARKING_KINDS`/`MARKING_PICKER` already uses, so Phase 3's picker can offer a
+ * subset while this table keeps naming everything a document can carry.
+ */
+const SIGN_KINDS: Record<SignKind["type"], string> = {
+  speed_limit: "Speed limit",
+  warning: "Warning",
+  priority: "Priority",
+  give_way: "Give way",
+  stop: "Stop",
+  no_entry: "No entry",
+  direction: "Direction",
+  custom: "Custom",
+};
 const GLYPHS: { value: JunctionGlyph; label: string }[] = [
   { value: "generic", label: "Plain" },
   { value: "roundabout", label: "Roundabout" },
@@ -260,6 +281,49 @@ export function Inspector({ state, dispatch }: InspectorProps) {
           onClick={() => dispatch({ type: "deleteSelection" })}
         >
           Delete marking
+        </button>
+      </aside>
+    );
+  }
+
+  // The fourth arm, explicit for the reason the marking one is: every id is a bare
+  // `type X = string`, so without this a sign selection would fall through to the
+  // link tail below, miss `findLink`, and render the blank `<aside>` — not a wrong
+  // panel but *no* panel (signs §2.6). The compiler cannot see it; the `bun run
+  // dev` pass is what does.
+  if (selection.kind === "sign") {
+    const sign = findSign(doc, selection.id);
+    if (!sign) return <aside className="inspector" />;
+    return (
+      <aside className="inspector">
+        <div className="inspector-head">
+          <span className="inspector-kind">Sign</span>
+          <span className="inspector-id">{sign.id}</span>
+        </div>
+
+        {/* A readout in Phase 2: `custom` is the only kind drawn, and a picker
+            offering seven undrawable ones would be a control that appears to do
+            nothing. Phase 3 turns this into the picker `SIGN_KINDS` is shaped
+            for. */}
+        <Field label="Kind">
+          <div className="readout">{SIGN_KINDS[sign.kind.type]}</div>
+        </Field>
+
+        {sign.kind.type === "custom" && (
+          <Field label="Label">
+            <SignLabel id={sign.id} label={sign.kind.label} dispatch={dispatch} />
+          </Field>
+        )}
+
+        <Field label="Road">
+          <SignLink sign={sign} links={doc.links} dispatch={dispatch} />
+        </Field>
+
+        <button
+          className="danger"
+          onClick={() => dispatch({ type: "deleteSelection" })}
+        >
+          Delete sign
         </button>
       </aside>
     );
@@ -530,6 +594,96 @@ function MarkingText({
 }
 
 /**
+ * What a `custom` sign's plate says — the panel's **second** `<input>`, and it
+ * inherits both of {@link MarkingText}'s consequences rather than solving them
+ * again: the app's key handler ignores keystrokes aimed at an `INPUT`, so typing
+ * `s` here switches no tool and Backspace deletes no sign; and a keystroke is an
+ * edit, so this dispatches on every one — the plate follows the typing, growing
+ * with it — while `coalesceKeyFor` collapses the run into one undo step. The
+ * placement that minted the sign is a step of its own already, because `addSign`
+ * is a different action.
+ *
+ * Controlled by the document rather than by local state: the sign *is* the value,
+ * and a second copy here could disagree with the drawing after an undo.
+ */
+function SignLabel({
+  id,
+  label,
+  dispatch,
+}: {
+  id: SignId;
+  label: string;
+  dispatch: (action: Action) => void;
+}) {
+  return (
+    <input
+      className="text-field"
+      type="text"
+      value={label}
+      placeholder="TOLL"
+      spellCheck={false}
+      autoComplete="off"
+      onChange={(e) =>
+        dispatch({
+          type: "setSignKind",
+          id,
+          kind: { type: "custom", label: e.target.value },
+        })
+      }
+    />
+  );
+}
+
+/**
+ * Which road a sign refers to — `associated_link`, which is **context and not an
+ * anchor** (signs §2.5): the sign draws identically either way, and deleting the
+ * road clears this rather than the sign.
+ *
+ * A `<select>` on {@link LaneKinds}' idiom rather than a segmented row, because
+ * the option count is the *document's* rather than the vocabulary's. **"None" is
+ * first and carries the empty value**, which is how the absent key reaches the
+ * reducer.
+ *
+ * A stored link the document no longer has can only come from a hand-edited file —
+ * the cascade rules it out from the app — and it gets an option of its own rather
+ * than being silently reported as "None", the instinct the marking panel follows
+ * when its link is missing. Picking anything else repairs it.
+ */
+function SignLink({
+  sign,
+  links,
+  dispatch,
+}: {
+  sign: Sign;
+  links: Link[];
+  dispatch: (action: Action) => void;
+}) {
+  const current = sign.associated_link;
+  const dangling = current !== undefined && !links.some((l) => l.id === current);
+  return (
+    <select
+      className="sign-link-select"
+      value={current ?? ""}
+      onChange={(e) =>
+        dispatch({
+          type: "setSignLink",
+          id: sign.id,
+          link: e.target.value === "" ? undefined : e.target.value,
+        })
+      }
+    >
+      <option value="">None</option>
+      {links.map((l) => (
+        <option key={l.id} value={l.id}>
+          {`${l.id} · ${l.from_node} → ${l.to_node}`}
+        </option>
+      ))}
+      {dangling && <option value={current}>{`${current} (missing)`}</option>}
+    </select>
+  );
+}
+
+/**
  * What the marking spans, and **the deliberate route to a carriageway-wide
  * marking** — which placement can otherwise only reach by clicking the 1.5-unit
  * casing lip, a gesture nobody finds (§2.4).
@@ -705,6 +859,9 @@ function EmptyState() {
         </li>
         <li>
           <b>Marking</b> tool — click a lane to paint a stop line on it.
+        </li>
+        <li>
+          <b>Sign</b> tool — click anywhere to stand a sign beside the road.
         </li>
         <li>
           <b>Select</b> tool — drag nodes, pick a road, edit it here.

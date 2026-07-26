@@ -451,8 +451,12 @@ So `selectionValid` and `deleteSelection` are `switch`es with
 `default: return unreachable(sel)`, where `unreachable(x: never): never` makes a
 fourth arm a compile error. **A function, not `const _: never = sel`** —
 `tsconfig.json` sets `noUnusedLocals`. `isSelected` (`Diagram.tsx`) is the fourth
-site and a different matter: its `kind` parameter is its own union, **widened**
-rather than narrowed. `state.test.ts` tests all three failures directly.
+site and a different matter: its `kind` parameter is **widened** rather than
+narrowed, and is now typed off `Selection` itself, so the union cannot lag the
+type — what stays uncovered there is forgetting to *call* it, which no signature
+can catch. `state.test.ts` tests all three failures directly. The fourth arm
+arrived with signs Phase 2 and cost two compile errors and no silent misroutes,
+which is what this section was written to buy (`rules/signs.md`).
 
 `deleteMarking` is deliberately **not** an action. The Inspector's Delete
 dispatches `deleteSelection`, exactly as the node and link panels do and as the
@@ -492,6 +496,12 @@ What that buys the marking layer is one arm of `markingPaint`:
   picker at all: a fresh pick is a marking you can see, select, and type into.
   That is also exactly what `needsText` counts, so the font and the glyph cannot
   disagree.
+
+Text on a **sign** is not a marking and is documented separately
+(`rules/signs.md`): it carries its own canvas position instead of an anchor, sits
+in the topmost layer rather than under the glyphs, and is never drawn at an angle.
+The two share exactly one thing, and it is the arithmetic above — `TEXT_SIZE *
+CAP_HEIGHT / 2` centres a run on its band and a label on its plate alike.
 
 `MarkingKind::Hatching` is still out, for a different reason that has nothing to
 do with fonts: it is an **area**, and the `Marking` anchor is one link at one

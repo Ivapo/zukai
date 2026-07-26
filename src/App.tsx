@@ -24,6 +24,7 @@ const TOOL_KEYS: Record<string, Tool> = {
   n: "node",
   l: "link",
   m: "marking",
+  s: "sign",
 };
 
 function App() {

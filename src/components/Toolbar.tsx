@@ -25,6 +25,7 @@ const TOOLS: { tool: Tool; label: string; hint: string; icon: ReactNode }[] = [
   { tool: "node", label: "Node", hint: "N", icon: <NodeIcon /> },
   { tool: "link", label: "Link", hint: "L", icon: <LinkIcon /> },
   { tool: "marking", label: "Marking", hint: "M", icon: <MarkingIcon /> },
+  { tool: "sign", label: "Sign", hint: "S", icon: <SignIcon /> },
 ];
 
 /** Shortcut prefixes, shown in tooltips: ⌘ on macOS, Ctrl elsewhere. */
@@ -222,6 +223,25 @@ function MarkingIcon() {
         opacity="0.45"
       />
       <path d="M10 4v8" fill="none" stroke="currentColor" strokeWidth="2.6" />
+    </svg>
+  );
+}
+
+/** A plate on a post — the toolbar's own shorthand; the drawing has no posts (§2.9). */
+function SignIcon() {
+  return (
+    <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden>
+      <rect
+        x="2.5"
+        y="2.5"
+        width="11"
+        height="8"
+        rx="1.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+      />
+      <path d="M8 10.5v3.5" stroke="currentColor" strokeWidth="1.6" />
     </svg>
   );
 }
