@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import {
+  findJunction,
   findLink,
   findMarking,
   findNode,
@@ -10,6 +11,7 @@ import {
   linkStyle,
 } from "../model/document";
 import {
+  JunctionControl,
   JunctionGlyph,
   Lane,
   LaneIdx,
@@ -28,6 +30,7 @@ import {
   SignId,
   SignKind,
   TurnDirection,
+  UnsignalizedRule,
 } from "../model/types";
 import { Action, EditorState } from "../editor/state";
 
@@ -176,6 +179,35 @@ const GLYPHS: { value: JunctionGlyph; label: string }[] = [
   { value: "priority_cross", label: "Priority" },
   { value: "t_junction", label: "T-junction" },
   { value: "gore", label: "Gore" },
+];
+/**
+ * How a junction is *controlled* — semantics, exported to Assimilator, and a
+ * different question from which of the six {@link GLYPHS} draws it (junction
+ * semantics §2.2). The two labels collide on purpose: `signalized_cross` is
+ * "Signals" in the Glyph row too, because both rows are naming the same real
+ * thing from their own side.
+ *
+ * The default first, as `LINK_ALIGNS` puts `centre` and `LANE_KINDS` `general`.
+ */
+const CONTROLS: { value: JunctionControl; label: string }[] = [
+  { value: "unsignalized", label: "Unsignalized" },
+  { value: "signal", label: "Signals" },
+];
+/**
+ * Right-of-way at an unsignalized junction, and **"None" is first because it
+ * carries the absent key** — `SignLink`'s idiom, for its reason: a field nothing
+ * can clear is a field only a hand-edited file can clear.
+ *
+ * A segmented row rather than that control's `<select>`, because the
+ * discriminator `SignLink`'s own comment gives is where the options come from —
+ * its option count is the *document's* (every link in the file), this one's is the
+ * *vocabulary's*, which is three rules and the absence of one.
+ */
+const RULES: { value: UnsignalizedRule | undefined; label: string }[] = [
+  { value: undefined, label: "None" },
+  { value: "priority", label: "Priority" },
+  { value: "priority_right", label: "Priority right" },
+  { value: "all_way_stop", label: "All-way stop" },
 ];
 
 export function Inspector({ state, dispatch }: InspectorProps) {
@@ -992,6 +1024,20 @@ function LaneKinds({
   );
 }
 
+/**
+ * The junction half of the node panel: what the intersection **is**, then how it
+ * is **drawn** — semantics above presentation, which also puts the glyph nudge's
+ * cause above its visible effect (junction semantics §2.2).
+ *
+ * The Control and Rule rows are the first thing in the project to read a
+ * `Junction`, and both are withheld when there is no record to read: a
+ * junction-kind node without one is what a hand-edited file can carry, and the
+ * panel says nothing rather than inventing an `unsignalized` that is not in the
+ * file. Glyph and Size still render — they are layout, and layout is always there.
+ *
+ * Rule is withheld again while signalized, because `Junction.rule` is `None` when
+ * `control` is `signal`; `setJunctionControl` is what clears it on the way in.
+ */
 function JunctionFields({
   node,
   state,
@@ -1001,11 +1047,56 @@ function JunctionFields({
   state: EditorState;
   dispatch: (action: Action) => void;
 }) {
+  const junction = findJunction(state.doc, node.id);
   const view = state.doc.layout.junctions[node.id];
   const glyph = view?.glyph ?? "generic";
   const scale = view?.scale ?? 1;
   return (
     <>
+      {junction && (
+        <Field label="Control">
+          <div className="segmented">
+            {CONTROLS.map((c) => (
+              <button
+                key={c.value}
+                className={`seg${junction.control === c.value ? " is-active" : ""}`}
+                onClick={() =>
+                  dispatch({
+                    type: "setJunctionControl",
+                    id: node.id,
+                    control: c.value,
+                  })
+                }
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
+        </Field>
+      )}
+
+      {junction?.control === "unsignalized" && (
+        <Field label="Rule">
+          <div className="segmented segmented-wrap segmented-labels segmented-rules">
+            {RULES.map((r) => (
+              <button
+                key={r.value ?? "none"}
+                className={`seg${junction.rule === r.value ? " is-active" : ""}`}
+                onClick={() =>
+                  dispatch({
+                    type: "setJunctionRule",
+                    id: node.id,
+                    rule: r.value,
+                  })
+                }
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
+        </Field>
+      )}
+
       <Field label="Glyph">
         <div className="segmented segmented-wrap">
           {GLYPHS.map((g) => (

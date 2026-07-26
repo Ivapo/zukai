@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { findLink, nodePos, RawDocument } from "../model/document";
-import { SignKind } from "../model/types";
+import { findJunction, findLink, nodePos, RawDocument } from "../model/document";
+import { SCHEMA_VERSION, SignKind } from "../model/types";
 import { Action, EditorState, initialState, reducer } from "./state";
 
 /** Apply a sequence of actions, as the UI would dispatch them. */
@@ -1223,5 +1223,259 @@ describe("signs", () => {
       expect(after.doc.signs[0].associated_link).toBe("L1");
       expect(after.doc.signs).toBe(before.doc.signs);
     });
+  });
+});
+
+/**
+ * The two fields that make a junction *mean* something. Until this phase nothing
+ * had ever written `control` after `setNodeKind` minted it, so a drawing with
+ * signal heads sat over a document that said the junction was uncontrolled
+ * (junction semantics §1).
+ */
+describe("junction control and rule", () => {
+  /** `N1`, made a junction — so `{control: "unsignalized"}` and a `generic` glyph. */
+  function junction(): EditorState {
+    return run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "setNodeKind", id: "N1", kind: "junction" },
+    );
+  }
+
+  it("writes control, and is one undo step", () => {
+    const signal = reducer(junction(), {
+      type: "setJunctionControl",
+      id: "N1",
+      control: "signal",
+    });
+    expect(findJunction(signal.doc, "N1")!.control).toBe("signal");
+    expect(signal.dirty).toBe(true);
+
+    const back = reducer(signal, { type: "undo" });
+    expect(findJunction(back.doc, "N1")!.control).toBe("unsignalized");
+  });
+
+  /**
+   * §2.2's nudge: the *default* glyph follows the control, in both directions, so
+   * the common case is correct with nothing to read.
+   */
+  it("moves a default glyph to the signalised cross, and back", () => {
+    const signal = reducer(junction(), {
+      type: "setJunctionControl",
+      id: "N1",
+      control: "signal",
+    });
+    expect(signal.doc.layout.junctions.N1.glyph).toBe("signalized_cross");
+
+    const back = reducer(signal, {
+      type: "setJunctionControl",
+      id: "N1",
+      control: "unsignalized",
+    });
+    expect(back.doc.layout.junctions.N1.glyph).toBe("generic");
+    // The nudge writes the glyph and nothing else about the view.
+    expect(back.doc.layout.junctions.N1).toEqual({
+      glyph: "generic",
+      rotation: 0,
+      scale: 1,
+    });
+  });
+
+  /**
+   * **The assertion that can actually fail.** A glyph the human picked is a
+   * deliberate schematic choice — a signalised roundabout is a real thing — and
+   * the nudge must never overwrite one, in either direction.
+   */
+  it("leaves a chosen glyph alone, through control off and on", () => {
+    const chosen = run(junction(), {
+      type: "setJunctionGlyph",
+      id: "N1",
+      glyph: "roundabout",
+    });
+
+    const toggled = run(
+      chosen,
+      { type: "setJunctionControl", id: "N1", control: "signal" },
+      { type: "setJunctionControl", id: "N1", control: "unsignalized" },
+    );
+
+    expect(toggled.doc.layout.junctions.N1.glyph).toBe("roundabout");
+    // And the view object itself was never rebuilt on the way through.
+    expect(toggled.doc.layout.junctions).toBe(chosen.doc.layout.junctions);
+  });
+
+  /** `graph.rs`: `rule` is `None` when signalized, so signalising drops it. */
+  it("drops a rule that was set when the junction is signalised", () => {
+    const signal = run(
+      junction(),
+      { type: "setJunctionRule", id: "N1", rule: "priority" },
+      { type: "setJunctionControl", id: "N1", control: "signal" },
+    );
+    const j = findJunction(signal.doc, "N1")!;
+
+    expect(j.control).toBe("signal");
+    // Absent, not present-and-undefined: what serializes is the key.
+    expect("rule" in j).toBe(false);
+  });
+
+  it("keeps a rule when handing the junction back to give-way control", () => {
+    const back = run(
+      junction(),
+      { type: "setJunctionRule", id: "N1", rule: "all_way_stop" },
+      { type: "setJunctionControl", id: "N1", control: "signal" },
+      { type: "setJunctionRule", id: "N1", rule: "priority_right" },
+      { type: "setJunctionControl", id: "N1", control: "unsignalized" },
+    );
+
+    // The rule set while signalized is unreachable from the panel, but nothing
+    // about coming back invents or destroys one — `control` is all that changed.
+    expect(findJunction(back.doc, "N1")!.rule).toBe("priority_right");
+  });
+
+  it("stores a cleared rule as no key at all, not as undefined", () => {
+    const cleared = run(
+      junction(),
+      { type: "setJunctionRule", id: "N1", rule: "priority" },
+      { type: "setJunctionRule", id: "N1", rule: undefined },
+    );
+    const j = findJunction(cleared.doc, "N1")!;
+
+    expect(j.rule).toBeUndefined();
+    expect("rule" in j).toBe(false);
+  });
+
+  it("sets each rule in turn, one undo step apiece", () => {
+    const state = run(
+      junction(),
+      { type: "setJunctionRule", id: "N1", rule: "priority" },
+      { type: "setJunctionRule", id: "N1", rule: "priority_right" },
+    );
+    expect(findJunction(state.doc, "N1")!.rule).toBe("priority_right");
+
+    const once = reducer(state, { type: "undo" });
+    expect(findJunction(once.doc, "N1")!.rule).toBe("priority");
+
+    const twice = reducer(once, { type: "undo" });
+    expect("rule" in findJunction(twice.doc, "N1")!).toBe(false);
+  });
+
+  /**
+   * Re-picking the active segment must return `doc` **by identity**, or
+   * `recordHistory` takes a snapshot for a document nothing changed in
+   * (`rules/history.md`). `undefined === undefined` is what makes the second of
+   * these hold for "None" on a junction that has no rule.
+   */
+  it("is a no-op, by identity, on a junction already in the target state", () => {
+    const start = junction();
+
+    for (const action of [
+      { type: "setJunctionControl", id: "N1", control: "unsignalized" },
+      { type: "setJunctionRule", id: "N1", rule: undefined },
+    ] as Action[]) {
+      const next = reducer(start, action);
+      expect(next.doc).toBe(start.doc);
+      expect(next.dirty).toBe(start.dirty);
+    }
+
+    const priority = run(start, {
+      type: "setJunctionRule",
+      id: "N1",
+      rule: "priority",
+    });
+    const again = reducer(priority, {
+      type: "setJunctionRule",
+      id: "N1",
+      rule: "priority",
+    });
+    expect(again.doc).toBe(priority.doc);
+  });
+
+  /**
+   * The hand-edited file: a junction-kind node carrying no `Junction` record.
+   * Both actions return `state` itself rather than minting one, and the panel
+   * renders no Control row for it.
+   */
+  it("is a no-op, by identity, on a junction-kind node with no record", () => {
+    const raw: RawDocument = {
+      schema_version: SCHEMA_VERSION,
+      metadata: { name: "hand-edited" },
+      nodes: [{ id: "N1", type: "junction" }],
+      layout: { nodes: { N1: { pos: { x: 0, y: 0 } } } },
+    };
+    const start = reducer(initialState(), {
+      type: "loadDocument",
+      doc: raw,
+      path: "/p/hand.zkai",
+    });
+    expect(start.doc.junctions).toEqual([]);
+
+    for (const action of [
+      { type: "setJunctionControl", id: "N1", control: "signal" },
+      { type: "setJunctionRule", id: "N1", rule: "priority" },
+      { type: "setJunctionControl", id: "N9", control: "signal" },
+    ] as Action[]) {
+      const next = reducer(start, action);
+      expect(next.doc).toBe(start.doc);
+      expect(next.dirty).toBe(false);
+    }
+  });
+
+  /**
+   * A junction with no `layout.junctions` entry — the other hand-edited case.
+   * The nudge reads it as `generic`, which is what the renderer and the panel
+   * already do, and `setJunctionView` creates the view it lacked.
+   */
+  it("treats a junction with no view as generic, and creates one", () => {
+    const raw: RawDocument = {
+      schema_version: SCHEMA_VERSION,
+      metadata: { name: "hand-edited" },
+      nodes: [{ id: "N1", type: "junction" }],
+      junctions: [{ node_id: "N1", control: "unsignalized" }],
+      layout: { nodes: { N1: { pos: { x: 0, y: 0 } } } },
+    };
+    const start = reducer(initialState(), {
+      type: "loadDocument",
+      doc: raw,
+      path: "/p/hand.zkai",
+    });
+    expect(start.doc.layout.junctions).toEqual({});
+
+    const signal = reducer(start, {
+      type: "setJunctionControl",
+      id: "N1",
+      control: "signal",
+    });
+
+    expect(signal.doc.layout.junctions.N1).toEqual({
+      glyph: "signalized_cross",
+      rotation: 0,
+      scale: 1,
+    });
+  });
+
+  /** Neither action touches any other junction's record. */
+  it("leaves every other junction alone", () => {
+    const two = run(
+      junction(),
+      { type: "addNode", pos: { x: 50, y: 0 } },
+      { type: "setNodeKind", id: "N2", kind: "junction" },
+    );
+
+    const next = run(
+      two,
+      { type: "setJunctionControl", id: "N1", control: "signal" },
+      { type: "setJunctionRule", id: "N2", rule: "priority" },
+    );
+
+    expect(findJunction(next.doc, "N1")).toEqual({
+      node_id: "N1",
+      control: "signal",
+    });
+    expect(findJunction(next.doc, "N2")).toEqual({
+      node_id: "N2",
+      control: "unsignalized",
+      rule: "priority",
+    });
+    expect(next.doc.layout.junctions.N2.glyph).toBe("generic");
   });
 });

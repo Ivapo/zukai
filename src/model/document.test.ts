@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  emptyDocument,
   ensureExtension,
   ensureZkaiExtension,
   fileLabel,
+  findJunction,
   normalizeDocument,
   RawDocument,
   withExtension,
@@ -42,6 +44,38 @@ describe("normalizeDocument", () => {
     expect(doc.layout.junctions).toEqual({});
     expect(doc.layout.signs).toEqual({});
     expect(doc.links).toEqual([]);
+  });
+});
+
+describe("findJunction", () => {
+  /** Two junction-kind nodes, only one of which has a record. */
+  function twoJunctions() {
+    return {
+      ...emptyDocument("j"),
+      nodes: [
+        { id: "N1", type: "junction" as const },
+        { id: "N2", type: "junction" as const },
+      ],
+      junctions: [{ node_id: "N1", control: "signal" as const }],
+    };
+  }
+
+  it("finds the record attached to a node, keyed by node_id", () => {
+    expect(findJunction(twoJunctions(), "N1")).toEqual({
+      node_id: "N1",
+      control: "signal",
+    });
+  });
+
+  /**
+   * A junction-kind node with no record is not an error — it is what a
+   * hand-edited file can carry, and what every writer guards on by identity.
+   */
+  it("returns undefined for a node with no record, junction-kind or not", () => {
+    const doc = twoJunctions();
+    expect(findJunction(doc, "N2")).toBeUndefined();
+    expect(findJunction(doc, "N9")).toBeUndefined();
+    expect(findJunction(emptyDocument("empty"), "N1")).toBeUndefined();
   });
 });
 

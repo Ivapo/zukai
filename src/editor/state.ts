@@ -4,6 +4,7 @@ import {
   DEFAULT_LINK_STYLE,
   defaultLane,
   emptyDocument,
+  findJunction,
   findLink,
   findMarking,
   findNode,
@@ -15,6 +16,7 @@ import {
 import {
   Document,
   Junction,
+  JunctionControl,
   JunctionGlyph,
   LaneIdx,
   LaneKind,
@@ -29,6 +31,7 @@ import {
   Sign,
   SignId,
   SignKind,
+  UnsignalizedRule,
   Vec2,
 } from "../model/types";
 import { IDENTITY_VIEW, ViewTransform } from "./geometry";
@@ -100,6 +103,10 @@ export type EditAction =
   | { type: "setNodeKind"; id: NodeId; kind: NodeKind }
   | { type: "setJunctionGlyph"; id: NodeId; glyph: JunctionGlyph }
   | { type: "setJunctionScale"; id: NodeId; scale: number }
+  | { type: "setJunctionControl"; id: NodeId; control: JunctionControl }
+  // `rule?`, not `rule: UnsignalizedRule | null`: absent is the one
+  // representation, the rule `setSignLink`'s `link?` already follows.
+  | { type: "setJunctionRule"; id: NodeId; rule?: UnsignalizedRule }
   | { type: "startLink"; from: NodeId }
   | { type: "completeLink"; to: NodeId }
   | { type: "cancelLink" }
@@ -395,6 +402,12 @@ function editReducer(state: EditorState, action: EditAction): EditorState {
         scale: Math.max(0.5, Math.min(2.5, Math.round(action.scale * 4) / 4)),
       });
 
+    case "setJunctionControl":
+      return setJunctionControl(state, action.id, action.control);
+
+    case "setJunctionRule":
+      return setJunctionRule(state, action.id, action.rule);
+
     case "startLink":
       return { ...state, linkFrom: action.from };
 
@@ -493,7 +506,7 @@ function setNodeKind(
   // one that stops being a junction loses both.
   let junctions = doc.junctions;
   const junctionViews = { ...doc.layout.junctions };
-  if (kind === "junction" && !doc.junctions.some((j) => j.node_id === id)) {
+  if (kind === "junction" && !findJunction(doc, id)) {
     const j: Junction = { node_id: id, control: "unsignalized" };
     junctions = [...doc.junctions, j];
     junctionViews[id] = { glyph: "generic", rotation: 0, scale: 1 };
@@ -533,6 +546,123 @@ function setJunctionView(
         ...doc.layout,
         junctions: { ...doc.layout.junctions, [id]: { ...current, ...patch } },
       },
+    },
+  };
+}
+
+/**
+ * The glyph a control change **nudges** to, or `undefined` for one it must leave
+ * alone (junction semantics §2.2).
+ *
+ * The glyph and the control are two different questions — one is presentation
+ * (six drawings, dropped on export), the other is semantics (two values, exported
+ * to Assimilator) — and a signalised junction drawn as a plain pad is a legitimate
+ * schematic choice. But leaving them wholly independent leaves the contradiction
+ * this phase exists to fix: a drawing with signal heads over a document that says
+ * the junction is uncontrolled.
+ *
+ * So the answer is a nudge rather than a constraint, and the **"only from the
+ * default"** clause is the whole of it: `generic` is what `setNodeKind` mints and
+ * so is the glyph nobody chose, while `roundabout`, `gore`, `priority_cross` and
+ * `t_junction` are each a human's deliberate pick and are never overwritten. The
+ * traffic runs one way — presentation may follow semantics, never the reverse, so
+ * nothing here has a twin in `setJunctionView`.
+ */
+function nudgedGlyph(
+  current: JunctionGlyph,
+  control: JunctionControl,
+): JunctionGlyph | undefined {
+  if (control === "signal" && current === "generic") return "signalized_cross";
+  if (control === "unsignalized" && current === "signalized_cross") {
+    return "generic";
+  }
+  return undefined;
+}
+
+/**
+ * Signalise a junction, or hand it back to a give-way rule — **the first thing
+ * that has ever written `Junction.control`**, which until now was minted
+ * `unsignalized` by {@link setNodeKind} and never touched again.
+ *
+ * Three things happen in the one action, so they are one undo step:
+ *
+ * - `control` is written into the one `Junction` inside `doc.junctions`;
+ * - `rule` is **cleared going to `signal`**, because Assimilator's model says it
+ *   is `None` when signalized (`graph.rs`). Cleared by dropping the key, never by
+ *   storing `undefined` — the one-representation rule {@link setSignLink} follows.
+ *   Coming back the other way *keeps* a rule, which only a hand-edited file can
+ *   have at that point, rather than inventing one;
+ * - the glyph follows, if {@link nudgedGlyph} says it may, through
+ *   {@link setJunctionView} — which already creates the view a junction with no
+ *   layout entry lacks, so that case needs no rule of its own.
+ *
+ * Two identity returns, both reachable. A junction-kind node with **no `Junction`
+ * record** is what a hand-edited file can carry, and a junction **already in the
+ * target state** is what re-picking the active segment does; either returns
+ * `state` itself, so {@link recordHistory} takes no snapshot and `dirty` stays put.
+ */
+function setJunctionControl(
+  state: EditorState,
+  id: NodeId,
+  control: JunctionControl,
+): EditorState {
+  const { doc } = state;
+  const junction = findJunction(doc, id);
+  if (!junction || junction.control === control) return state;
+
+  const junctions = doc.junctions.map((j) => {
+    if (j.node_id !== id) return j;
+    const { rule: _dropped, ...rest } = j;
+    return control === "signal" ? { ...rest, control } : { ...j, control };
+  });
+  const next = { ...state, doc: { ...doc, junctions } };
+
+  // `view?.glyph ?? "generic"` is `JunctionFields`' own fallback, not a second
+  // rule: a junction with no layout entry is drawn as `generic`, so that is what
+  // the nudge must read it as.
+  const glyph = nudgedGlyph(doc.layout.junctions[id]?.glyph ?? "generic", control);
+  return glyph === undefined ? next : setJunctionView(next, id, { glyph });
+}
+
+/**
+ * Set an unsignalized junction's right-of-way rule, or clear it.
+ *
+ * **Absent is the one representation**: the key is destructured away rather than
+ * overwritten with `undefined`, matching Rust's `skip_serializing_if =
+ * "Option::is_none"` — the rule {@link setSignLink} follows for `associated_link`
+ * and {@link setMarkingLane} for `lane`. "None" in the panel is how that state is
+ * reached at all; a field nothing can clear is a field only a hand-edited file can
+ * clear.
+ *
+ * **Deliberately says nothing about `control`.** A rule on a signalized junction
+ * is meaningless, but the panel is what withholds the row, not this action — the
+ * posture {@link setMarkingLane} takes towards a marking's `kind`, and for its
+ * reason: encoding a sibling field's state here would make the same value legal or
+ * illegal depending on something this action does not own. {@link
+ * setJunctionControl} is the one place the two fields meet, because there the
+ * change *is* to `control`.
+ *
+ * `junction.rule === rule` covers `undefined === undefined`, so re-picking "None"
+ * on a junction that has no rule returns `state` by identity.
+ */
+function setJunctionRule(
+  state: EditorState,
+  id: NodeId,
+  rule: UnsignalizedRule | undefined,
+): EditorState {
+  const { doc } = state;
+  const junction = findJunction(doc, id);
+  if (!junction || junction.rule === rule) return state;
+
+  return {
+    ...state,
+    doc: {
+      ...doc,
+      junctions: doc.junctions.map((j) => {
+        if (j.node_id !== id) return j;
+        const { rule: _dropped, ...rest } = j;
+        return rule === undefined ? rest : { ...rest, rule };
+      }),
     },
   };
 }

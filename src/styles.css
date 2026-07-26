@@ -431,12 +431,15 @@ body {
   text-transform: none;
 }
 
-/* Two to a row, for the two controls whose labels are phrases. Five kinds across
-   a 240px panel leaves 40px a button, which wraps "Give-way line" onto three
-   lines and makes the picker a wall of text; the six turn directions are worse
-   still, with "Slight right" to fit. */
+/* Two to a row, for the three controls whose labels are phrases. Five kinds
+   across a 240px panel leaves 40px a button, which wraps "Give-way line" onto
+   three lines and makes the picker a wall of text; the six turn directions are
+   worse still, with "Slight right" to fit. The junction's four right-of-way rules
+   join them: "All-way stop" needs the width, and four across would give each of
+   them a word a line. */
 .segmented-kinds .seg,
-.segmented-dirs .seg {
+.segmented-dirs .seg,
+.segmented-rules .seg {
   flex-basis: calc(50% - 3px);
 }
 

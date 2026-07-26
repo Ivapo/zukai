@@ -2,6 +2,7 @@
 
 import {
   Document,
+  Junction,
   Lane,
   Layout,
   Link,
@@ -179,6 +180,19 @@ export function findNode(doc: Document, id: NodeId): Node | undefined {
 /** Look up a link by id. */
 export function findLink(doc: Document, id: LinkId): Link | undefined {
   return doc.links.find((l) => l.id === id);
+}
+
+/**
+ * Look up the junction record attached to a node.
+ *
+ * Keyed by **`node_id`**, not by an id of its own: a `Junction` is a record
+ * *about* a node rather than an entity beside it, which is why this is the one
+ * finder whose predicate does not read `.id`. Absent is not an error — a
+ * junction-kind node with no record is what a hand-edited file can carry, and
+ * every action that writes one returns `state` by identity for it.
+ */
+export function findJunction(doc: Document, id: NodeId): Junction | undefined {
+  return doc.junctions.find((j) => j.node_id === id);
 }
 
 /** Look up a road-surface marking by id. */

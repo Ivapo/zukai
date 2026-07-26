@@ -1,9 +1,9 @@
 ---
-status: reviewed (converged in 2 rounds, 2026-07-26; no phase implemented)
+status: Phase 1 shipped 2026-07-26; Phase 2 next (reviewed, converged in 2 rounds)
 last_updated: 2026-07-26
 note: Make a junction *mean* something — control, right-of-way rule, and the turn movements through it. The semantic half of the thing the glyph has been drawing since the first commit.
-implemented: []
-not_implemented: ["Phase 1", "Phase 2", "Phase 3", "Phase 4"]
+implemented: ["Phase 1"]
+not_implemented: ["Phase 2", "Phase 3", "Phase 4"]
 related: [specs/ramps_and_tapers_spec.md, specs/road_markings_spec.md, specs/signs_and_text_spec.md]
 reference: "Assimilator's `network.yaml` `junctions` block — `control`, `rule`, `movements`, `signal_plan` — which `graph.rs` already mirrors field for field. Explicitly *not* Assimilator's simulation-only per-junction detail (`conflict_pairs`, `collision_avoidance`, `gap_acceptance`), which `graph.rs:11-15` records as deliberately omitted."
 ---
@@ -428,6 +428,42 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
   decide in the plan, on the "who chose it" line markings and signs Phase 1 used;
   **`CLAUDE.md`**, whose spec list carries this spec's `status` and whose
   `rules/` list gains whatever Phase 1 writes; the project-memory roadmap.
+- **As built (2026-07-26)** — the phase landed as scoped; no departure from the
+  design, four decisions the scope line left to the plan, and one assertion added
+  beyond the gate:
+  - **The docs question resolved to a new `rules/junctions.md`**, on markings' and
+    signs' precedent: three more phases are coming (movements, their geometry,
+    their drawing), and the alternative host — `rules/road-rendering.md` — is about
+    how a *road* is drawn, which is precisely the layer §2.2 spends itself
+    separating this from. It opens by saying `movements` and `signal_plan` are
+    still fields nothing reads, so the file cannot be mistaken for a map of a
+    subsystem that exists.
+  - **The Rule row is a segmented row, not `SignLink`'s `<select>`.** The gate cites
+    that control for its **"None" first** idiom, which is what got copied; the
+    dropdown *form* did not, because `SignLink`'s own doc-comment gives the
+    discriminator — its option count is the document's (every link in the file),
+    while this one's is the vocabulary's. It takes
+    `segmented-labels`, since `.seg`'s `text-transform: capitalize` renders
+    "All-way Stop", and a fourth `segmented-rules` two-to-a-row rule beside
+    `segmented-kinds`/`segmented-dirs`.
+  - **Control and Rule sit *above* Glyph and Size** — semantics above
+    presentation, which also puts the nudge's cause above its visible effect.
+  - **`nudgedGlyph` is its own named function** rather than two lines inside
+    `setJunctionControl`, because the "only from the default" clause is the whole
+    of §2.2 and deserved somewhere to be stated. The nudge is applied by composing
+    the existing `setJunctionView`, so the missing-view case needed no code.
+  - **One assertion beyond the gate, and it is the one that would have caught a
+    plausible wrong implementation**: toggling Control on a `roundabout` leaves
+    `doc.layout.junctions` identical **by reference**. A nudge written as an
+    unconditional `setJunctionView` with the current glyph passes every
+    behavioural assertion — the glyph *is* still `roundabout` — while handing
+    history a fresh layout map on every control click. `clearSignLinks`'s lesson
+    (§2.5), arriving a phase earlier than expected.
+  - **Also asserted, and not in the gate:** coming back from `signal` to
+    `unsignalized` **keeps** a `rule`. The clear is one-directional by design
+    (`graph.rs` says `rule` is `None` when signalized, and says nothing about
+    inventing one on the way out), and only a hand-edited file can reach that
+    state — which is exactly why it wanted pinning.
 
 ### Phase 2 — A movement exists: the whole pipeline, from the panel  (depends on Phase 1)
 
