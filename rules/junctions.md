@@ -8,11 +8,11 @@ nothing here crosses IPC on new terms, reaches disk in a new shape, or moves
 `SCHEMA_VERSION` (still **2**). The design rationale lives in
 `specs/junction_semantics_spec.md`; hand-maintained.
 
-**Build state: Phase 2 of 4.** `control`, `rule` and `movements` are written and
-read; **nothing draws a movement yet** (Phase 3). `Junction.signal_plan` is still
-what it has always been — **a field nothing reads** — and so are `Movement`'s
-`from_lanes`/`to_lanes`. Do not treat their presence in `src/model/types.ts` as
-evidence anything consumes them.
+**Build state: Phase 3 of 4.** `control`, `rule` and `movements` are written,
+read and **drawn**; `deriveMovements` is Phase 4 and does not exist yet.
+`Junction.signal_plan` is still what it has always been — **a field nothing
+reads** — and so are `Movement`'s `from_lanes`/`to_lanes`. Do not treat their
+presence in `src/model/types.ts` as evidence anything consumes them.
 
 ## The three parts of a junction, and which layer owns each
 
@@ -270,6 +270,94 @@ as well, so switching junctions resets it outright.
 
 There is no test file for the Inspector; every row here is a `bun run dev` check.
 
+## The drawn arc
+
+A permitted turn is drawn as a dashed white guide across the junction pad, with an
+arrowhead where it leaves — the paint a real intersection takes a driver across
+itself with, which is why the semantic layer's one drawable fact reads as road
+paint rather than as an overlay on top of one.
+
+### It is a child of the glyph, not a layer
+
+`MovementShape` is rendered **inside `JunctionGlyphShape`**, after the pad and
+before the stop bars. Not a top-level sibling in `Diagram` the way markings and
+signs are, and the word "layer" is deliberately not used for it: **`.jn-pad` is
+`fill: var(--asphalt)` — opaque** — so an arc drawn before the node map would be
+painted over completely *while still passing every assertion about source order*.
+`Diagram.test.tsx` therefore pins `jn-pad` → `jn-movement` → `jn-stopbar`, and the
+first of those two comparisons is the one that catches the invisible arc.
+
+### Two of the six glyphs draw none
+
+`const pad = glyph !== "roundabout" && glyph !== "gore"` — the render chain's own
+last branch, named. A movement is white paint on asphalt and those two paint none:
+a roundabout's arcs would be chords across its own island, and a gore has nothing
+at the node to read them against. The movements stay in the document; the *glyph*
+is what withholds them, so switching back brings them straight back.
+
+### The arms are found by link id
+
+`byLink` maps `Arm.id` → `Arm`, and that is the only way the two ends are located.
+Never by an arm's direction: `junctionArms` orients every arm **away** from the
+node whichever way its traffic runs, because `gorePair` needs a symmetric frame.
+The arm supplies position and the model supplies direction — which is why `Arm.id`
+has stopped being only `gorePair`'s tie-break.
+
+A movement whose `from_link` or `to_link` has no arm here draws **nothing**: the
+hand-edited file naming a link that does not touch the node, or one with no
+drawable polyline. The node layer's own silence for a node with no position.
+
+### `movementArc` — a cubic, and the second control point is the reason
+
+`movementArc(from, to, radius)` takes two `MovementEnd`s in the glyph's own frame
+(`GoreArm`'s convention, minus the two fields that are `gorePair`'s business) and
+returns `{ start, control, end, dir }`.
+
+- **Both endpoints are the pad's rim**, from `rayCircleExit` — the identical
+  expression the stop bar is placed with, so the two cannot come to disagree about
+  where a road meets the glyph.
+- **The tangents come from the model**: `din = -from.away`, `dout = +to.away`.
+  `movementKind`'s own frame, restated.
+- **A quadratic cannot do this job.** One control point cannot hold two
+  independent tangents, and the two pairs it fails on are the ordinary ones: a
+  `through`'s rays are anti-parallel and a `u-turn`'s are parallel, so
+  `rayIntersection` returns `undefined` for both — while they want *opposite*
+  repairs, a straight line and a loop. With `C1 = start + k·din` and
+  `C2 = end − k·dout` there is no degenerate case left to repair.
+- **`k` is the standard cubic approximation to a circular arc**,
+  `(4/3)·tan(θ/4)·r` over a chord of `2r·sin(θ/2)`. It gives `1/3` of the chord as
+  θ→0 (a through comes out collinear and dead straight), `0.3905` at a right angle,
+  and `2/3` at a u-turn. A flat `chord/3` draws that u-turn at half depth — 6.75
+  where the median's half-width is 13.5 — **while still passing every "straighter
+  than" assertion**, which is why `geometry.test.ts` pins the semicircle rather
+  than only the ordering.
+
+`movementPath(arc)` spells it: the file's one `C`, where every other path is
+`M`/`L`. Separate from `movementArc` for the reason `gore` returns three points
+rather than a string — how bent a movement is has to be assertable without parsing
+numbers back out of a `d`.
+
+The arrowhead reuses `arrowTriangle`, the helper a road already points itself
+with; `back === size` puts its apex on the arc's end rather than a head-length
+beyond it, out on the road. `MOVEMENT_HEAD` is unscaled by the glyph's Size for
+the stop bar's reason: it is paint on the pad, not part of the pad.
+
+### The paint
+
+Three rules in `styles/diagram.css`, so all of it travels inside an exported file:
+`.jn-movement` (opacity **on the group**, because the head overlaps the last few
+units of the line and two translucent fills would composite into a dark spot
+exactly where the eye lands), `.jn-movement-line` and `.jn-movement-head`.
+
+Dashed because solid is taken — the stop bar is solid white at 4 and the edge
+lines solid at 1.5, and a turn guide has to read as the lightest of the three. The
+pitch is `3 3` rather than `.road-divider`'s `7 7`: an arc runs ten to thirty units
+where a divider runs the length of a road, so `7 7` would put one dash on a tight
+right turn.
+
+`strokeAllowance` is **unchanged**, and asserted so: an arc is drawn inside the
+pad, which is already inside the frame.
+
 ## Where each piece lives
 
 | Piece | File |
@@ -278,8 +366,11 @@ There is no test file for the Inspector; every row here is a `bun run dev` check
 | `setJunctionControl`, `setJunctionRule`, `nudgedGlyph` | `src/editor/state.ts` |
 | `addMovement`, `deleteMovement`, `setMovementKind`, `withMovements`, `dropMovements` | `src/editor/state.ts` |
 | `movementId`, `movementKind`, `legalMovements`, `armDirection` | `src/editor/geometry.ts` |
+| `MovementEnd`, `MovementArc`, `movementArc`, `movementPath` | `src/editor/geometry.ts` |
 | `CONTROLS`, `RULES`, `MOVEMENT_KINDS`, `JunctionFields`, `MovementRows`, `MovementAdd` | `src/components/Inspector.tsx` |
 | `.segmented-rules`, `.movement-*` | `src/styles.css` (chrome — **not** `src/styles/diagram.css`; nothing here reaches an export) |
+| `MovementShape`, `MOVEMENT_HEAD`, the `pad` gate and `byLink` | `src/components/Diagram.tsx` |
+| `.jn-movement`, `.jn-movement-line`, `.jn-movement-head` | `src/styles/diagram.css` (paint — it travels into every export) |
 | The glyphs themselves | `JunctionGlyphShape`, `src/components/Diagram.tsx` — see `rules/road-rendering.md` for the arms and the pad |
 
 ## The two turn vocabularies, and the hyphen between them
@@ -299,13 +390,8 @@ stay separate: deriving a lane's turn arrow from the movements that use it is a
 named non-goal, because a painted arrow is a human's decoration rather than a
 derivation.
 
-## Still unbuilt (spec Phases 3–4)
+## Still unbuilt (spec Phase 4)
 
-- **Phase 3 — the drawing.** `movementArc` in `geometry.ts` and a `MovementShape`
-  rendered **inside `JunctionGlyphShape`**, never as a sibling layer: `.jn-pad` is
-  opaque asphalt and would paint over the arcs while every source-order assertion
-  still passed. Drawn from the two arms found **by link id** (`Arm.id`), never from
-  an arm's direction.
 - **Phase 4 — `deriveMovements`.** `legalMovements` **less the u-turn pairs**,
   classified through `movementKind`, added as one undoable action and **merging
   rather than replacing** — matched by ordered pair, which its id already is.

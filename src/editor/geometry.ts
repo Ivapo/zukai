@@ -1998,3 +1998,109 @@ export function legalMovements(doc: Document, nodeId: NodeId): MovementPair[] {
   }
   return pairs;
 }
+
+/**
+ * One end of a movement, **as drawn**, in the junction glyph's own frame — the
+ * group is already translated to the node, so `Diagram.tsx` passes an arm's
+ * position relative to it. {@link GoreArm}'s convention, and for its reason.
+ *
+ * Not `GoreArm` itself: that type's `halfSpan` is the roads' painted edges and
+ * its `id` is only {@link gorePair}'s tie-break, and neither means anything to a
+ * curve drawn down the middle of two carriageways.
+ */
+export interface MovementEnd {
+  /** Where the carriageway meets the node. */
+  at: Vec2;
+  /**
+   * Unit direction **away** from the node, along the drawn carriageway — the
+   * frame {@link movementKind} negates for the arriving side, and this one does
+   * too. An arm carries no direction of travel; the model supplies that.
+   */
+  away: Vec2;
+}
+
+/** A movement drawn through a junction: a cubic from the approach to the exit. */
+export interface MovementArc {
+  /** Where it leaves the approach carriageway, on the pad's rim. */
+  start: Vec2;
+  /** The cubic's two control points, in order. */
+  control: [Vec2, Vec2];
+  /** Where it meets the exit carriageway — and the arrowhead's apex. */
+  end: Vec2;
+  /** Unit direction of travel at {@link end}, for that arrowhead. */
+  dir: Vec2;
+}
+
+/**
+ * The curve a permitted turn is drawn as: rim to rim across the junction pad,
+ * leaving the approach and arriving at the exit **along the roads themselves**.
+ *
+ * Both endpoints come from {@link rayCircleExit}, which is the identical
+ * expression the stop bar is placed with — so an arc and a bar on the same arm
+ * cannot come to disagree about where that road meets the glyph.
+ *
+ * **A cubic, and the second control point is the whole reason.** A quadratic has
+ * one, so it cannot hold two independent tangents, and the two pairs it fails on
+ * are not exotic: a `through` movement's rays are anti-parallel and a `u-turn`'s
+ * are parallel, so {@link rayIntersection} returns `undefined` for both — while
+ * they want *opposite* repairs, a straight line and a loop. With
+ * `C1 = start + k·din` and `C2 = end − k·dout` there is no degenerate case to
+ * repair: a through comes out collinear and dead straight, a u-turn hooks.
+ *
+ * **`k` is the standard cubic approximation to a circular arc**, `(4/3)·tan(θ/4)·r`
+ * over a chord of `2r·sin(θ/2)`, so the curve reads as an arc of the turn it
+ * actually is rather than as a constant sag: `1/3` of the chord as θ→0, `0.3905`
+ * at a right angle, `2/3` at a u-turn — where a flat `chord/3` would draw a
+ * semicircle as a shallow stub. The θ→0 guard is the only branch in here, and it
+ * is that formula's own 0/0.
+ */
+export function movementArc(
+  from: MovementEnd,
+  to: MovementEnd,
+  radius: number,
+): MovementArc {
+  const exit = (e: MovementEnd): Vec2 => {
+    const d = rayCircleExit(e.at, e.away, radius);
+    return { x: e.at.x + e.away.x * d, y: e.at.y + e.away.y * d };
+  };
+  const start = exit(from);
+  const end = exit(to);
+
+  // Travel **into** the junction is the negation of the approach's arm; travel
+  // **out** is the exit's arm as given (junction semantics §2.4).
+  const din = { x: -from.away.x, y: -from.away.y };
+  const dout = to.away;
+
+  const theta = Math.abs(
+    Math.atan2(din.x * dout.y - din.y * dout.x, din.x * dout.x + din.y * dout.y),
+  );
+  const chord = distance(start, end);
+  const k =
+    chord *
+    (theta < 1e-9
+      ? 1 / 3
+      : ((2 / 3) * Math.tan(theta / 4)) / Math.sin(theta / 2));
+
+  return {
+    start,
+    control: [
+      { x: start.x + din.x * k, y: start.y + din.y * k },
+      { x: end.x - dout.x * k, y: end.y - dout.y * k },
+    ],
+    end,
+    dir: dout,
+  };
+}
+
+/**
+ * An SVG `path` `d` string for a movement arc — the file's one curve command,
+ * where every other path here is `M`/`L`.
+ *
+ * Separate from {@link movementArc} for the reason {@link gore} hands back three
+ * points rather than a `points` string: how *bent* a movement is has to be
+ * assertable without parsing a string back into numbers.
+ */
+export function movementPath(arc: MovementArc): string {
+  const [c1, c2] = arc.control;
+  return `M ${arc.start.x} ${arc.start.y} C ${c1.x} ${c1.y} ${c2.x} ${c2.y} ${arc.end.x} ${arc.end.y}`;
+}

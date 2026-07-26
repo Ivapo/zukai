@@ -123,17 +123,26 @@ site, not add another (`rules/road-markings.md`).
 
 ### Arms carry their position, so the glyph follows the carriageways
 
-`Arm` is `{ dir, origin, width }`, and `origin` is **not re-derived** — it is the
-drawn polyline's own end point, which `junctionArms` already had in hand. No
+`Arm` is `{ id, dir, origin, width }`, and `origin` is **not re-derived** — it is
+the drawn polyline's own end point, which `junctionArms` already had in hand. No
 second call to `carriageways`, no `DRIVE_SIDE` reasoning, and so none of the
 offset-sign traps the section above is about. `origin` is **world** space; the
 glyph's group is translated to the node, so an interior detail enters as
 `origin - center`, which is `(0, 0)` for an undivided road.
 
+`id` was `gorePair`'s tie-break alone until movements shipped; it is now also
+**how a movement finds its two arms**, since `dir` points away from the node
+whichever way traffic runs and so cannot say which arm a turn arrives on
+(`rules/junctions.md`).
+
 - **A stop bar starts from its own carriageway**, at `(origin - center) + dir *
   (rayCircleExit(origin - center, dir, rp) + 4)`. `rayCircleExit` returns
   *exactly* `rp` from the centre, so an undivided junction draws byte-identically
   to the centre-derived code this replaced — pinned in `Diagram.test.tsx`.
+- **A movement arc runs rim to rim**, from the same `rayCircleExit` with no `+ 4`,
+  so an arc and a stop bar on one arm cannot disagree about where the road meets
+  the glyph. Drawn *after* the pad, because the pad is opaque
+  (`rules/junctions.md`), and only on the four glyphs that paint one.
 - **The arms' reach is a floor on the pad radius and the roundabout ring**, never
   a replacement: `reach = max(distance(origin, center) + width/2)`, then
   `rp = max((maxW * 0.62 + 3) * scale, reach)` and the same for `ro`. Substituting

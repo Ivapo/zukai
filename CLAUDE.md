@@ -81,7 +81,7 @@ phase from a spec still `status: draft`** — it must pass the review loop
 - `specs/signs_and_text_spec.md` — letters in the drawing: the embedded font,
   painted road text, and roadside signs (implemented; 4 phases)
 - `specs/junction_semantics_spec.md` — what a junction *means*: control,
-  right-of-way rule, and the turn movements through it (Phases 1–2 of 4
+  right-of-way rule, and the turn movements through it (Phases 1–3 of 4
   implemented)
 
 **`rules/` — current-state reference (the *what is*).** Terse, authoritative maps
@@ -138,7 +138,13 @@ there's real cross-file knowledge worth extracting, not for every file.
   the y-down handedness that makes a positive cross product a *right* turn, the
   third cascade answer and why it is `clearSignLinks`' shape wearing
   `keepMarkings`' meaning, the empty list stored as an absent key, and the two
-  turn vocabularies separated by one hyphen
+  turn vocabularies separated by one hyphen — and the drawn arc: why it is a child
+  of the glyph rather than a layer (the pad is opaque, and a sibling would be
+  invisible while passing every source-order assertion), the two of six glyphs that
+  paint none, the arms found by link id because an arm carries no direction, the
+  cubic whose second control point is the whole reason a `through` and a `u-turn`
+  need no special case, and the arc constant a flat `chord/3` fails while still
+  passing the gate
 
 Specs are authoritative for *intent and plan*; `rules/`, this file, and the code
 are authoritative for *current state*. When a shipped phase changes what a rule

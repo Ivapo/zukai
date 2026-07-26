@@ -37,6 +37,8 @@ import {
   MARKING_PITCH,
   MIN_ROAD_WIDTH,
   MarkingAnchor,
+  MovementArc,
+  MovementEnd,
   PLATE_PAD,
   ROAD_MARGIN,
   SCHEMATIC_MEDIAN,
@@ -64,8 +66,10 @@ import {
   markingTeeth,
   markingText,
   markingZebra,
+  movementArc,
   movementId,
   movementKind,
+  movementPath,
   nearestOnPolyline,
   offsetPolyline,
   pointAlongPolyline,
@@ -2195,5 +2199,113 @@ describe("movements through a junction", () => {
 
     expect(pairs).toHaveLength(4);
     expect(pairs.some((p) => p.from === "L6" || p.to === "L5")).toBe(false);
+  });
+});
+
+describe("a movement drawn across the pad", () => {
+  /**
+   * The same T, but as `junctionArms` hands it to the glyph: **in the glyph's own
+   * frame**, which is translated to N2, and one arm per link. Its three arms are
+   * all divided pairs, so every carriageway sits 13.5 off its centreline
+   * (`roadWidth(2) / 2 + SCHEMATIC_MEDIAN / 2`), and the pad radius is the arms'
+   * own reach, 13.5 + 21 / 2 = 24.
+   *
+   * Every `away` points **out** of the junction, whichever way its traffic runs —
+   * which is exactly why the arriving arms below are indistinguishable from the
+   * leaving ones here, and why direction has to come from the model.
+   */
+  const R = 24;
+  /** How far out along an arm the pad's rim is: `sqrt(R² - 13.5²)`. */
+  const RIM = Math.sqrt(R * R - 13.5 * 13.5);
+
+  const WEST_IN: MovementEnd = { at: { x: 0, y: 13.5 }, away: { x: -1, y: 0 } }; // L1
+  const WEST_OUT: MovementEnd = { at: { x: 0, y: -13.5 }, away: { x: -1, y: 0 } }; // L2
+  const EAST_OUT: MovementEnd = { at: { x: 0, y: 13.5 }, away: { x: 1, y: 0 } }; // L3
+  const SOUTH_OUT: MovementEnd = { at: { x: -13.5, y: 0 }, away: { x: 0, y: 1 } }; // L5
+  const SOUTH_IN: MovementEnd = { at: { x: 13.5, y: 0 }, away: { x: 0, y: 1 } }; // L6
+
+  /** The point halfway along the curve — `(P0 + 3C1 + 3C2 + P3) / 8`. */
+  function curveMid(arc: MovementArc): Vec2 {
+    const [c1, c2] = arc.control;
+    return {
+      x: (arc.start.x + 3 * c1.x + 3 * c2.x + arc.end.x) / 8,
+      y: (arc.start.y + 3 * c1.y + 3 * c2.y + arc.end.y) / 8,
+    };
+  }
+
+  /** How far the curve leaves the straight line between its own two ends. */
+  function sag(arc: MovementArc): number {
+    return distance(curveMid(arc), {
+      x: (arc.start.x + arc.end.x) / 2,
+      y: (arc.start.y + arc.end.y) / 2,
+    });
+  }
+
+  it("starts on its approach arm and ends on its exit arm", () => {
+    const arc = movementArc(WEST_IN, SOUTH_OUT, R); // L1 to L5, a right turn.
+
+    // Both ends on the pad's rim, where the stop bar would sit four units later.
+    expect(distance({ x: 0, y: 0 }, arc.start)).toBeCloseTo(R);
+    expect(distance({ x: 0, y: 0 }, arc.end)).toBeCloseTo(R);
+    // Each out along its **own** carriageway, not along the node's centre: the
+    // arc starts on the road it arrives on and ends on the road it leaves by.
+    expect(arc.start).toEqual({ x: -RIM, y: 13.5 });
+    expect(arc.end).toEqual({ x: -13.5, y: RIM });
+    // And the arrowhead points the way the exit road runs.
+    expect(arc.dir).toEqual(SOUTH_OUT.away);
+  });
+
+  /**
+   * **The gate's shape test**, and it has to be a shape one: a magnitude test
+   * ("the curve is 40 units long") passes for any curve at all, including the
+   * straight line a broken through would draw and the stub a broken u-turn would.
+   *
+   * A `through` is straight because the cubic's four points come out collinear —
+   * not because anything special-cases it.
+   */
+  it("draws a through straight and a left as a curve", () => {
+    const through = movementArc(WEST_IN, EAST_OUT, R); // L1 to L3
+    const left = movementArc(SOUTH_IN, WEST_OUT, R); // L6 to L2
+
+    expect(sag(through)).toBeCloseTo(0);
+    // Pinned rather than bounded: a flat `k = chord / 3` draws this same left at
+    // 8.34, which is still comfortably "more than the through" and still wrong.
+    expect(sag(left)).toBeCloseTo(9.766, 2);
+    expect(sag(through)).toBeLessThan(sag(left));
+
+    // The left swings *into* the junction before it turns — north-east of the
+    // node, arriving northbound and leaving westbound.
+    expect(curveMid(left).x).toBeGreaterThan(0);
+    expect(curveMid(left).y).toBeLessThan(0);
+  });
+
+  /**
+   * Beyond the gate, and the assertion that pins the arc constant rather than
+   * merely the ordering above: a u-turn's apex sits **exactly** the median's
+   * half-width beyond its own arm, which is a true semicircle across the median.
+   *
+   * A flat `k = chord / 3` draws that as a shallow stub — 6.75 rather than 13.5 —
+   * while still passing every "straighter than" assertion ever written.
+   */
+  it("hooks a u-turn around the median rather than flattening it", () => {
+    const arc = movementArc(WEST_IN, WEST_OUT, R); // L1 to L2
+
+    expect(curveMid(arc).x - arc.start.x).toBeCloseTo(13.5);
+    expect(curveMid(arc).y).toBeCloseTo(0);
+    // Both ends on the west arm, one carriageway either side of its centreline.
+    expect(arc.start).toEqual({ x: -RIM, y: 13.5 });
+    expect(arc.end).toEqual({ x: -RIM, y: -13.5 });
+  });
+
+  /** One cubic, ending where the arc ends — the file's only non-`M`/`L` command. */
+  it("spells the arc as a single cubic", () => {
+    const d = movementPath(movementArc(WEST_IN, SOUTH_OUT, R));
+    const arc = movementArc(WEST_IN, SOUTH_OUT, R);
+
+    expect(d).toMatch(
+      /^M [-\d.]+ [-\d.]+ C [-\d.]+ [-\d.]+ [-\d.]+ [-\d.]+ [-\d.]+ [-\d.]+$/,
+    );
+    expect(d).toContain(`M ${arc.start.x} ${arc.start.y} C`);
+    expect(d.endsWith(`${arc.end.x} ${arc.end.y}`)).toBe(true);
   });
 });

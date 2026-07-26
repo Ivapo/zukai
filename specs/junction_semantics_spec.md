@@ -1,9 +1,9 @@
 ---
-status: Phases 1–2 shipped 2026-07-26; Phase 3 next (reviewed, converged in 2 rounds)
+status: Phases 1–3 shipped 2026-07-26; Phase 4 next (reviewed, converged in 2 rounds)
 last_updated: 2026-07-26
 note: Make a junction *mean* something — control, right-of-way rule, and the turn movements through it. The semantic half of the thing the glyph has been drawing since the first commit.
-implemented: ["Phase 1", "Phase 2"]
-not_implemented: ["Phase 3", "Phase 4"]
+implemented: ["Phase 1", "Phase 2", "Phase 3"]
+not_implemented: ["Phase 4"]
 related: [specs/ramps_and_tapers_spec.md, specs/road_markings_spec.md, specs/signs_and_text_spec.md]
 reference: "Assimilator's `network.yaml` `junctions` block — `control`, `rule`, `movements`, `signal_plan` — which `graph.rs` already mirrors field for field. Explicitly *not* Assimilator's simulation-only per-junction detail (`conflict_pairs`, `collision_avoidance`, `gap_acceptance`), which `graph.rs:11-15` records as deliberately omitted."
 ---
@@ -568,6 +568,53 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
     half no assertion above can see.
 - **Docs touched:** the rule file; `rules/road-rendering.md` if the layer order
   described there changes.
+- **As built (2026-07-26)** — the phase landed as scoped: two pure functions, one
+  component nested in the glyph, three CSS rules. No model change, no action, no
+  `SCHEMA_VERSION` move, and `cargo check` run once to confirm the frontend-only
+  claim. Two decisions taken with the human before planning, three the scope line
+  left open, and three assertions beyond the gate:
+  - **Two of the six glyphs draw no arc** (asked, not assumed). `roundabout` and
+    `gore` paint no pad, and a movement is white paint on asphalt — a roundabout's
+    arcs would be chords across its own island and a gore's would hang over bare
+    paper. Implemented as `const pad = glyph !== "roundabout" && glyph !== "gore"`,
+    the render chain's own last branch named. The movements stay in the document,
+    so the glyph is what withholds them and switching back returns them.
+  - **Dashed white at 0.7, with a solid arrowhead** (asked). Solid is taken — the
+    stop bar at 4 and the edge lines at 1.5 — so a turn guide has to read as the
+    lightest of the three; the pitch is `3 3` rather than `.road-divider`'s `7 7`,
+    since an arc runs ten to thirty units and `7 7` puts one dash on a tight right
+    turn. The opacity is on the **group**, because the head overlaps the line's
+    last few units and two translucent fills composite into a dark spot exactly
+    where the eye lands.
+  - **A cubic, not a quadratic, and it removed a branch rather than adding one.**
+    The spec said "arc" and left the primitive open. A quadratic's single control
+    point cannot hold two independent tangents, and the two pairs it fails on are
+    the ordinary ones: a `through`'s rays are anti-parallel and a `u-turn`'s are
+    parallel, so `rayIntersection` returns `undefined` for both — while they want
+    *opposite* repairs, a straight line and a loop. `C1 = start + k·din`,
+    `C2 = end − k·dout` needs no repair at all.
+  - **`k` is the standard cubic-arc constant**, `(4/3)·tan(θ/4)·r` over
+    `2r·sin(θ/2)` — `1/3` of the chord as θ→0, `0.3905` at a right angle, `2/3` at
+    a u-turn. Chosen over a flat `chord/3` because that draws a u-turn at half
+    depth **while still passing every "straighter than" assertion**, which is the
+    gate's own test and would not have caught it.
+  - **`MovementEnd` rather than `GoreArm`**, whose `halfSpan` is the roads' painted
+    edges and whose `id` is `gorePair`'s tie-break — neither means anything to a
+    curve down the middle of two carriageways. Same frame convention, and its
+    doc-comment says so. `arrowTriangle` *was* reused: it already exists in
+    `Diagram.tsx` for a road's own direction arrow, and `back === size` is exactly
+    "apex on the end, base a head-length behind".
+  - **Beyond the gate, and the one that pins the constant rather than the
+    ordering**: a u-turn's apex sits exactly 13.5 — the median's half-width —
+    beyond its own arm, which is a true semicircle. Also asserted: a glyph with no
+    pad draws no arc *while the movement is still in the document* (the decision
+    above, and nothing else would notice it coming back), and a movement naming a
+    link with no arm here draws nothing.
+  - The dev pass rendered §1's T through the real export path at 5× and read it:
+    the through straight, the right a tight corner, the u-turn hooked around the
+    median, the left sweeping north-east before turning west — and a two-way 4-arm
+    cross with all **12** derived by hand, which reads as a web rather than a
+    tangle. Phase 4's own dev-pass count, confirmed a phase early.
 
 ### Phase 4 — Derive: every legal turn at once  (depends on Phase 3)
 

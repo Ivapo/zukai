@@ -9,7 +9,7 @@
  */
 
 import type React from "react";
-import { linkStyle, nodePos } from "../model/document";
+import { findJunction, linkStyle, nodePos } from "../model/document";
 import {
   Document,
   JunctionGlyph,
@@ -18,6 +18,7 @@ import {
   LinkId,
   LinkStyle,
   Marking,
+  Movement,
   Node,
   NodeId,
   Sign,
@@ -33,6 +34,7 @@ import {
   MIN_ROAD_WIDTH,
   MarkingAnchor,
   MarkingForm,
+  MovementEnd,
   ROAD_MARGIN,
   TAPER_LENGTH,
   TEXT_SIZE,
@@ -52,6 +54,8 @@ import {
   markingTeeth,
   markingText,
   markingZebra,
+  movementArc,
+  movementPath,
   offsetPolyline,
   polygonsPath,
   polylinePath,
@@ -186,6 +190,7 @@ export function Diagram({
               scale={jn?.scale ?? 1}
               center={p}
               arms={junctionArms(doc, node.id, offsets)}
+              movements={findJunction(doc, node.id)?.movements ?? []}
               interaction={interaction}
             />
           );
@@ -885,6 +890,12 @@ function NodeShape({
  * glyphs sit on an asphalt pad where the arms meet; the roundabout replaces the
  * pad with a ring and island. Approach-derived details (stop bars, arm widths)
  * come from `arms`, which is why the glyph reads correctly for any arm layout.
+ *
+ * `movements` are the permitted turns through it, and they are drawn **here**
+ * rather than as a layer of their own — `.jn-pad` is opaque asphalt, so an arc
+ * drawn as a top-level sibling before the node map would be painted over
+ * completely while still passing every assertion about source order (junction
+ * semantics §2.7). They are an interior detail of the glyph, like the stop bars.
  */
 function JunctionGlyphShape({
   node,
@@ -892,6 +903,7 @@ function JunctionGlyphShape({
   scale,
   center,
   arms,
+  movements,
   interaction,
 }: {
   node: Node;
@@ -899,6 +911,7 @@ function JunctionGlyphShape({
   scale: number;
   center: Vec2;
   arms: Arm[];
+  movements: Movement[];
   interaction?: Interaction;
 }) {
   const maxW = arms.length
@@ -928,6 +941,24 @@ function JunctionGlyphShape({
   const selected = isSelected(interaction?.selection ?? null, "node", node.id);
   const highlight = selected || interaction?.linkFrom === node.id;
   const nse = hairline(interaction);
+
+  // The chain below's own last branch, named: the glyphs that paint an asphalt
+  // pad. A movement arc is white paint on that pad, so a roundabout draws none
+  // (its arcs would be chords across its own island) and neither does a gore
+  // (there is no asphalt at the node to read them against).
+  const pad = glyph !== "roundabout" && glyph !== "gore";
+
+  // Found by **link id**, never by direction: `junctionArms` orients every arm
+  // *away* from the node whichever way its traffic runs, so an `Arm` carries no
+  // incoming/outgoing information at all. The arm supplies position, the model
+  // supplies direction (junction semantics §2.4).
+  const byLink = new Map(arms.map((a) => [a.id, a]));
+  // The group is translated to the node, so an arm enters relative to it —
+  // `GoreShape`'s and the stop bar's own conversion.
+  const movementEnd = (a: Arm): MovementEnd => ({
+    at: { x: a.origin.x - center.x, y: a.origin.y - center.y },
+    away: a.dir,
+  });
 
   return (
     <g
@@ -962,6 +993,29 @@ function JunctionGlyphShape({
       ) : (
         <circle className="jn-pad" r={rp} />
       )}
+
+      {/* After the pad, which they are painted on, and before the stop bars,
+          which are the newer paint of the two where a turn crosses one. */}
+      {pad &&
+        movements.map((m) => {
+          const from = byLink.get(m.from_link);
+          const to = byLink.get(m.to_link);
+          // A movement naming a link that does not touch this node, or one with
+          // no drawable polyline, has no arm to start or end on. Only a
+          // hand-edited document reaches that, and the drawing says nothing
+          // about it — the same silence the node layer keeps for a node with no
+          // position.
+          if (!from || !to) return null;
+          return (
+            <MovementShape
+              key={m.id}
+              from={movementEnd(from)}
+              to={movementEnd(to)}
+              radius={rp}
+              interaction={interaction}
+            />
+          );
+        })}
 
       {glyph === "signalized_cross" && (
         <>
@@ -1069,6 +1123,51 @@ function GoreShape({
         className="road-edge jn-gore-edge"
         d={polylinePath([fa, nose, fb])}
         vectorEffect={hairline(interaction)}
+      />
+    </g>
+  );
+}
+
+/**
+ * How long a movement's arrowhead is, in world units.
+ *
+ * Unscaled by the glyph's Size, for the stop bar's reason: it is paint on the
+ * pad rather than a part of the pad, and paint does not resize with the
+ * intersection it is painted on.
+ */
+const MOVEMENT_HEAD = 4;
+
+/**
+ * One permitted turn, drawn as a guide arc across the junction pad with an
+ * arrowhead where it leaves.
+ *
+ * All the geometry is {@link movementArc}'s; everything here is the frame and
+ * the paint. The arrowhead reuses {@link arrowTriangle}, the same helper a road
+ * points itself with — `back === size` puts its apex exactly on the arc's end
+ * rather than a head-length beyond it, out on the road.
+ */
+function MovementShape({
+  from,
+  to,
+  radius,
+  interaction,
+}: {
+  from: MovementEnd;
+  to: MovementEnd;
+  radius: number;
+  interaction?: Interaction;
+}) {
+  const arc = movementArc(from, to, radius);
+  return (
+    <g className="jn-movement">
+      <path
+        className="jn-movement-line"
+        d={movementPath(arc)}
+        vectorEffect={hairline(interaction)}
+      />
+      <polygon
+        className="jn-movement-head"
+        points={arrowTriangle(arc.end, arc.dir, MOVEMENT_HEAD, MOVEMENT_HEAD)}
       />
     </g>
   );
