@@ -16,6 +16,7 @@ import {
   LinkId,
   LinkStyle,
   Marking,
+  TurnDirection,
   Vec2,
 } from "../model/types";
 
@@ -938,6 +939,13 @@ export interface MarkingAnchor extends PolylinePoint {
  * `lane` absent means the whole carriageway, whose span is the **lane region** —
  * summed from the bands rather than taken as `roadWidth - ROAD_MARGIN`, which
  * would carry the casing lip through a needless round trip.
+ *
+ * **One kind-aware line, and only one:** a `turn_arrow` has no carriageway-wide
+ * meaning (markings spec §2.7), so a lane-less one falls back to the **nearside**
+ * band rather than spanning the road. It lives here rather than in
+ * {@link markingArrow} so the hit target and the halo move with it — a halo that
+ * highlights a strip the arrow is not painted on misreports the span at the
+ * moment the user is looking at it.
  */
 export function markingAnchor(
   doc: Document,
@@ -957,7 +965,10 @@ export function markingAnchor(
   const bands = laneBands(link.lanes, linkStyle(doc, link.id));
   let span: LaneBand;
   if (marking.lane === undefined) {
-    span = { offset: 0, width: bands.reduce((s, b) => s + b.width, 0) };
+    span =
+      marking.kind.type === "turn_arrow"
+        ? bands[0]
+        : { offset: 0, width: bands.reduce((s, b) => s + b.width, 0) };
   } else {
     const band = bands[marking.lane];
     if (!band) return undefined;
@@ -1104,9 +1115,182 @@ export function markingZebra(anchor: MarkingAnchor): Vec2[][] {
 }
 
 /**
+ * How far a turn arrow runs along the road, in world units.
+ *
+ * A schematic build constant like {@link CROSSWALK_DEPTH}, and **fixed rather
+ * than band-derived**: two default lanes long, near the 2:1 a real turn arrow
+ * cuts in a real lane. Its footprint along the road does not depend on which
+ * directions are chosen, so adding a branch never moves the arrow.
+ */
+export const TURN_ARROW_LENGTH = 15;
+
+/**
+ * How far a branch reaches from the fork, as a fraction of the band width.
+ *
+ * **This one number is the whole containment rule.** Every point of every branch,
+ * for all six directions, lands within `ARROW_REACH * width` of the band centre —
+ * so paint on the verge is ruled out by the construction rather than by a clamp
+ * each direction has to remember, exactly as {@link spanCells} rules it out for
+ * the tiled kinds. Everything below is sized to keep that true, and it is under a
+ * half, which is where the lane ends.
+ */
+const ARROW_REACH = 0.42;
+/** A head's length along its own branch, as a fraction of the band width. */
+const ARROW_HEAD_LENGTH = 0.3;
+/** A head's half-width across it — a head twice as wide as the stem it caps. */
+const ARROW_HEAD_HALF = 0.17;
+/** How wide the shaft and the stems are stroked. */
+const ARROW_STEM = 0.16;
+/** Segments in the `u_turn` hook's semicircle: 15° each, a hundredth of a unit of chord. */
+const HOOK_STEPS = 12;
+
+/**
+ * Each straight branch's bearing off the direction of travel, in radians and
+ * **positive toward the right of travel** — the sign {@link markingPoint}'s
+ * `across` takes, so `left` is negative (markings spec §2.7).
+ *
+ * `u_turn` is absent deliberately rather than sitting here at π: it is a hook,
+ * not a stub, and a stub at 180° would draw a head on a stem running straight
+ * back down the shaft.
+ */
+const BRANCH_BEARING: Record<Exclude<TurnDirection, "u_turn">, number> = {
+  through: 0,
+  slight_left: -Math.PI / 6,
+  slight_right: Math.PI / 6,
+  left: -Math.PI / 2,
+  right: Math.PI / 2,
+};
+
+/** One direction of a turn arrow: a stem off the shaft, ending in a head. */
+export interface ArrowBranch {
+  /**
+   * The fork to the centre of the head's base — one segment for a stub, and an
+   * arc plus a return leg for `u_turn`.
+   */
+  stem: Vec2[];
+  /** `[apex, base, base]`, pointing where the branch goes. */
+  head: [Vec2, Vec2, Vec2];
+}
+
+/** A turn arrow: one shaft, and one branch per direction. */
+export interface TurnArrow {
+  /** `[tail, fork]` — the one shaft every branch leaves, and the same for every direction set. */
+  shaft: [Vec2, Vec2];
+  branches: ArrowBranch[];
+  /**
+   * How wide to stroke the shaft and the stems. Derived from the band and so
+   * carried here rather than set in `diagram.css`, exactly as a lane band's own
+   * width is: an arrow in a narrow ramp lane is a narrower arrow.
+   */
+  stroke: number;
+}
+
+/**
+ * A turn arrow: **one shaft up the lane's centre and one branch per direction**,
+ * so a shared through/right lane draws one arrow with two branches rather than
+ * two arrows (markings spec §2.7).
+ *
+ * Five directions are straight stubs at the bearings {@link BRANCH_BEARING}
+ * tabulates. The sixth, `u_turn`, is a 180° hook that turns back alongside the
+ * shaft with its head pointing **at the driver** — and it hooks *left*, the
+ * U-turn side under the right-hand traffic {@link laneBands} already assumes.
+ *
+ * **The hook's radius is derived, not picked.** §2.7 proposes a quarter of the
+ * band width, but that puts the return leg at `2R = width/2` — the band edge,
+ * before the head is even added — and the same paragraph makes containment the
+ * thing that bounds the radius. So `2R + headHalf = reach`: the hook's head
+ * reaches exactly as far sideways as a hard stub's apex, and {@link ARROW_REACH}
+ * alone bounds all six directions.
+ *
+ * `undefined` for an arrow with no directions it can draw — an empty list, or one
+ * only a hand-edited document could hold. A bare shaft would read as a lane line,
+ * which is worse than the placeholder bar the caller falls back to.
+ */
+export function markingArrow(
+  anchor: MarkingAnchor,
+  directions: TurnDirection[],
+): TurnArrow | undefined {
+  const width = anchor.span.width;
+  const reach = ARROW_REACH * width;
+  const headLength = ARROW_HEAD_LENGTH * width;
+  const headHalf = ARROW_HEAD_HALF * width;
+  // Where the branches leave the shaft, so a `through` branch's apex lands
+  // exactly on the arrow's downstream end.
+  const fork = TURN_ARROW_LENGTH / 2 - reach;
+
+  /** A point in the arrow's own frame: `across` from the band centre, `along` from `position`. */
+  const at = (across: number, along: number) =>
+    markingPoint(anchor, anchor.span.offset + across, along);
+
+  /** A head with its apex at `(across, along)`, pointing along the unit `(da, dl)`. */
+  const head = (
+    across: number,
+    along: number,
+    da: number,
+    dl: number,
+  ): [Vec2, Vec2, Vec2] => {
+    const ba = across - da * headLength;
+    const bl = along - dl * headLength;
+    return [
+      at(across, along),
+      at(ba - dl * headHalf, bl + da * headHalf),
+      at(ba + dl * headHalf, bl - da * headHalf),
+    ];
+  };
+
+  const stub = (bearing: number): ArrowBranch => {
+    const da = Math.sin(bearing);
+    const dl = Math.cos(bearing);
+    const base = reach - headLength;
+    return {
+      stem: [at(0, fork), at(da * base, fork + dl * base)],
+      head: head(da * reach, fork + dl * reach, da, dl),
+    };
+  };
+
+  const hook = (): ArrowBranch => {
+    const r = (reach - headHalf) / 2;
+    const stem: Vec2[] = [];
+    // Centred a radius to the left of the fork, so the arc leaves it heading
+    // downstream and arrives at `-2r` heading back upstream.
+    for (let i = 0; i <= HOOK_STEPS; i++) {
+      const t = (Math.PI * i) / HOOK_STEPS;
+      stem.push(at(-r + r * Math.cos(t), fork + r * Math.sin(t)));
+    }
+    stem.push(at(-2 * r, fork - reach + headLength));
+    return { stem, head: head(-2 * r, fork - reach, 0, -1) };
+  };
+
+  const branches: ArrowBranch[] = [];
+  for (const d of directions) {
+    // A direction the model does not name reaches here only from a hand-edited
+    // document, and would put a `NaN` bearing into the markup — so it is skipped
+    // on the same terms `markingAnchor` skips an unknown link.
+    if (d === "u_turn") branches.push(hook());
+    else if (d in BRANCH_BEARING) branches.push(stub(BRANCH_BEARING[d]));
+  }
+  if (branches.length === 0) return undefined;
+
+  return {
+    shaft: [at(0, -TURN_ARROW_LENGTH / 2), at(0, fork)],
+    branches,
+    stroke: ARROW_STEM * width,
+  };
+}
+
+/**
  * Several closed polygons as one `d` — so a marking of many pieces is still one
  * element, and one class token, in the markup.
  */
 export function polygonsPath(polygons: Vec2[][]): string {
   return polygons.map((p) => `${polylinePath(p)} Z`).join(" ");
+}
+
+/**
+ * The same for *open* polylines — a shaft and its stems as one stroked path,
+ * where {@link polygonsPath} would close each one across its own chord and fill
+ * the half-disc inside the `u_turn`'s hook.
+ */
+export function polylinesPath(lines: Vec2[][]): string {
+  return lines.map((l) => polylinePath(l)).join(" ");
 }

@@ -15,6 +15,7 @@ import {
   LinkStyle,
   LinkView,
   NodeId,
+  TurnDirection,
   Vec2,
 } from "../model/types";
 import {
@@ -32,6 +33,8 @@ import {
   SCHEMATIC_MEDIAN,
   TAPER_LENGTH,
   TAPER_MAX_BEND,
+  TURN_ARROW_LENGTH,
+  TurnArrow,
   UNITS_PER_METRE,
   alignmentShift,
   carriageways,
@@ -41,12 +44,14 @@ import {
   gore,
   gorePair,
   laneBands,
+  markingArrow,
   markingTeeth,
   markingZebra,
   nearestOnPolyline,
   offsetPolyline,
   pointAlongPolyline,
   polygonsPath,
+  polylinesPath,
   rayCircleExit,
   rayIntersection,
   roadWidth,
@@ -1309,5 +1314,186 @@ describe("markingTeeth and markingZebra", () => {
         [{ x: 2, y: 2 }, { x: 3, y: 2 }, { x: 3, y: 3 }],
       ]),
     ).toBe("M 0 0 L 1 0 L 1 1 Z M 2 2 L 3 2 L 3 3 Z");
+  });
+
+  it("leaves open polylines open, so a hook is not filled across its chord", () => {
+    expect(
+      polylinesPath([
+        [{ x: 0, y: 0 }, { x: 1, y: 0 }],
+        [{ x: 2, y: 2 }, { x: 3, y: 2 }],
+      ]),
+    ).toBe("M 0 0 L 1 0 M 2 2 L 3 2");
+  });
+});
+
+/**
+ * Turn arrows (markings spec Phase 3). Same due-east frame as the tiled kinds
+ * above: `y` is the lateral offset across the road, positive to the **right** of
+ * travel, and `x` is the distance along it, positive downstream.
+ */
+describe("markingArrow", () => {
+  const ALL: TurnDirection[] = [
+    "through",
+    "left",
+    "right",
+    "slight_left",
+    "slight_right",
+    "u_turn",
+  ];
+
+  function anchor(offset: number, width: number): MarkingAnchor {
+    return { at: { x: 0, y: 0 }, dir: { x: 1, y: 0 }, span: { offset, width } };
+  }
+
+  /** Every point the arrow is drawn from. */
+  function points(a: TurnArrow): Vec2[] {
+    return [...a.shaft, ...a.branches.flatMap((b) => [...b.stem, ...b.head])];
+  }
+
+  /**
+   * How far a head points from `expected`, in degrees, the short way round — so
+   * the ±180° a `u_turn` lands on either side of does not read as a 360° miss.
+   */
+  function offBy(head: [Vec2, Vec2, Vec2], expected: number): number {
+    const [apex, b1, b2] = head;
+    const deg =
+      (Math.atan2(apex.y - (b1.y + b2.y) / 2, apex.x - (b1.x + b2.x) / 2) * 180) /
+      Math.PI;
+    return Math.abs((((deg - expected) % 360) + 540) % 360 - 180);
+  }
+
+  it("draws a lone through arrow symmetric about its lane's centre", () => {
+    const a = markingArrow(anchor(0, LANE_PX), ["through"])!;
+    const [branch] = a.branches;
+    const [apex, b1, b2] = branch.head;
+
+    expect(a.shaft.map((p) => p.y)).toEqual([0, 0]);
+    expect(branch.stem.map((p) => p.y)).toEqual([0, 0]);
+    expect(apex.y).toBeCloseTo(0);
+    expect(b1.y).toBeCloseTo(-b2.y);
+    // A head with width, not a point: the mirror above passes either way.
+    expect(Math.abs(b1.y)).toBeGreaterThan(1);
+
+    // The arrow's own footprint, tail to apex.
+    expect(a.shaft[0].x).toBeCloseTo(-TURN_ARROW_LENGTH / 2);
+    expect(apex.x).toBeCloseTo(TURN_ARROW_LENGTH / 2);
+  });
+
+  /**
+   * A shared through/right lane is **one arrow with two branches**, not two
+   * arrows — which is the whole of why a branch leaves the shaft's far end rather
+   * than carrying a shaft of its own.
+   */
+  it("gives a multi-direction arrow one shaft", () => {
+    const a = markingArrow(anchor(0, LANE_PX), ["through", "right"])!;
+
+    expect(a.branches).toHaveLength(2);
+    for (const b of a.branches) expect(b.stem[0]).toEqual(a.shaft[1]);
+  });
+
+  it("points each direction's head at its tabulated bearing", () => {
+    const bearings: [TurnDirection, number][] = [
+      ["through", 0],
+      ["slight_left", -30],
+      ["slight_right", 30],
+      ["left", -90],
+      ["right", 90],
+      ["u_turn", 180],
+    ];
+
+    for (const [direction, degrees] of bearings) {
+      const a = markingArrow(anchor(0, LANE_PX), [direction])!;
+      expect(offBy(a.branches[0].head, degrees)).toBeLessThan(1);
+    }
+  });
+
+  /**
+   * The failure this rules out is paint on the verge, and `ARROW_REACH` alone is
+   * what rules it out — which is why it has to hold for every direction at every
+   * lane count and class, `ramp` at 0.8 being the narrowest lane drawn.
+   *
+   * The stems are **stroked** and the heads **filled**, so paint reaches half a
+   * stroke past a stem point and exactly to a head point. Both are checked, since
+   * a single tolerance would let the tighter of the two slide.
+   */
+  it("keeps every branch inside the band, at every lane count and class", () => {
+    for (const style of ["motorway", "arterial", "local", "ramp"] as LinkStyle[]) {
+      for (let n = 1; n <= 8; n++) {
+        for (const band of laneBands(defaults(n), style)) {
+          const a = markingArrow(anchor(band.offset, band.width), ALL)!;
+          const lo = band.offset - band.width / 2;
+          const hi = band.offset + band.width / 2;
+
+          for (const p of [...a.shaft, ...a.branches.flatMap((b) => b.stem)]) {
+            expect(p.y - a.stroke / 2).toBeGreaterThan(lo);
+            expect(p.y + a.stroke / 2).toBeLessThan(hi);
+          }
+          for (const p of a.branches.flatMap((b) => b.head)) {
+            expect(p.y).toBeGreaterThan(lo);
+            expect(p.y).toBeLessThan(hi);
+          }
+        }
+      }
+    }
+  });
+
+  /**
+   * "Does not degenerate", made concrete. A U-turn is the one direction that
+   * cannot be a stub, and it hooks **left** — the U-turn side under the
+   * right-hand traffic `laneBands` already assumes.
+   */
+  it("hooks the u-turn back at the driver, on the left of the shaft", () => {
+    const a = markingArrow(anchor(0, LANE_PX), ["u_turn"])!;
+    const [hook] = a.branches;
+    const fork = a.shaft[1];
+
+    expect(offBy(hook.head, 180)).toBeLessThan(1);
+    // It leaves the shaft and turns away to the left, never to the right.
+    expect(hook.stem[0]).toEqual(fork);
+    expect(Math.min(...hook.stem.map((p) => p.y))).toBeLessThan(-1);
+    expect(Math.max(...hook.stem.map((p) => p.y))).toBeCloseTo(0);
+    // And it turns: downstream of the fork on the way round, upstream of it by
+    // the time the head lands.
+    expect(Math.max(...hook.stem.map((p) => p.x))).toBeGreaterThan(fork.x);
+    expect(hook.head[0].x).toBeLessThan(fork.x);
+  });
+
+  /**
+   * The shaft is the arrow's anchor: repainting the directions must not slide it
+   * along the road, and no branch may reach past the footprint the shaft sets.
+   */
+  it("holds the shaft still, and inside the footprint, whatever the directions", () => {
+    const through = markingArrow(anchor(0, LANE_PX), ["through"])!;
+
+    for (const directions of [["left"], ["u_turn"], ALL] as TurnDirection[][]) {
+      const a = markingArrow(anchor(0, LANE_PX), directions)!;
+
+      expect(a.shaft).toEqual(through.shaft);
+      for (const p of points(a)) {
+        expect(Math.abs(p.x)).toBeLessThanOrEqual(TURN_ARROW_LENGTH / 2 + 1e-9);
+      }
+    }
+  });
+
+  /**
+   * A bare shaft reads as a lane line, so an arrow with nothing to point at draws
+   * nothing and the caller falls back to the placeholder bar. Only a hand-edited
+   * document gets here: the Inspector will not unset the last direction.
+   */
+  it("draws no arrow for a marking with no direction it can paint", () => {
+    expect(markingArrow(anchor(0, LANE_PX), [])).toBeUndefined();
+    expect(
+      markingArrow(anchor(0, LANE_PX), ["sideways" as TurnDirection]),
+    ).toBeUndefined();
+
+    // A direction the model does not name is skipped, not drawn as `NaN`.
+    const mixed = markingArrow(anchor(0, LANE_PX), [
+      "sideways" as TurnDirection,
+      "left",
+    ])!;
+    expect(mixed.branches).toHaveLength(1);
+    for (const p of points(mixed)) {
+      expect(Number.isFinite(p.x) && Number.isFinite(p.y)).toBe(true);
+    }
   });
 });

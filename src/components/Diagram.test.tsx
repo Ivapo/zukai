@@ -1296,21 +1296,77 @@ describe("road markings", () => {
     });
 
     /**
+     * A turn arrow is **one shaft with a branch per direction**, so a shared
+     * through/right lane is one arrow rather than two. The bearings and the
+     * containment are pinned in `geometry.test.ts`, off a due-east frame instead
+     * of out of a `d` string; what matters here is that the arrow reaches the
+     * band it was placed in, as two elements — stroked stems, filled heads.
+     */
+    it("draws a turn arrow in the lane it was placed in", () => {
+      const svg = renderToStaticMarkup(
+        <Diagram doc={repainted({ type: "turn_arrow", directions: ["through", "right"] }, 2)} />,
+      );
+
+      expect(svg).toContain('<g class="marking marking-turn-arrow">');
+      expect(svg).toContain('class="marking-arrow-stem"');
+      expect(svg).toContain('class="marking-arrow-head"');
+      expect(svg).not.toMatch(/NaN|undefined/);
+      // Lane 2 is the offside lane: −13.5…−4.5, so an inverted normal draws this
+      // arrow in the kerb lane and a magnitude assertion would pass either way.
+      for (const cls of ["marking-arrow-stem", "marking-arrow-head"]) {
+        const ys = path(svg, cls).filter((_, i) => i % 2 === 1);
+        expect(Math.min(...ys)).toBeGreaterThan(-13.5);
+        expect(Math.max(...ys)).toBeLessThan(-4.5);
+      }
+      // One shaft plus one stem per branch, and one head each — never one whole
+      // arrow per direction.
+      const stems = svg.match(/class="marking-arrow-stem" d="([^"]*)"/)![1];
+      const heads = svg.match(/class="marking-arrow-head" d="([^"]*)"/)![1];
+      expect(stems.match(/M/g)).toHaveLength(3);
+      expect(heads.match(/Z/g)).toHaveLength(2);
+    });
+
+    /**
+     * **A `turn_arrow` has no carriageway-wide meaning**, so a lane-less one
+     * draws in the nearside lane (§2.7) — and the anchor is what resolves it, so
+     * the hit target and the halo move there with it rather than highlighting a
+     * strip the arrow is not painted on.
+     */
+    it("draws a lane-less turn arrow in the nearside lane, halo and all", () => {
+      const arrow = repainted({ type: "turn_arrow", directions: ["through"] }, "all");
+      const svg = renderToStaticMarkup(
+        <Diagram
+          doc={arrow}
+          interaction={{ ...interaction(), selection: { kind: "marking", id: "M1" } }}
+        />,
+      );
+
+      for (const cls of ["marking-arrow-stem", "marking-arrow-head"]) {
+        const ys = path(svg, cls).filter((_, i) => i % 2 === 1);
+        expect(Math.min(...ys)).toBeGreaterThan(4.5);
+        expect(Math.max(...ys)).toBeLessThan(13.5);
+      }
+      const bar = `d="M ${ALONG} 4.5 L ${ALONG} 13.5"`;
+      expect(svg).toContain(`class="marking-hit" ${bar}`);
+      expect(svg).toContain(`class="marking-halo" ${bar}`);
+    });
+
+    /**
      * **The placeholder, pinned so Phase 4 has to change it deliberately.**
-     * `turn_arrow` and `lane_line` are pickable in the Inspector before they have
-     * any geometry, and a marking that paints nothing is an object on the canvas
-     * that can only be found by accident. Its class token already says which kind
-     * it is.
+     * `lane_line` is pickable in the Inspector before it has any geometry, and a
+     * `turn_arrow` can be left with no direction to draw by a hand-edited file. A
+     * marking that paints nothing is an object on the canvas that can only be
+     * found by accident; its class token already says which kind it is.
      */
     it("falls back to the bar for a kind that has no geometry yet", () => {
       for (const kind of [
         { type: "lane_line", style: "solid" },
-        { type: "turn_arrow", directions: ["through"] },
+        { type: "turn_arrow", directions: [] },
       ] as Marking["kind"][]) {
         const svg = renderToStaticMarkup(<Diagram doc={repainted(kind)} />);
 
         expect(svg).toContain(`class="marking-bar" d="M ${ALONG} 4.5 L ${ALONG} 13.5"`);
-        expect(svg).not.toMatch(/marking-teeth|marking-zebra/);
+        expect(svg).not.toMatch(/marking-teeth|marking-zebra|marking-arrow/);
       }
     });
 

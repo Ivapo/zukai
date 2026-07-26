@@ -390,7 +390,7 @@ body {
   transition: background 0.12s, color 0.12s;
 }
 
-.seg:hover {
+.seg:hover:not(:disabled) {
   color: var(--chrome-text);
 }
 
@@ -399,7 +399,7 @@ body {
   color: #241f00;
 }
 
-/* The marking panel's two controls. Both come after `.seg` and out-specify it,
+/* The marking panel's three controls. All come after `.seg` and out-specify it,
    because `flex: 1` is shorthand for `flex: 1 1 0%` and would otherwise win the
    basis back. */
 
@@ -411,10 +411,21 @@ body {
   text-transform: none;
 }
 
-/* Two kinds to a row. Five across a 240px panel leaves 40px a button, which
-   wraps "Give-way line" onto three lines and makes the picker a wall of text. */
-.segmented-kinds .seg {
+/* Two to a row, for the two controls whose labels are phrases. Five kinds across
+   a 240px panel leaves 40px a button, which wraps "Give-way line" onto three
+   lines and makes the picker a wall of text; the six turn directions are worse
+   still, with "Slight right" to fit. */
+.segmented-kinds .seg,
+.segmented-dirs .seg {
   flex-basis: calc(50% - 3px);
+}
+
+/* The last direction standing, which cannot be turned off: an arrow with no
+   branches is a bare line up the lane. It stays lit - it is still one of the ways
+   the arrow points - and only stops offering to be clicked, which is the
+   treatment the stepper's own bounds already get. */
+.seg:disabled {
+  cursor: default;
 }
 
 /* The span's whole-carriageway option takes its own row above the numbered

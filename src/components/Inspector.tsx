@@ -17,9 +17,11 @@ import {
   LinkId,
   LinkStyle,
   Marking,
+  MarkingId,
   MarkingKind,
   Node,
   NodeKind,
+  TurnDirection,
 } from "../model/types";
 import { Action, EditorState } from "../editor/state";
 
@@ -76,6 +78,22 @@ const MARKING_PICKER: MarkingKind[] = [
   { type: "crosswalk" },
   { type: "turn_arrow", directions: ["through"] },
   { type: "lane_line", style: "solid" },
+];
+/**
+ * A turn arrow's directions, **in road order left to right** rather than in the
+ * model's declaration order — the row then reads like the arrow it describes.
+ *
+ * It is also the canonical order the stored array is rebuilt in, so two documents
+ * that ended up with the same arrow hold the same list whatever order the user
+ * clicked it in.
+ */
+const TURN_DIRECTIONS: { value: TurnDirection; label: string }[] = [
+  { value: "u_turn", label: "U-turn" },
+  { value: "left", label: "Left" },
+  { value: "slight_left", label: "Slight left" },
+  { value: "through", label: "Through" },
+  { value: "slight_right", label: "Slight right" },
+  { value: "right", label: "Right" },
 ];
 const GLYPHS: { value: JunctionGlyph; label: string }[] = [
   { value: "generic", label: "Plain" },
@@ -161,6 +179,16 @@ export function Inspector({ state, dispatch }: InspectorProps) {
         <Field label="Paint">
           <MarkingKindPicker marking={marking} lanes={lanes} dispatch={dispatch} />
         </Field>
+
+        {marking.kind.type === "turn_arrow" && (
+          <Field label="Directions">
+            <MarkingDirections
+              id={marking.id}
+              directions={marking.kind.directions}
+              dispatch={dispatch}
+            />
+          </Field>
+        )}
 
         <Field label="Road">
           <div className="readout">{marking.link}</div>
@@ -310,6 +338,61 @@ function MarkingKindPicker({
           {MARKING_KINDS[k.type]}
         </button>
       ))}
+    </div>
+  );
+}
+
+/**
+ * Which ways a turn arrow points — the one control that is a **multi**-select,
+ * because an arrow is one shaft with a branch per direction rather than one arrow
+ * per direction: a shared through/right lane carries a single arrow (§2.7).
+ *
+ * It needs no action of its own. `setMarkingKind` carries the whole tagged
+ * `MarkingKind`, which is exactly what that decision bought — and it never names
+ * `lane`, so toggling a direction leaves the arrow where it is.
+ *
+ * **The last direction standing cannot be turned off**, the way the lane stepper
+ * refuses to go below one: an arrow with no branches is a bare line up the lane's
+ * centre, which reads as a lane line. The renderer falls back to the placeholder
+ * bar for one anyway, but only a hand-edited document should ever see it.
+ */
+function MarkingDirections({
+  id,
+  directions,
+  dispatch,
+}: {
+  id: MarkingId;
+  directions: TurnDirection[];
+  dispatch: (action: Action) => void;
+}) {
+  const set = (next: TurnDirection[]) =>
+    dispatch({ type: "setMarkingKind", id, kind: { type: "turn_arrow", directions: next } });
+
+  return (
+    <div className="segmented segmented-wrap segmented-labels segmented-dirs">
+      {TURN_DIRECTIONS.map((d) => {
+        const on = directions.includes(d.value);
+        return (
+          <button
+            key={d.value}
+            className={`seg${on ? " is-active" : ""}`}
+            disabled={on && directions.length === 1}
+            onClick={() =>
+              set(
+                on
+                  ? directions.filter((x) => x !== d.value)
+                  : // Rebuilt in the table's order, so the stored list does not
+                    // depend on the order the user clicked it in.
+                    TURN_DIRECTIONS.filter(
+                      (t) => t.value === d.value || directions.includes(t.value),
+                    ).map((t) => t.value),
+              )
+            }
+          >
+            {d.label}
+          </button>
+        );
+      })}
     </div>
   );
 }

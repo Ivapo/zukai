@@ -165,6 +165,29 @@
   fill: var(--paint-white);
 }
 
+/* A turn arrow, and the one kind that is two elements rather than one: stroked
+   stems and filled heads. Drawing it as a single filled outline would have to
+   close the u-turn's hook across its own chord and fill the half-disc inside it,
+   and a single stroked path would leave the heads hollow - which reads as an
+   outline drawing, the same reason the give-way teeth above are filled.
+
+   No `stroke-width` here. It is a fraction of the band the arrow is painted in,
+   so it arrives as an attribute from `editor/geometry.ts` the way a lane band's
+   own width does - one derivation, and it still travels inside an exported file.
+
+   Round joins and caps: the hook is a polyline approximation of a semicircle, and
+   a mitre would spike at every one of its twelve steps. */
+.marking-arrow-stem {
+  fill: none;
+  stroke: var(--paint-white);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.marking-arrow-head {
+  fill: var(--paint-white);
+}
+
 /* ----- road class ----- */
 
 /* Motorway and arterial take the base treatment above; the local pair is the

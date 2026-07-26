@@ -472,14 +472,19 @@ describe("road markings in an exported file", () => {
   });
 
   /**
-   * The tiled kinds travel on the same terms: their paint is a rule in
-   * `diagram.css` like every other, and their geometry is polygons, so nothing
-   * about them reaches outside the file.
+   * The other kinds travel on the same terms: their paint is a rule in
+   * `diagram.css` like every other, and their geometry is polygons and
+   * polylines, so nothing about them reaches outside the file.
+   *
+   * The arrow is the first marking to carry a `stroke-width` **attribute** rather
+   * than take one from the stylesheet — its stem is a fraction of the band, as a
+   * lane band's own width is — so this is also what confirms that width travels.
    */
-  it("carries a give-way line and a crossing too", () => {
+  it("carries a give-way line, a crossing and a turn arrow too", () => {
     for (const [kind, cls] of [
       [{ type: "give_way_line" }, "marking-teeth"],
       [{ type: "crosswalk" }, "marking-zebra"],
+      [{ type: "turn_arrow", directions: ["through", "right"] }, "marking-arrow-stem"],
     ] as [MarkingKind, string][]) {
       const doc = painted(kind);
       const svg = diagramSvg(doc, { x: 0, y: 0, width: 120, height: 40 });
@@ -492,6 +497,16 @@ describe("road markings in an exported file", () => {
       // And no widening: every marking is inside the road it is painted on.
       expect(strokeAllowance(doc)).toBe(strokeAllowance(road(3)));
     }
+
+    // The arrow's own stroke width, which no rule in the stylesheet carries.
+    expect(
+      diagramSvg(painted({ type: "turn_arrow", directions: ["through"] }), {
+        x: 0,
+        y: 0,
+        width: 120,
+        height: 40,
+      }),
+    ).toMatch(/class="marking-arrow-stem" d="[^"]+" stroke-width="[\d.]+"/);
   });
 });
 

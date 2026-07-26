@@ -2,8 +2,8 @@
 status: reviewed
 last_updated: 2026-07-25
 note: Render and place road-surface markings — stop and give-way lines, crossings, lane arrows, lane lines. Paint only; signs and any painted text wait on font embedding.
-implemented: ["Phase 1", "Phase 2"]
-not_implemented: ["Phase 3", "Phase 4"]
+implemented: ["Phase 1", "Phase 2", "Phase 3"]
+not_implemented: ["Phase 4"]
 related: [specs/road_rendering_spec.md, specs/ramps_and_tapers_spec.md, specs/diagram_export_spec.md]
 reference: "Road-atlas marking convention — a transverse bar where traffic stops, a triangle line where it gives way, a zebra where people cross, destination arrows in the lane they belong to, and a longitudinal line whose style says whether you may cross it. Not to-scale marking dimensions (that is Assimilator's business, and it has no markings anyway), and not signage, which is textual."
 ---
@@ -674,6 +674,38 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
   band — the concrete form of "does not degenerate". `Diagram.test.tsx`: an arrow
   in lane 2 of a 3-lane road sits at that band's offset, and one with no lane
   draws in lane 0. A `bun run dev` check on §1's approach.
+- **Shipped 2026-07-25.** Three decisions the phase settled, none of them pinned
+  by the scope above:
+  - **The hook's radius is derived, not §2.7's quarter of the band width.** A
+    quarter puts the return leg at `2R = width/2` — exactly the band edge, before
+    the head's half-width is even added — and §2.7's own last sentence makes
+    containment the thing that bounds the radius. So `2R + headHalf = reach`: a
+    U-turn's head reaches exactly as far sideways as a hard stub's apex, and **one
+    number, `ARROW_REACH`, bounds all six directions** at every lane count and
+    class. The same posture as Phase 2's `spanCells` — containment is a property
+    of the construction, not a clamp each direction has to remember.
+  - **The arrow is the one kind drawn as two elements**, stroked stems and filled
+    heads. A single *filled* path would close the hook across its own chord and
+    fill the half-disc inside it; a single *stroked* path would leave the heads
+    hollow, which reads as an outline drawing — §2.7's own reason for filling the
+    give-way teeth. Its `stroke-width` is an **attribute** rather than a rule in
+    `diagram.css`, because it is a fraction of the band, as `.lane-band`'s own
+    width already is.
+  - **§2.7's "it draws in the nearside lane" lives in `markingAnchor`** — its one
+    kind-aware line — rather than in the arrow builder, so a lane-less arrow's hit
+    target and halo move to lane 0 with the paint. A halo highlighting a strip the
+    arrow is not painted on misreports the span at the moment the user is looking
+    at it.
+
+  Two things worth carrying forward that the spec did not predict:
+  - **The proportions were decided in the app, exactly as `MARKING_PITCH` was.**
+    The first pass drew as a thin line with a tick on the end. What reads as an
+    arrow is a **short shaft and a chunky head**: `TURN_ARROW_LENGTH` 15 rather
+    than 18, and a head 0.30 of the band long by 0.34 wide on a 0.16 stem.
+  - **Three or more directions run their heads together in a narrow lane**, and
+    all six draw a starburst. That is inherent to one shaft with one branch per
+    direction rather than a bug — the paint still stays inside the band, and no
+    road carries six directions in a lane. Recorded rather than engineered around.
 
 ### Phase 4 — `lane_line`, and the two-way centreline  (depends on Phase 3)
 

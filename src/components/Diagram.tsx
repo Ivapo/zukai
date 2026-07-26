@@ -39,12 +39,14 @@ import {
   laneBands,
   lateralShift,
   markingAnchor,
+  markingArrow,
   markingBar,
   markingTeeth,
   markingZebra,
   offsetPolyline,
   polygonsPath,
   polylinePath,
+  polylinesPath,
   rayCircleExit,
   roadWidth,
   taperEdge,
@@ -497,13 +499,18 @@ function MarkingShape({
 /**
  * What one marking actually paints.
  *
- * The `default` arm is doing real work and is not a tidy-up: `turn_arrow` and
- * `lane_line` are pickable in the Inspector but have no geometry until Phases 3
- * and 4, and `hatching`/`text` are out of scope entirely (§2.8, §2.10). All of
- * them draw the transverse bar, which keeps a marking **visible and selectable**
- * while its own shape is still to come — painting nothing would leave an object
- * on the canvas that could only be found by accident. Its class token already
- * says which kind it is.
+ * **The bar is the fall-through, and that is doing real work rather than tidying
+ * up.** `lane_line` is pickable in the Inspector but has no geometry until Phase
+ * 4, `hatching`/`text` are out of scope entirely (§2.8, §2.10), and a
+ * `turn_arrow` can be left with no direction to draw by a hand-edited document.
+ * All of them draw the transverse bar, which keeps a marking **visible and
+ * selectable** while its own shape is still to come — painting nothing would
+ * leave an object on the canvas that could only be found by accident. Its class
+ * token already says which kind it is.
+ *
+ * A turn arrow is the one kind that takes **two** elements: its stems are stroked
+ * and its heads are filled, and a single filled path would have to close the
+ * `u_turn`'s hook across its own chord and fill the half-disc inside it.
  */
 function markingPaint(marking: Marking, anchor: MarkingAnchor, bar: string) {
   switch (marking.kind.type) {
@@ -515,10 +522,31 @@ function markingPaint(marking: Marking, anchor: MarkingAnchor, bar: string) {
       return (
         <path className="marking-zebra" d={polygonsPath(markingZebra(anchor))} />
       );
-    case "stop_line":
-    default:
-      return <path className="marking-bar" d={bar} />;
+    case "turn_arrow": {
+      const arrow = markingArrow(anchor, marking.kind.directions);
+      if (arrow)
+        return (
+          <>
+            {/* The stroke width is the arrow's own, not a rule in `diagram.css`:
+                it is derived from the band, exactly as a lane band's is. */}
+            <path
+              className="marking-arrow-stem"
+              d={polylinesPath([
+                arrow.shaft,
+                ...arrow.branches.map((b) => b.stem),
+              ])}
+              strokeWidth={arrow.stroke}
+            />
+            <path
+              className="marking-arrow-head"
+              d={polygonsPath(arrow.branches.map((b) => b.head))}
+            />
+          </>
+        );
+      break;
+    }
   }
+  return <path className="marking-bar" d={bar} />;
 }
 
 /**
