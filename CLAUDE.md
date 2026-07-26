@@ -79,7 +79,7 @@ phase from a spec still `status: draft`** — it must pass the review loop
 - `specs/road_markings_spec.md` — the paint on the road: stop and give-way lines,
   crossings, lane arrows, lane lines (implemented; 4 phases)
 - `specs/signs_and_text_spec.md` — letters in the drawing: the embedded font,
-  painted road text, and roadside signs (draft; 4 phases — **not reviewed**)
+  painted road text, and roadside signs (reviewed; 4 phases — not yet implemented)
 
 **`rules/` — current-state reference (the *what is*).** Terse, authoritative maps
 of subsystems, read on demand. Unlike specs, rules describe the code as it is now;

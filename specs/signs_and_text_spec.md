@@ -1,5 +1,5 @@
 ---
-status: draft
+status: reviewed
 last_updated: 2026-07-26
 note: Put text and roadside signs in the drawing — the font that must travel inside an exported file, painted road text, and the sign vocabulary. Closes export spec OQ-4.
 implemented: []
@@ -38,9 +38,10 @@ File ▸ a motorway offramp with a signed destination and a limit
 
   Marking tool, click lane 0 on L2         → M1 stop_line, lane 0
     Inspector ▸ Kind ▸ Text ▸ "BUS"        → M1 text{BUS}, lane 0         [P1]
-  Sign tool, click beside the ramp         → S1 custom{"…"}, at (x, y)    [P2]
+  Sign tool, click beside the ramp         → S1 custom{""}, at (x, y)     [P2]
+    Inspector ▸ Link ▸ L2                  → S1 associated_link = L2      [P2]
     Inspector ▸ Kind ▸ Speed limit ▸ 50    → S1 speed_limit{50}           [P3]
-  Sign tool, click above the gore          → S2
+  Sign tool, click above the gore          → S2 custom{""}
     Inspector ▸ Kind ▸ Direction ▸ "M4 W"  → S2 direction{"M4 W"}         [P4]
 
   → BUS painted flat along the ramp's kerb lane, a 50 roundel beside it, and a
@@ -49,10 +50,11 @@ File ▸ a motorway offramp with a signed destination and a limit
 ```
 
 Two things this spec is **not** allowed to break, both already asserted:
-`export.test.ts` pins that the drawing emits no `<text>` (added by markings Phase
-1, `export.test.ts:465`) — that assertion inverts here rather than surviving —
-and that the embedded stylesheet stays XML-safe and reference-free, which §2.3
-narrows rather than deletes.
+`export.test.ts` pins that the drawing emits no `<text>` and names no
+`font-family` (added by markings Phase 1, `export.test.ts:465`, and repeated at
+`:494` and `:539`) — which §2.3 keeps holding for every text-free document rather
+than deleting — and that the embedded stylesheet stays XML-safe and
+reference-free, which §2.3 narrows rather than deletes.
 
 ## 2. Design
 
@@ -93,9 +95,10 @@ shrink it to a mechanism:
 - **It is already a dependency.** `@fontsource/overpass` and
   `@fontsource/overpass-mono` (`package.json:14-15`), imported by `main.tsx:7-12`
   and used by the chrome (`styles.css:25`, `:76`). Nothing new is vendored.
-- **It is OFL-1.1** (`node_modules/@fontsource/overpass/LICENSE`), which permits
-  embedding — including in a document — provided the notice travels with it
-  (§2.3's last paragraph, OQ-5).
+- **It is OFL-1.1** (`node_modules/@fontsource/overpass-mono/LICENSE` — the mono
+  package, since the mono face is the one embedded), which permits embedding —
+  including in a document — provided the notice travels with it (§2.3's last
+  paragraph, OQ-5).
 - **Overpass is derived from Highway Gothic**, the FHWA signage face. For a
   schematic road diagram that is the correct typeface on its merits, not merely
   the convenient one.
@@ -112,6 +115,30 @@ yields a `data:` URL at build time, so no 18 kB blob enters the repo and no
 generation script has to be kept in step with the dependency. The same transform
 runs under vitest, so the export tests see the real thing.
 
+**That import is JavaScript, so the `@font-face` is built in TypeScript — there
+is no `fonts.css`.** A `.css` file cannot carry the import, and the repo's only
+CSS-embedding route is `?raw` (`export.tsx:26`), which does **no** URL rewriting:
+a `url(…)` written literally in a stylesheet would travel into the exported file
+as an unresolved external reference — precisely the invariant §2.3 exists to
+protect. So the face lives in a new `src/editor/fonts.ts`:
+
+- `FONT_FAMILY = "Overpass Mono"` — the family name, verified against
+  `node_modules/@fontsource/overpass-mono/metadata.json` (`"family": "Overpass
+  Mono"`) and against what the app already loads (`main.tsx:11`). **One
+  constant, two consumers** — the `@font-face` below and the markup attribute of
+  §2.3 — so the file and the canvas cannot name different faces.
+- `fontFaceCss()` — a template literal returning
+  `@font-face{font-family:"Overpass Mono";font-style:normal;font-weight:400;src:url(${fontUrl}) format("woff2")}`.
+
+This is not a hole in `rules/diagram-export.md`'s one-definition-site rule: that
+rule governs **paint**, which must match between canvas and file, and the
+`@font-face` is not paint — it is where the bytes come from, and the canvas gets
+its bytes from `@fontsource` (`main.tsx:11`) instead. What must not drift is the
+*family name*, and that is the single constant above.
+
+`tsc` is satisfied without a new declaration: `vite/client.d.ts:253` declares
+`*?inline`, and `src/vite-env.d.ts:1` references it.
+
 ### 2.3 The font breaks a standing invariant, and the invariant is what gives (decision, recorded)
 
 `diagramSvg` embeds `diagram.css` verbatim inside the file's `<style>`
@@ -121,33 +148,93 @@ survives untouched; the first does not.
 - **XML-safety survives.** No `<` or `&` anywhere, comments included, because the
   text is embedded raw inside an XML document (`export.test.ts:207`). Base64's
   alphabet is `A–Z a–z 0–9 + / =` — it cannot contain either.
-- **"No `url(`" has to narrow, and it is asserted in eight places**
-  (`export.test.ts:140`, `:156`, `:181`, `:342`, `:391`, `:446`, `:495`, `:538`).
-  A data-URI `@font-face` needs `url(data:font/woff2;base64,…)`, so the literal
-  assertion cannot stand.
+- **"No `url(`" is asserted in eight places** (`export.test.ts:140`, `:156`,
+  `:181`, `:342`, `:391`, `:446`, `:495`, `:538`) **and would survive by
+  accident, which is the reason to change it.** All eight are scoped to
+  `embeddedCss()`, which reads only the *first* `<style>` — so the second block's
+  `url(data:font/woff2;base64,…)` never reaches them and every one keeps passing
+  untouched. That is a gap, not a pass: the constraint people believe is asserted
+  ("this file references nothing outside itself") would silently stop covering
+  the one new thing that could violate it.
 
 **The rule's *intent* is what matters, and it is documented at both of its
 sites**: "carries its own styling, with **no external reference**"
 (`export.test.ts:132`) and "a `url()` that resolved **anywhere else** would taint
 the canvas the PNG path draws into" (`:192`). A `data:` URI resolves nowhere
-else — it is the file. So the assertion becomes: **every `url(` in an exported
-file is either `url(#…)` (the in-document hatch fragment) or `url(data:…)`**,
-written once as a helper the eight sites share, so the constraint gets *stronger*
-and more legible rather than being deleted.
+else — it is the file. So the assertion becomes: **every `url(` in the whole
+exported file — not merely the first stylesheet — is either `url(#…)` (the
+in-document hatch fragment) or `url(data:…)`**, written once as a helper the
+eight sites share. Widening the *subject* from `embeddedCss()` to the file is
+what makes this stronger rather than weaker: it is the only version of the rule
+that can actually fail on an embedded font.
 
 **The font travels only when a glyph does.** `needsHatch` (`Diagram.tsx:199`)
 already establishes the posture: emit the expensive thing only when the document
-references it. A `needsText(doc)` predicate — any `text` marking, any sign — gates
-a separate `src/styles/fonts.css` (its own file, injected by `diagramSvg`, *not*
-`@import`ed into `diagram.css`, which would fail the no-`@import` assertion at
-`export.test.ts:139`). Consequences worth stating: a document with no text
-exports **byte-identically to today**, `diagram.css` stays about paint, and the
-app keeps loading its font through `@fontsource` rather than a second copy.
+references it. A `needsText(doc)` predicate gates `fontFaceCss()`, which
+`diagramSvg` injects as a **second `<style>`, emitted after** the `diagram.css`
+one — never `@import`ed into it, which would fail the no-`@import` assertion at
+`export.test.ts:139`. **The order is load-bearing, not cosmetic:**
+`embeddedCss()` (`export.test.ts:48`) slices from the *first* `<style>` to the
+*first* `</style>`, so a font block emitted first would silently redirect every
+existing assertion about `.road-casing`, `--asphalt` and XML-safety onto the
+wrong stylesheet. `needsText` is exported from `Diagram.tsx` (unlike
+module-private `needsHatch`) because its consumer is `export.tsx`.
+
+**What `needsText` counts, exactly** — it must agree with what the tree actually
+emits, or the file carries 18 kB for no glyph (or, worse, a glyph with no face):
+
+- **Phase 1:** any `text` marking whose `content` is **non-empty**. Empty
+  `content` emits **no `<text>`** — but not nothing: it takes `markingPaint`'s
+  transverse-bar fall-through, exactly as an empty `turn_arrow` does today, so
+  the picker's fresh `{ type: "text", content: "" }` is a marking you can see,
+  select and type into rather than an invisible object findable only by accident.
+  (That fall-through's doc-comment currently names `hatching` **and** `text` as
+  out of scope; it loses `text` here and keeps `hatching`.) So the rule is:
+  `<text>` iff non-empty, and `needsText` counts the same condition — one
+  predicate, no way for the font and the glyph to disagree.
+- **Phase 2 onward:** `|| doc.signs.length > 0`. Deliberately *not* refined to
+  "signs whose kind draws a glyph" — a give-way triangle and a priority diamond
+  carry no letters, but teaching the export path the kind vocabulary to save
+  18 kB on a rare sign-without-text document is a table that can fall out of step
+  with what Phase 3 draws. One conservative predicate, recorded here so a later
+  pass doesn't read it as an oversight.
+
+**Where `font-family` is declared is the trap, and it is not `diagram.css`.**
+Four existing assertions forbid the *substring* `font-family` in files exported
+from documents that carry no text — `export.test.ts:468` and `:471` (the whole
+file, and the stylesheet), and `:494` and `:539` on the give-way/crossing/arrow
+and double-centreline documents. A rule in `diagram.css` fails all four, because
+that stylesheet is embedded verbatim in **every** export; putting it only in the
+gated font block would leave the *canvas* drawing painted text in the inherited
+proportional `"Overpass"` while the file drew Overpass Mono — the exact
+canvas/file drift `rules/diagram-export.md`'s two-importer rule exists to
+prevent, and it would make OQ-2's mis-measurement certain rather than possible.
+
+So **`font-family` and `font-size` travel as presentation attributes on the
+`<text>` element**, from `FONT_FAMILY` and `TEXT_SIZE`. That is not a new
+mechanism: the turn arrow already carries its `stroke-width` as an attribute
+rather than a rule, for the same reason — it is derived from a build constant
+rather than chosen as paint (`Diagram.tsx:580`, pinned at `export.test.ts:509`).
+`diagram.css` gains only `.marking-text { fill: … }`, which is paint.
+
+Three consequences worth stating. A document with no text exports **the same
+markup and the same font posture as today** — no `<text>`, no `@font-face`, no
+`font-family` — so the four assertions above hold **unchanged**, and the test at
+`:465` is *reframed* (its name and doc-comment now say "no text unless the
+document asks for it") rather than inverted, since `painted()` carries no text
+and its body still passes verbatim. Not *byte*-identical, and the difference is
+worth being exact about: `diagram.css` gains one `.marking-text { fill: … }`
+rule, which every export carries the way it already carries `.marking-zebra` for
+a document with no crossing. `diagram.css` stays about paint; and the app keeps
+loading its font through `@fontsource` rather than a second copy.
 
 **The OFL notice travels with it.** OFL-1.1 requires the copyright and licence
 notice to accompany the font, embedded or not. When (and only when) the face is
-embedded, `diagramSvg` emits an XML comment carrying it — cheap, correct, and it
-lives outside `<style>`, where a `<` is legal.
+embedded, `diagramSvg` emits an XML comment carrying the attribution
+`metadata.json` states — `Copyright 2021 The Overpass Project Authors
+(https://github.com/RedHatOfficial/Overpass)`, SIL OFL 1.1 — cheap, correct, and
+it lives outside `<style>`, where a `<` is legal. (It contains no `--`, which is
+the one sequence an XML comment may not carry.)
 
 ### 2.4 Drawn text is monospace, which is what makes a plate's width pure (decision, recorded)
 
@@ -156,8 +243,10 @@ width until something lays it out. Three ways to get one:
 
 - **Measure it in the DOM.** Correct, and it makes the exporter impure:
   `measureDiagram` is deliberately "the only DOM-touching function in this
-  module" (`export.tsx:93`), and vitest here runs with **no DOM at all** (no
-  `environment` in `vite.config.ts`), so nothing about plate sizing would be
+  module" (`export.tsx:93`), and vitest here runs with **no DOM at all** —
+  `vitest.config.ts` is standalone from `vite.config.ts` and sets
+  `environment: "node"` explicitly (with `css: true`, which is what lets the
+  export tests read a real stylesheet) — so nothing about plate sizing would be
   testable.
 - **Ship a proportional metrics table**, generated from the woff2. Exact and
   pure, but it is a build artefact that can fall out of step with the font, for a
@@ -170,6 +259,15 @@ Gothic lineage as the proportional face, so it does not read as a foreign hand,
 and it is the smaller file besides (§2.2). `ADVANCE` is the face's advance ratio,
 established once in the app the way `MARKING_PITCH` and the arrow's proportions
 were, and pinned in `geometry.test.ts` thereafter.
+
+**Pinned as a literal, not as its own formula.** Asserting `textWidth(s) === s.length
+× ADVANCE × TEXT_SIZE` restates the implementation and would pass for any wrong
+`ADVANCE`; the load-bearing question is whether the number *is* Overpass Mono's
+advance ratio. So it is **measured once** — `ctx.measureText("MMMM").width / 4 /
+fontSize` in the app with the face loaded, during Phase 1's `bun run dev` pass —
+recorded in the constant's doc-comment with that provenance, and pinned as a bare
+number in `geometry.test.ts`, the way `MARKING_PITCH` and `CROSSWALK_DEPTH` are.
+A face swap then fails a test instead of silently resizing every plate.
 
 The cost, stated rather than discovered: a long destination sets a wider plate
 than proportional type would, and real signage is not monospaced. Revisit only if
@@ -194,6 +292,18 @@ context" (`decoration.rs:98`), not an anchor. So:
   field, not delete the sign** — a sign is free-standing by design, and one that
   vanished because an unrelated road was deleted would be the surprising
   behaviour. (Markings' cascade lesson, applied in the other direction.)
+  **Both arms of `deleteSelection`, not just the link one:** the node arm
+  (`state.ts:825`) drops every incident link, so it can strand exactly the same
+  reference — which is why the markings cascade handles both
+  (`state.ts:790-792`, "Both the link arm and the node arm drop them"). The node
+  arm already builds the `dropped` set the clear needs.
+
+`associated_link` is also **written** in Phase 2, by a `setSignLink` action
+behind a link picker in the Inspector. Without one the field would be permanently
+empty from the UI — a readout of something nothing can set, and a clear-on-delete
+reachable only from a hand-edited file. The picker is a `<select>` over
+`doc.links` plus a "None" option; the sign renders identically either way, since
+§2.5's whole point is that the field anchors nothing.
 
 ### 2.6 The fourth `Selection` arm — and this time the compiler helps
 
@@ -213,8 +323,12 @@ Exactly what is and is not caught, because the difference is the whole point:
 | `Inspector` (`Inspector.tsx:129`) | **silent** — an `if` chain whose tail is the link panel |
 
 So the two that used to drop a selection across undo and dirty the document while
-deleting nothing are now mechanical, and the two remaining silent ones are named
-here and tested in Phase 2's gate.
+deleting nothing are now mechanical. The two still-silent ones are named here and
+covered unevenly, which Phase 2's gate says out loud rather than glossing:
+`isSelected` gets a markup assertion (a selected sign carries its halo), while the
+`Inspector` — which has **no test file anywhere in the repo** — is checked in the
+`bun run dev` pass. Both are in Phase 2's scope either way; only the regression
+net differs.
 
 ### 2.7 What each kind paints, and what carries the meaning
 
@@ -225,10 +339,12 @@ turn arrow does.
 
 **Shape carries the meaning, colour confirms it.** An octagon reads as "stop" in
 grey; a red disc without the white bar is not a no-entry. That ordering is what
-lets Phase 3 be pure geometry plus five palette entries — and `diagram.css`'s
-variable block gains its first **sign** colours (`--sign-red`, and the existing
-`--paint-white`/`--paint-yellow` reused), commented as such so nothing later
-mistakes them for road paint.
+lets Phase 3 be pure geometry plus **one** new palette entry: `diagram.css`'s
+variable block gains its first **sign** colour, `--sign-red`, commented as such
+so nothing later mistakes it for road paint. The rest of a sign is drawn from
+what the palette already carries — `--paint-white` (`diagram.css:30`) for a
+plate, `--paint-yellow` (`:31`) for the priority diamond, `--ink` (`:38`) for
+text on a light plate.
 
 Three constraints a plausible implementation gets wrong:
 
@@ -250,13 +366,14 @@ Three constraints a plausible implementation gets wrong:
 | Piece | Where | Pure? |
 |---|---|---|
 | `ADVANCE`, `TEXT_SIZE`, `SIGN_SIZE`, `textWidth`, `markingText`, `signPlate` | `src/editor/geometry.ts` | ✅ vitest |
-| `needsText`, `SignShape`, the sign layer, the `text` arm of `markingPaint` | `src/components/Diagram.tsx` | ✅ via `renderToStaticMarkup` |
+| `needsText` (**exported** — its consumer is `export.tsx`), `SignShape`, the sign layer, the `text` arm of `markingPaint` | `src/components/Diagram.tsx` | ✅ via `renderToStaticMarkup` |
 | `Interaction.onSignPointerDown` | `src/components/Diagram.tsx` | — |
-| The `@font-face`, and the `?inline` import that builds it | `src/styles/fonts.css` + `src/editor/export.tsx` | ✅ `export.test.ts` |
-| Sign paint | `src/styles/diagram.css` | — reaches exports free |
-| `addSign`/`moveSign`/`setSignKind`, the `Selection` arm, the `associated_link` clear | `src/editor/state.ts` | ✅ `state.test.ts` |
+| `FONT_FAMILY`, `fontFaceCss()`, and the `?inline` import that builds it | `src/editor/fonts.ts` | ✅ `export.test.ts` |
+| The gated second `<style>` and the OFL comment | `src/editor/export.tsx` | ✅ `export.test.ts` |
+| Sign paint, `.marking-text` fill — **but not `font-family`/`font-size`**, which are attributes (§2.3) | `src/styles/diagram.css` | — reaches exports free |
+| `addSign`/`moveSign`/`setSignKind`/`setSignLink`, the `Selection` arm, the `associated_link` clear in **both** delete arms | `src/editor/state.ts` | ✅ `state.test.ts` |
 | The sign tool, its `TOOL_KEYS` entry `s` | `src/components/Canvas.tsx`, `Toolbar.tsx`, `App.tsx` | — |
-| The sign Inspector branch, the marking text field | `src/components/Inspector.tsx` | — |
+| The sign Inspector branch and its link picker, the marking text field, `MARKING_PICKER`'s `text` entry | `src/components/Inspector.tsx` | — |
 
 `strokeAllowance` (`export.tsx:69`) is expected to need **no** change — a sign is
 fill and thin strokes, and `measureDiagram`'s `getBBox` measures the text box
@@ -296,7 +413,12 @@ would frame the drawing to the wrong size. See OQ-2.
   and Phase 1's gate is exactly this experiment.** Fallback if it fails: convert
   text to path outlines at export time — which costs a font-parsing dependency
   *and* breaks `rules/diagram-export.md`'s one-tree rule unless the canvas draws
-  outlines too. (needs-experiment; the one genuine risk in this spec.)
+  outlines too. **That fallback is deliberately not designed here, and "stop"
+  means escalate, not improvise:** if the experiment fails, Phase 1 lands its
+  geometry and its SVG path, the PNG claim is struck from §1, and the spec comes
+  **back to review** with outlines as a new phase — Phases 2–4 are not blocked by
+  it (a sign draws in SVG either way), but §1's "survives a rasterized PNG" is.
+  (needs-experiment; the one genuine risk in this spec.)
 - **OQ-2** — **Does `measureDiagram` have to wait for the font?** `getBBox` on a
   `<text>` measures whatever face is currently resolved, so a measurement taken
   before `document.fonts.ready` frames the export to a fallback-font box — a
@@ -310,10 +432,14 @@ would frame the drawing to the wrong size. See OQ-2.
   latin range and zero drift from the canvas. A digits-and-caps subset would be
   ~2 kB but is a second artefact. (design-call; proposed: no subset until a file
   size complains.)
-- **OQ-5** — **Where exactly does the OFL notice go?** An XML comment in the
-  exported SVG is proposed (§2.3). A PNG has nowhere to carry one at all, which
-  may be fine — the licence governs the font software, and a raster contains no
-  font. (needs-input; does not block Phase 1's mechanism, only its wording.)
+- **OQ-5 RESOLVED** — **Where exactly does the OFL notice go?** An XML comment
+  in the exported SVG, emitted by `diagramSvg` only when the face is embedded,
+  carrying the attribution
+  `node_modules/@fontsource/overpass-mono/metadata.json` states verbatim:
+  `Copyright 2021 The Overpass Project Authors
+  (https://github.com/RedHatOfficial/Overpass)`, SIL OFL 1.1. A PNG carries
+  nothing, and that is correct rather than a gap — the licence governs the font
+  *software*, and a raster contains no font. Landed in §2.3.
 - **OQ-6** — **What does a `warning` sign look like with no symbol?** An empty
   triangle is honest but says only "warning". The alternatives are drawing the
   symbol string as text inside it (ugly, and it defeats the shape-carries-meaning
@@ -335,32 +461,54 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
 - **Scope:** the smallest change that puts a letter on screen *and in a raster* —
   and it needs no new selection, tool, or lifecycle, because painted text is a
   `Marking` and the whole pipeline for one already exists.
-  - *Font:* `src/styles/fonts.css` built from a `?inline` woff2 import (§2.2);
-    `needsText(doc)` and the conditional injection in `diagramSvg`; the OFL
-    notice; narrowing the eight `url(` assertions to the shared helper of §2.3.
+  - *Font:* `src/editor/fonts.ts` — `FONT_FAMILY` and `fontFaceCss()` from a
+    `?inline` woff2 import (§2.2); `needsText(doc)` (exported) and the
+    conditional **second** `<style>`, emitted **after** `diagram.css`'s, in
+    `diagramSvg`; the OFL comment; narrowing the eight `url(` assertions to the
+    shared helper of §2.3.
   - *Geometry:* `TEXT_SIZE`, `ADVANCE`, `textWidth(s)`, and `markingText(anchor,
     content)` in `geometry.ts` — the rotated, lane-centred baseline.
   - *Drawing:* the `text` arm of `markingPaint` (`Diagram.tsx:557`), which today
-    falls through to the placeholder bar; `.marking-text` in `diagram.css`.
-  - *Inspector:* a text field in the marking panel, dispatching `setMarkingKind`
-    with `{ type: "text", content }` — the **fourth** dispatcher of that action
-    and still no new one, which is what markings Phase 2's "carry the whole
-    tagged `MarkingKind`" bought.
+    falls through to the placeholder bar — emitting one `<text>` with
+    `font-family`/`font-size` **attributes** (§2.3), and the bar for empty
+    content, which is the `turn_arrow` case's existing shape (`noFallthroughCasesInSwitch`
+    means the arm `break`s to the bar rather than falling through implicitly);
+    `.marking-text` (fill only) in `diagram.css`. Selection is unaffected either
+    way — `.marking-hit`/`.marking-halo` are drawn by `MarkingShape`
+    (`Diagram.tsx:499-508`), outside `markingPaint`.
+  - *Inspector:* `MARKING_PICKER` (`Inspector.tsx:76`) gains
+    `{ type: "text", content: "" }` — it deliberately omits `text` today — plus a
+    text field in the marking panel dispatching `setMarkingKind` with
+    `{ type: "text", content }`: the **fourth** dispatcher of that action and
+    still no new one, which is what markings Phase 2's "carry the whole tagged
+    `MarkingKind`" bought.
 - **Exit gate:** `bun run build` + `bun run test` green.
-  - `geometry.test.ts`: `textWidth` is exactly `chars × ADVANCE × TEXT_SIZE`;
+  - `geometry.test.ts`: `ADVANCE` equals its **measured literal** (§2.4) — the
+    assertion that can fail — and `textWidth` is `chars × ADVANCE × TEXT_SIZE`;
     `markingText` centres on the lane band and runs along the road, pinned on a
     due-east and a due-north road so the rotation is not a magnitude test.
   - `export.test.ts`: a document with no text embeds **no** `@font-face` and its
-    markup is unchanged; a document with text embeds exactly one, the stylesheet
-    stays XML-safe, and every `url(` in the file is `url(#…)` or `url(data:…)`.
-    The `emits no text at all` assertion (`:465`) inverts to *no text unless the
-    document asks for it*.
+    markup is unchanged; a document with text embeds exactly one, both
+    stylesheets stay XML-safe, and every `url(` in the file is `url(#…)` or
+    `url(data:…)`. The four `font-family` assertions on text-free documents
+    (`:468`, `:471`, `:494`, `:539`) must still pass **unmodified** — that is the
+    check that `font-family` stayed out of `diagram.css` (§2.3). `embeddedCss()`
+    still returns the `diagram.css` block, which pins the injection order; a text
+    document's font block is read separately. The test at `:465` is **reframed,
+    not inverted** — its body is unchanged (`painted()` carries no text); its
+    name and doc-comment change from "the constraint the whole spec is cut
+    around" to *no text unless the document asks for it*, and the comment's claim
+    that `Sign` is out of scope until a font is embedded is now the thing that
+    just happened.
+  - A text marking with `content: ""` emits no `<text>` and no `@font-face` —
+    and still draws its bar, so it stays visible and selectable (§2.3).
   - **The load-bearing one, and it is not a unit test: export a PNG from the app
     and confirm the glyphs are Overpass Mono, not a system fallback** (OQ-1).
-    Compare against the SVG opened in a browser. If it substitutes, stop and take
-    OQ-1's fallback rather than proceeding to Phase 2.
+    Compare against the SVG opened in a browser. If it substitutes, **stop and
+    escalate** on OQ-1's terms — land the SVG path, strike §1's PNG claim, and
+    return the spec to review — rather than improvising the outline fallback.
   - A `bun run dev` pass: paint `BUS` in a lane, check it rides the road on a
-    bent link, and settle `ADVANCE`/`TEXT_SIZE` in the app.
+    bent link, and **measure** `ADVANCE` (§2.4) and settle `TEXT_SIZE` in the app.
 - **Docs touched:** `rules/road-markings.md` (a seventh kind, and the `default`
   arm loses `text`); `rules/diagram-export.md` — the "no external reference" rule
   and the standing no-font constraint both change here; export spec **OQ-4
@@ -372,21 +520,32 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
   vocabulary), so Phases 3–4 are only geometry — the shape markings Phase 1 took.
   - *State:* `Tool` gains `"sign"`; `Selection` gains its fourth arm and the four
     sites of §2.6 (two of them compile errors); `addSign` (minting via
-    `nextId(…, "S")`, writing `layout.signs`), `moveSign` (added to history's
-    coalescing list), `setSignKind`, the `deleteSelection` arm, and the
-    `associated_link` **clear** on link deletion (§2.5).
-  - *Canvas/Diagram:* a sign tool and `TOOL_KEYS` entry `s`;
-    `Interaction.onSignPointerDown`; `SignShape` and the sign layer **above the
-    nodes** (§2.7), with hit target and halo gated on `interaction`.
-  - *Inspector:* a sign branch — kind readout, the label field, `associated_link`,
-    Delete.
+    `nextId(…, "S")`, seeding `custom { label: "" }`, writing both `doc.signs`
+    and `layout.signs`), `moveSign` (added to `coalesceKeyFor`, `state.ts:217`,
+    which today names only `moveNode`), `setSignKind`, `setSignLink`, the
+    `deleteSelection` arm, and the `associated_link` **clear** in **both** the
+    link and node arms (§2.5).
+  - *Canvas/Diagram:* a sign tool and `TOOL_KEYS` entry `s` (free today,
+    `App.tsx:22-26`); `Interaction.onSignPointerDown`; `SignShape` and the sign
+    layer **above the nodes** (§2.7), with hit target and halo gated on
+    `interaction`; `needsText` extended to `doc.signs.length > 0` (§2.3).
+  - *Inspector:* a sign branch — kind readout, the label field, the
+    `associated_link` picker, Delete.
 - **Exit gate:** `bun run build` + `bun run test` green. `state.test.ts`: placing
   and dragging a sign are undoable, a drag coalesces to one snapshot, deleting a
-  selected sign removes exactly it, deleting an *associated link* clears the field
-  and **keeps the sign**, and a sign selection survives undo/redo. `Diagram.test.tsx`:
-  a sign draws at its layout position, above the junction glyphs; a sign with no
-  layout entry emits nothing (the hand-edited case); an empty document is still
-  `<g class="diagram"></g>`. A `bun run dev` pass: place, drag, select, delete.
+  selected sign removes exactly it, and a sign selection survives undo/redo
+  (`selectionValid`'s new arm) — plus the cascade in **both** directions:
+  deleting an *associated link* clears the field and **keeps the sign**, and so
+  does deleting a *node the associated link is incident to* (§2.5). `Diagram.test.tsx`:
+  a sign draws at its layout position, above the junction glyphs; a **selected**
+  sign carries `is-selected`/its halo, which is the regression net for the
+  hand-widened `isSelected` (`Diagram.tsx:444`, one of §2.6's two silent sites);
+  a sign with no layout entry emits nothing (the hand-edited case); an empty
+  document is still `<g class="diagram"></g>`. The Inspector — §2.6's *other*
+  silent site — has no test file anywhere in the repo, so it is checked in the
+  `bun run dev` pass rather than claimed as automated: place, drag, select,
+  delete, and confirm the panel shows the sign branch and not the blank `<aside>`
+  fall-through.
 - **Docs touched:** a new `rules/signs.md` or a section in `rules/road-markings.md`
   — decide in the plan, on the same "who chose it" line markings Phase 1 used;
   `rules/history.md` for `moveSign`'s coalescing.
@@ -401,8 +560,9 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
   octagon has eight equal sides and the give-way triangle points **down** while
   the warning triangle points up — a shape test, since a magnitude one passes
   under a flip. `Diagram.test.tsx`: each kind emits its own class token and its
-  own element count; the roundel carries its number as the drawing's second
-  `<text>`. `export.test.ts`: every kind travels, colours and all, with the
+  own element count; the roundel carries its number as a `<text>` (the drawing's
+  *second* only in a document that also carries painted text — assert the
+  roundel's own element, not an index into the file). `export.test.ts`: every kind travels, colours and all, with the
   stylesheet rules still XML-safe and reference-free. A `bun run dev` pass on §1's
   50 roundel.
 
@@ -421,3 +581,92 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
 - **Docs touched:** `rules/signs.md`; `rules/diagram-export.md` if OQ-2 changed
   `measureDiagram`'s signature; the project-memory roadmap; mark this spec
   `implemented`.
+
+## 5. Review log
+
+**Round 1 — 2026-07-26 — `NOT READY` → fixed.** Clean-room reviewer with repo
+access; every `file:line` in §§1–2.8 verified against the source, and the `?inline`
+transform confirmed to survive vitest.
+
+*Two blocking findings, both accepted:*
+
+1. **Where `font-family` is declared was never stated, and all three candidate
+   homes broke something the spec asserted.** `diagram.css` fails four existing
+   `font-family` assertions on text-free documents (`export.test.ts:468`, `:471`,
+   `:494`, `:539` — the spec had named only `:465`) and falsifies its own
+   "byte-identical" claim; the gated font block alone would drift the canvas from
+   the file. **Resolved** in §2.3: `font-family`/`font-size` travel as
+   presentation attributes on the `<text>`, on the turn arrow's existing
+   `stroke-width` precedent, so all four assertions hold **unchanged** and the
+   `:465` test is *reframed*, not inverted (§1 and Phase 1's gate corrected to
+   match).
+2. **The `?inline` import cannot live in `src/styles/fonts.css`**, and `?raw`
+   does no URL rewriting, so a literal `url(…)` in a stylesheet would have
+   travelled as an unresolved external reference — breaking the very invariant
+   §2.3 protects. **Resolved** in §2.2: `fonts.css` is dropped for
+   `src/editor/fonts.ts` (`FONT_FAMILY` + `fontFaceCss()`), emitted as a second
+   `<style>` **after** `diagram.css`'s so `embeddedCss()` keeps measuring the
+   right block.
+
+*Non-blocking, accepted:* the `<style>` ordering hazard (folded into the above);
+the stale vitest citation (it is `vitest.config.ts`, `environment: "node"`, not
+"no `environment` in `vite.config.ts`"); §2.6's overclaim that both silent sites
+are tested (`isSelected` gets a markup assertion, the Inspector has no test file
+in the repo and is a `bun run dev` check); the `associated_link` clear needs the
+**node** arm too; nothing could ever *set* `associated_link` (Phase 2 gains
+`setSignLink` and a link picker, rather than shipping a dead readout);
+`MARKING_PICKER`'s missing `text` entry and the fresh-pick payloads
+(`content: ""`, `custom { label: "" }`, and empty content renders nothing);
+`textWidth`'s tautological assertion (`ADVANCE` is now a measured, pinned
+literal); §2.7's palette arithmetic (one new entry, not five); the OFL citation
+pointing at the proportional package; `needsText` needing export across the
+`Diagram.tsx`/`export.tsx` boundary; and OQ-1's missing failure branch (a failed
+raster experiment now escalates and returns the spec to review, explicitly).
+
+*Also resolved this round:* **OQ-5**, with the exact attribution string from
+`@fontsource/overpass-mono/metadata.json`.
+
+*Rejected:* the suggestion that **Phase 1 may overflow one plan-mode pass** — it
+is the largest phase, but splitting the font pipeline from painted text would
+leave the font untestable, since painted text is the only thing that exercises
+it. The reviewer's own read was "probably one pass"; recorded here so the size is
+a known risk rather than an oversight.
+
+**Round 2 — 2026-07-26 — `READY`.** Same reviewer resumed. Both blockers
+confirmed resolved, **zero new blocking findings**. It verified the precondition
+the attribute mechanism rests on and the spec had only asserted: no author rule
+can override a presentation attribute on the canvas's `<text>`, since
+`styles.css`'s only universal rule is `* { box-sizing: border-box }` (`:30`) and
+every `font-family` there is either on a chrome class or on the root — reaching
+an SVG `<text>` by *inheritance*, which loses to a declaration on the element
+itself. Also confirmed end to end: the `*?inline` typing chain
+(`vite/client.d.ts:253` → `src/vite-env.d.ts:1` → `tsconfig.json`'s
+`include: ["src"]`), that `fontFaceCss()`'s `font-weight:400` is the weight
+`main.tsx:11` actually loads, that the OFL string is byte-for-byte
+`metadata.json`'s, that exporting `needsText` into `export.tsx` adds no import
+cycle, and that no existing test builds a document with signs, so Phase 2's
+`needsText` widening cannot disturb the suite.
+
+*Three non-blocking residues, all folded in this round:*
+
+- **§2.3's premise was stale in the spec's own favour.** All eight `url(`
+  assertions are scoped to `embeddedCss()`, which never sees the second
+  `<style>` — so they would keep passing untouched rather than "not standing".
+  Rewritten as the sharper point: they survive *by accident*, which is a coverage
+  gap, and the fix is to widen the subject from the first stylesheet to the whole
+  file.
+- **"Byte-identically to today" was overstated** — `diagram.css` gains
+  `.marking-text { fill: … }`. Restated precisely (same markup, same font
+  posture; one more paint rule, as `.marking-zebra` already is for a document
+  with no crossing).
+- **Phase 3's "the drawing's second `<text>`"** presumed a document that also
+  carries painted text; the gate now asserts the roundel's own element rather
+  than an index.
+
+Two further implementation details it surfaced were folded into Phase 1:
+`noFallthroughCasesInSwitch` makes the empty-content `break` to the bar the
+natural shape, and `.marking-hit`/`.marking-halo` live in `MarkingShape`
+(`Diagram.tsx:499-508`), so selection holds whichever way that arm goes.
+
+**Converged in 2 rounds.** `status: draft` → `reviewed`; cleared for
+implementation, starting with Phase 1.
