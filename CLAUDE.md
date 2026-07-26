@@ -80,6 +80,9 @@ phase from a spec still `status: draft`** — it must pass the review loop
   crossings, lane arrows, lane lines (implemented; 4 phases)
 - `specs/signs_and_text_spec.md` — letters in the drawing: the embedded font,
   painted road text, and roadside signs (implemented; 4 phases)
+- `specs/junction_semantics_spec.md` — what a junction *means*: control,
+  right-of-way rule, and the turn movements through it (reviewed, no phase built;
+  4 phases)
 
 **`rules/` — current-state reference (the *what is*).** Terse, authoritative maps
 of subsystems, read on demand. Unlike specs, rules describe the code as it is now;
