@@ -1857,8 +1857,14 @@ describe("signs", () => {
       ],
       [{ type: "no_entry" }, "sign-no-entry", ["sign-disc", "sign-bar"]],
       [{ type: "custom", label: "TOLL" }, "sign-custom", ["sign-plate", "sign-label"]],
-      // Phase 4's kind draws the plate it already has, and no text yet.
-      [{ type: "direction", text: "M4 W" }, "sign-direction", ["sign-plate"]],
+      // The two plate kinds emit the *same* elements, which is exactly why the
+      // group's token has to differ: it is the only thing `diagram.css` can hang a
+      // destination's green panel off (signs spec Phase 4).
+      [
+        { type: "direction", text: "M4 W" },
+        "sign-direction",
+        ["sign-plate", "sign-label"],
+      ],
     ];
 
     for (const [kind, token, elements] of cases) {
@@ -1906,6 +1912,51 @@ describe("signs", () => {
       `<text class="sign-label" x="0" y="${BASELINE_DROP}"` +
         ' font-family="Overpass Mono" font-size="6" text-anchor="middle">100</text>',
     );
+  });
+
+  /**
+   * **A destination is centred in its plate at every length** (signs spec Phase 4),
+   * which is the property the whole monospace decision (§2.4) bought: the plate
+   * grows with the string and the string stays on the sign's own position, with no
+   * DOM measured anywhere in the chain.
+   *
+   * `x="0"` is the load-bearing half. `text-anchor="middle"` centres the run on
+   * that point and the box is symmetric about it, so "centred" is one coordinate
+   * that must **not** move as the plate widens — a sizing bug that shifted the
+   * plate without the text would leave `x` alone and be invisible to an assertion
+   * on the width.
+   */
+  it("centres a destination in the plate it sizes, at every length", () => {
+    for (const text of ["M4", "M4 W", "HEATHROW & THE WEST"]) {
+      const plate = signPlate(text);
+      const svg = renderToStaticMarkup(<Diagram doc={kinded({ type: "direction", text })} />);
+
+      expect(svg).toContain(
+        `<rect class="sign-plate" x="${plate.box.x}" y="${plate.box.y}"` +
+          ` width="${plate.box.width}" height="${plate.box.height}" rx="${plate.radius}"></rect>`,
+      );
+      expect(svg).toContain(`<text class="sign-label" x="0" y="${plate.baseline.y}"`);
+      // Symmetric about the sign's own position, whatever the width — the plate
+      // grows either side rather than off to one.
+      expect(plate.box.x).toBeCloseTo(-plate.box.width / 2);
+    }
+
+    // Monotone in the markup, not merely in `geometry.test.ts`: the renderer is
+    // what has to pass the string through, and an arm that dropped it would draw
+    // every destination at the floor.
+    const widths = ["M4", "M4 W", "HEATHROW & THE WEST"].map(
+      (text) =>
+        renderToStaticMarkup(<Diagram doc={kinded({ type: "direction", text })} />).match(
+          /class="sign-plate"[^>]* width="([\d.]+)"/,
+        )?.[1],
+    );
+    expect(widths.map(Number)).toEqual([...widths.map(Number)].sort((a, b) => a - b));
+
+    // An empty destination is the freshly picked one: the floor-width plate, and
+    // no `<text>` at all — `custom`'s rule, since they share the arm.
+    const fresh = renderToStaticMarkup(<Diagram doc={kinded({ type: "direction", text: "" })} />);
+    expect(fresh).toContain(`<rect class="sign-plate" x="${-SIGN_SIZE / 2}"`);
+    expect(fresh).not.toMatch(/<text[\s>]/);
   });
 
   /**

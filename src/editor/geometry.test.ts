@@ -1809,13 +1809,15 @@ describe("the sign vocabulary", () => {
 
   /**
    * **The one place that decides which kinds are plates.** A symbol deriving a
-   * width from a label it does not carry is the failure it exists to rule out —
-   * and `direction` is a plate *already*, drawing the empty one until Phase 4
-   * gives it its text.
+   * width from a label it does not carry is the failure it exists to rule out.
+   *
+   * The two plate kinds read their string out of **different fields** — a
+   * `custom`'s `label` and a `direction`'s `text` — which is the whole of what this
+   * function hides from the renderer and from `signBox` (signs spec Phase 4).
    */
   it("names the two plate kinds and no others", () => {
     expect(signPlateLabel({ type: "custom", label: "TOLL" })).toBe("TOLL");
-    expect(signPlateLabel({ type: "direction", text: "M4 W" })).toBe("");
+    expect(signPlateLabel({ type: "direction", text: "M4 W" })).toBe("M4 W");
     for (const kind of SYMBOLS) expect(signPlateLabel(kind)).toBeNull();
   });
 
@@ -1838,9 +1840,17 @@ describe("the sign vocabulary", () => {
       });
     }
 
+    // Both plate kinds, because each reads its string out of a field of its own —
+    // a `direction` boxed off an empty label would be the failure that survives
+    // every assertion above.
     const wide = signBox({ type: "custom", label: "HEATHROW" });
     expect(wide.box).toEqual(signPlate("HEATHROW").box);
     expect(wide.box.width).toBeGreaterThan(SIGN_SIZE);
+
+    const destination = signBox({ type: "direction", text: "M4 THE WEST" });
+    expect(destination.box).toEqual(signPlate("M4 THE WEST").box);
+    expect(destination.box.width).toBeGreaterThan(wide.box.width);
+
     // The two are genuinely different boxes, which is the whole reason this
     // function exists rather than the plate serving both.
     expect(signPlate("").box.height).toBeLessThan(SIGN_SIZE);

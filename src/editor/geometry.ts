@@ -1509,15 +1509,18 @@ export function signPlate(label: string): SignPlate {
  * "one hit box and one halo for every kind" hold once six of the eight kinds stop
  * being rectangles (signs spec §2.7).
  *
- * `direction` is a plate already and its own text lands here in Phase 4; until
- * then it draws the empty one, which is what an unlabelled `custom` sign draws.
+ * **Two kinds carry words and they carry them the same way.** A destination and a
+ * free-text label differ in what they *mean*, which the drawing says in colour
+ * (`.sign-direction`'s green panel) rather than in shape — so the width of one is
+ * the width of the other, and this returns the string either carries. Both are
+ * empty when freshly picked, which is the plate `SIGN_SIZE` floors.
  */
 export function signPlateLabel(kind: SignKind): string | null {
   switch (kind.type) {
     case "custom":
       return kind.label;
     case "direction":
-      return "";
+      return kind.text;
     default:
       return null;
   }

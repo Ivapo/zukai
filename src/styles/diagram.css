@@ -35,12 +35,19 @@
   --tint-bus: #4c382f;
   --tint-cycle: #2c4536;
 
-  /* The palette's first *sign* colour, and it is not road paint: the ring on a
-     speed roundel, the octagon under STOP, the border on a give-way triangle and
-     the no-entry disc. Deeper than the signal head's red above, because a sign is
-     read against light paper rather than against dark asphalt, where the signal
-     head's lighter red is read against the junction pad. */
+  /* The two *sign* colours, and neither is road paint. Red is the prohibition
+     and warning half of the vocabulary: the ring on a speed roundel, the octagon
+     under STOP, the border on a give-way triangle and the no-entry disc. Deeper
+     than the signal head's red above, because a sign is read against light paper
+     rather than against dark asphalt, where the signal head's lighter red is read
+     against the junction pad.
+
+     Green is the *informational* half, and it exists so a destination panel is
+     not the same picture as a free-text plate: shape cannot separate them (both
+     are rectangles as wide as their words), so colour is what carries it. Dark
+     enough to hold white letters at the one type size the drawing sets. */
   --sign-red: #c8102e;
+  --sign-green: #0b6b3a;
 
   --ink: #12161b;
 }
@@ -379,6 +386,20 @@
 
 .sign-label {
   fill: var(--ink);
+}
+
+/* A destination panel, and the one place in this vocabulary where colour carries
+   the meaning on its own rather than confirming a shape. A direction sign and a
+   custom one are both plates as wide as their words, so nothing about their
+   geometry can tell them apart - which is why these two rules ride the group's own
+   kind token, the way `.sign-stop .sign-label` recolours the octagon's letters.
+   The dark outline above stays: it is what holds any plate against light paper. */
+.sign-direction .sign-plate {
+  fill: var(--sign-green);
+}
+
+.sign-direction .sign-label {
+  fill: var(--paint-white);
 }
 
 /* Shape carries the meaning and colour confirms it (signs spec 2.7), so every

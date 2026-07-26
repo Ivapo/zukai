@@ -7,11 +7,12 @@ in the model since the first commit, so nothing here crosses IPC, reaches disk o
 its own terms, or moves `SCHEMA_VERSION`. The design rationale lives in
 `specs/signs_and_text_spec.md`; hand-maintained.
 
-**Seven of the eight kinds are drawn.** Six carry their meaning in a *shape*
-(spec Phase 3) and `custom { label }` is a plate carrying its label (Phase 2);
-`direction { text }` draws the empty plate until Phase 4 gives it its words.
-Nothing about a sign ever reaches `network.yaml` — `decoration.rs` says it
-outright: Assimilator has no concept of one.
+**All eight kinds are drawn.** Six carry their meaning in a *shape* (spec
+Phase 3); `custom { label }` and `direction { text }` are plates carrying their
+words (Phases 2 and 4), and since neither can be told from the other by shape, a
+destination is separated by **colour** instead. Nothing about a sign ever reaches
+`network.yaml` — `decoration.rs` says it outright: Assimilator has no concept of
+one.
 
 ## A sign is node-shaped, not marking-shaped
 
@@ -52,15 +53,16 @@ Inspector's Delete dispatches `deleteSelection`, as the node and link panels do
 and as the Delete/Backspace key does, so a separate action would have no
 dispatcher.
 
-**Three coalescing keys** (`rules/history.md`): `moveSign:<id>` for the drag, and
-`signLabel:<id>` / `signSymbol:<id>` for the Label and Symbol fields, which
-dispatch per keystroke so the sign follows the typing. Both text keys exclude the
-**empty** string, as the marking's Words field does — and Phase 3's Kind picker is
-what made that carve-out load-bearing rather than defensive: picking Custom or
-Warning mints `{ label: "" }`/`{ symbol: "" }` through `setSignKind` itself, so
+**Four coalescing keys** (`rules/history.md`): `moveSign:<id>` for the drag, and
+`signLabel:<id>` / `signSymbol:<id>` / `signText:<id>` for the Label, Symbol and
+Destination fields, which dispatch per keystroke so the sign follows the typing.
+All three text keys exclude the **empty** string, as the marking's Words field
+does — and Phase 3's Kind picker is what made that carve-out load-bearing rather
+than defensive: picking Custom, Warning or Direction mints
+`{ label: "" }`/`{ symbol: "" }`/`{ text: "" }` through `setSignKind` itself, so
 without it the first keystroke would swallow the pick. A key per **field**, not per
-sign: the two belong to different kinds, and switching between them is a pick that
-closes the run anyway.
+sign: the three belong to three different kinds, and switching between them is a
+pick that closes the run anyway.
 
 ## What removes a sign, and what does not
 
@@ -149,7 +151,10 @@ against numbers that happen to match.
 
 **The plate sizes to its text from Phase 2 on**, ahead of the spec's plan (which
 reserved it for Phase 4's direction plate): a fixed box overflows at about five
-characters, and `custom` is the free-text kind. Phase 4 inherits the function.
+characters, and `custom` is the free-text kind. Phase 4 inherited the function
+whole, and cost one line — **`signPlateLabel` is the only place that reads a
+kind's string**, so a destination widened its plate, its hit box and its halo
+together with nothing else touched.
 
 A sign is a **symbol, not a scale model** — it does not shrink beside a narrow
 ramp the way a turn arrow does — which is also why a **light** outline takes
@@ -177,13 +182,14 @@ a hand-edited document can carry; every sign kind is in scope.
 
 **Shape carries the meaning and colour confirms it** — an octagon reads as "stop"
 in grey, and a red disc without the white bar is not a no-entry. That ordering is
-what lets the whole vocabulary cost one palette entry, `--sign-red`, commented in
-`diagram.css` as the first *sign* colour so nothing later mistakes it for road
-paint; everything else comes from `--paint-white`, `--paint-yellow` and `--ink`.
-It is also why every assertion in `geometry.test.ts` is a **shape** test: a flipped
-triangle or a rotated octagon passes any assertion on a size.
+what keeps the whole vocabulary down to **two** palette entries, `--sign-red` and
+`--sign-green`, commented in `diagram.css` as *sign* colours so nothing later
+mistakes them for road paint; everything else comes from `--paint-white`,
+`--paint-yellow` and `--ink`. It is also why every assertion in `geometry.test.ts`
+is a **shape** test: a flipped triangle or a rotated octagon passes any assertion
+on a size.
 
-Four consequences worth stating:
+Five consequences worth stating:
 
 - **The two triangles are one construction and one flip.** Same class, same size,
   same colour; which way they point is the whole message, so two builders could
@@ -196,31 +202,43 @@ Four consequences worth stating:
   the white space a small number would otherwise sit adrift in. The containment
   that falls out — **three digits inside the ring** — is why the Inspector's
   stepper stops at 130, and it is asserted rather than eyeballed.
-- **`.sign-stop .sign-label` is the one label that is not ink.** White on red, by
-  the group's own kind token — `.road-local .road-casing`'s form.
+- **`.sign-stop .sign-label` is not the only label that is not ink.**
+  `.sign-direction .sign-label` is white too, on a `--sign-green` plate — both by
+  the group's own kind token, `.road-local .road-casing`'s form.
+- **The direction panel is the one place colour carries the meaning alone**, and
+  it is the exception the rule above forced rather than a break from it: a
+  destination and a `custom` plate are both rectangles as wide as their words, so
+  no shape *can* separate them. Two rules on the kind token do it (`.sign-direction
+  .sign-plate`, `.sign-direction .sign-label`); the plate's dark outline stays,
+  since that is what holds any plate against light paper. **Not the spec's
+  reading** — §2.1's table gives `direction` a bare plate — and taken deliberately;
+  see spec Phase 4's As-built note.
 
-## The panel: a picker, a stepper, and two fields
+## The panel: a picker, a stepper, and three fields
 
 `SIGN_KINDS` names every kind a document can carry and **`SIGN_PICKER` is the
 separate list of what can be chosen**, each entry carrying the payload a fresh pick
-starts from — `MARKING_PICKER`'s split, for its reason. `direction` is withheld
-until the phase that draws it, exactly as that list withholds `hatching`: it paints
-the same empty plate a fresh `custom` sign does, so offering it would be a control
-that appears to do nothing.
+starts from — `MARKING_PICKER`'s split, for its reason. The two lists now agree,
+every kind being drawn, so the split stands as a rule about who names what rather
+than as a phase gate; `MARKING_PICKER` still withholds `hatching` for the reason
+this one no longer withholds `direction`, which is that the kind is drawn.
 
 **The active button is `disabled`, not merely highlighted.** A sign's kind is the
 *whole* payload, so re-picking the current kind would reset its field — retyping a
 label after a stray click on Custom.
 
-Two kinds add a control of their own, and no action: `setSignKind` carries the
+Three kinds add a control of their own, and no action: `setSignKind` carries the
 whole tagged kind, which is what markings Phase 2 bought and what has since let
-three phases add controls without adding a reducer case.
+four phases add controls without adding a reducer case.
 
 - **Limit** — the lane stepper's control, ±10, disabled at both ends rather than
   clamping silently. The ceiling of 130 is *geometry*: a fourth digit would not fit
   inside the roundel's ring.
 - **Symbol** — a warning's pictogram name, shown and not drawn (see the open
   questions).
+- **Destination** — a direction sign's words, which the plate grows to fit as they
+  are typed. No arrow beside them, and that is the model's doing rather than an
+  omission: `SignKind::Direction` is `{ text }` and nothing else.
 
 ## `needsText` is conservative about signs, and the asymmetry is the design
 
@@ -301,11 +319,11 @@ panel but *no* panel, the exact scar markings §2.6 left.
 | `SignShape`, `signPaint`, `signText`, `inflate`, the sign layer, `needsText`'s second arm, `Interaction.onSignPointerDown` | `src/components/Diagram.tsx` | `Diagram.test.tsx` via `renderToStaticMarkup` |
 | `addSign`/`moveSign`/`setSignKind`/`setSignLink`, the `Selection` arm, `clearSignLinks` and the two clears | `src/editor/state.ts` | `state.test.ts` |
 | `findSign` | `src/model/document.ts` | transitively |
-| `--sign-red`, `.sign-plate`, `.sign-label` and the six symbols' paint — the only sign rules that reach an export | `src/styles/diagram.css` | `export.test.ts` |
+| `--sign-red`/`--sign-green`, `.sign-plate`, `.sign-label`, `.sign-direction`'s two overrides and the six symbols' paint — the only sign rules that reach an export | `src/styles/diagram.css` | `export.test.ts` |
 | `.sign`, `.sign-hit`, `.sign-halo`, `.sign-link-select` — interaction, so **not** in `diagram.css` | `src/styles.css` | `export.test.ts`'s `CHROME` regex |
 | The sign tool: the background arm, `onSignPointerDown`, the `Drag` arm | `src/components/Canvas.tsx` | the `bun run dev` pass — SVG bubbling is what is under test |
 | The toolbar button and `TOOL_KEYS` entry `s` | `src/components/Toolbar.tsx`, `src/App.tsx` | — |
-| The sign panel: `SIGN_KINDS`, `SIGN_PICKER`, `KPH`, `SignKindPicker`, `SignKph`, `SignSymbol`, `SignLabel`, `SignLink` | `src/components/Inspector.tsx` | the `bun run dev` pass |
+| The sign panel: `SIGN_KINDS`, `SIGN_PICKER`, `KPH`, `SignKindPicker`, `SignKph`, `SignSymbol`, `SignText`, `SignLabel`, `SignLink` | `src/components/Inspector.tsx` | the `bun run dev` pass |
 
 One trap that is not obvious from the table: **`Canvas.tsx`'s `onPointerMove` must
 branch on `d.kind`**. Its `else` arm used to dispatch `moveNode` unconditionally,
@@ -324,4 +342,5 @@ sign would refuse to move with nothing thrown and nothing logged.
   later, and inherits markings OQ-5's constraint: the junction's hit disc.
 - **No posts, gantries, or multi-panel assemblies**, and no arrow on a direction
   plate — `SignKind::Direction` is `{ text }` and nothing else, so an arrow would
-  be a guess or a new field.
+  be a guess or a new field. Nor any wrapping: a destination is one line, however
+  long, and the plate grows rather than the text folding.

@@ -1,9 +1,9 @@
 ---
-status: in progress (Phases 1–3 implemented; reviewed in 2 rounds, 2026-07-26)
+status: implemented (all 4 phases, 2026-07-26; reviewed in 2 rounds)
 last_updated: 2026-07-26
 note: Put text and roadside signs in the drawing — the font that must travel inside an exported file, painted road text, and the sign vocabulary. Closes export spec OQ-4.
-implemented: ["Phase 1", "Phase 2", "Phase 3"]
-not_implemented: ["Phase 4"]
+implemented: ["Phase 1", "Phase 2", "Phase 3", "Phase 4"]
+not_implemented: []
 related: [specs/road_markings_spec.md, specs/diagram_export_spec.md, specs/road_rendering_spec.md]
 reference: "Road-atlas and motorway-signage convention — a speed roundel, an octagonal stop, an inverted give-way triangle, a destination plate, and text painted flat on the carriageway. Not to-scale sign dimensions, not a national sign catalogue (no symbol library), and not Assimilator's business at all: `decoration.rs` says signs never export to `network.yaml`."
 ---
@@ -701,6 +701,35 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
 - **Docs touched:** `rules/signs.md`; `rules/diagram-export.md` if OQ-2 changed
   `measureDiagram`'s signature; the project-memory roadmap; mark this spec
   `implemented`.
+- **As built (2026-07-26)** — one real departure and three notes; the phase was as
+  small as its scope line promised, because Phase 2 had already built the plate:
+  - **A direction plate is green with white letters, which §2.1's table does not
+    say.** Taken deliberately, and the reasoning is §2.7's own rule reaching its
+    limit rather than a break from it: shape carries the meaning and colour
+    confirms it — but a destination and a `custom` plate are *both* rectangles as
+    wide as their words, so no shape **can** separate them, and without a colour
+    the two kinds draw identical pictures differing only in a class token. So the
+    palette takes a second sign colour, `--sign-green`, and two rules on the group's
+    own kind token (`.sign-direction .sign-plate`, `.sign-direction .sign-label`) —
+    `.sign-stop .sign-label`'s existing form, which is what made this cheap. The
+    plate's dark outline stays: that is what holds any plate against light paper.
+  - **The kind itself was one line.** `signPlateLabel`'s `direction` arm returns
+    `kind.text` instead of `""`, and the plate, the hit box and the halo all widen
+    with it — the single-place-that-decides rule Phase 3 wrote `signBox` around,
+    collecting on itself. `signPaint` needed no code at all, only a comment that
+    had said the difference "is Phase 4's".
+  - **A fourth coalescing key, `signText:<id>`.** A key per *field* still, so the
+    Destination and Label runs stay distinguishable in the stack — asserted by
+    typing a label, picking Direction, typing a destination, and undoing twice onto
+    the label still whole. `SIGN_PICKER` withholds nothing now, which is the first
+    time it and `SIGN_KINDS` have agreed.
+  - **The gate's `export.test.ts` clause needed restating, not skipping.** "A long
+    destination round-trips with no clipping" is `measureDiagram`'s question and
+    that function needs a DOM this suite does not have (§2.4). What is asserted
+    instead is the half that *decides* it: the plate is fill with a 1-unit outline,
+    so `strokeAllowance` on a 19-character destination is still the road's, and
+    `getBBox` — which measures fill — already contains the letters. The framing
+    itself was checked in the app, on a PNG export.
 
 ## 5. Review log
 

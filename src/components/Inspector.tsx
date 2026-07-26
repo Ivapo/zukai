@@ -140,15 +140,15 @@ const SIGN_KINDS: Record<SignKind["type"], string> = {
  * the empty strings the two free-text kinds begin at belong here rather than in
  * the reducer. `MARKING_PICKER`'s split from its label table, for its reason.
  *
- * **`direction` is withheld** until the phase that draws it, the way that list
- * withholds `hatching`: it would paint the same empty plate a fresh `custom` sign
- * does, so offering it would be a control that appears to do nothing. A
- * hand-edited document carrying one is still *named*, because the table above
- * stays exhaustive.
+ * **Every kind is offered**, so the two lists finally agree — the split earns its
+ * keep as a *rule* about who names what rather than as a phase gate, and
+ * `MARKING_PICKER` keeps withholding `hatching` for the reason this one no longer
+ * withholds `direction`: that kind is drawn now.
  *
  * In sign-vocabulary order rather than the model's: the roundel a driver reads
  * most often first, the two priority signs that face each other next to each
- * other, then the prohibition and the warning, and the free-text kind last.
+ * other, then the prohibition and the warning, and the two free-text kinds last —
+ * the destination before the catch-all it would otherwise be mistaken for.
  */
 const SIGN_PICKER: SignKind[] = [
   { type: "speed_limit", kph: 50 },
@@ -157,6 +157,7 @@ const SIGN_PICKER: SignKind[] = [
   { type: "priority" },
   { type: "no_entry" },
   { type: "warning", symbol: "" },
+  { type: "direction", text: "" },
   { type: "custom", label: "" },
 ];
 /**
@@ -352,6 +353,12 @@ export function Inspector({ state, dispatch }: InspectorProps) {
               symbol={sign.kind.symbol}
               dispatch={dispatch}
             />
+          </Field>
+        )}
+
+        {sign.kind.type === "direction" && (
+          <Field label="Destination">
+            <SignText id={sign.id} text={sign.kind.text} dispatch={dispatch} />
           </Field>
         )}
 
@@ -747,6 +754,49 @@ function SignSymbol({
           type: "setSignKind",
           id,
           kind: { type: "warning", symbol: e.target.value },
+        })
+      }
+    />
+  );
+}
+
+/**
+ * Where a destination panel points — the panel's **fourth** `<input>`, and the
+ * last control the sign vocabulary needs.
+ *
+ * {@link SignLabel}'s markup and both of its inherited consequences (the key
+ * handler ignores an `INPUT`; a keystroke is an edit, coalesced into one undo
+ * step by a key of its own). What it does *not* share is a shape: the plate this
+ * types into is painted green with white letters, because a destination and a
+ * free-text label are both rectangles as wide as their words and colour is the
+ * only thing left to tell them apart (`.sign-direction` in `diagram.css`).
+ *
+ * **No arrow**, and that is the model's doing rather than an omission:
+ * `SignKind::Direction` is `{ text }` and nothing else, so a pointing sign would
+ * need a direction the document does not carry (§2.9).
+ */
+function SignText({
+  id,
+  text,
+  dispatch,
+}: {
+  id: SignId;
+  text: string;
+  dispatch: (action: Action) => void;
+}) {
+  return (
+    <input
+      className="text-field"
+      type="text"
+      value={text}
+      placeholder="M4 W"
+      spellCheck={false}
+      autoComplete="off"
+      onChange={(e) =>
+        dispatch({
+          type: "setSignKind",
+          id,
+          kind: { type: "direction", text: e.target.value },
         })
       }
     />

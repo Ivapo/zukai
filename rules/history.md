@@ -60,16 +60,19 @@ undo steps, and repainting one as a crossing and then widening it to the whole
 carriageway is two more, which is the honest reading of five deliberate clicks.
 
 **Typing is the second gesture, and the only one that is not a drag.** The
-Inspector's three text fields — a marking's **Words**, a sign's **Label**, and a
-warning sign's **Symbol** — dispatch a whole `setMarkingKind`/`setSignKind` per
-keystroke so the paint follows the typing, so `coalesceKeyFor` gives them
-`"markingText:<id>"`, `"signLabel:<id>"` and `"signSymbol:<id>"` — without which a
-five-letter word would burn five of the hundred snapshots.
+Inspector's four text fields — a marking's **Words**, a sign's **Label**, a
+warning sign's **Symbol** and a direction sign's **Destination** — dispatch a
+whole `setMarkingKind`/`setSignKind` per keystroke so the paint follows the
+typing, so `coalesceKeyFor` gives them `"markingText:<id>"`, `"signLabel:<id>"`,
+`"signSymbol:<id>"` and `"signText:<id>"` — without which a five-letter word would
+burn five of the hundred snapshots.
 
-**A key per field, not per sign.** The two sign fields belong to different kinds
-and cannot be typed into in the same breath — switching between them *is* a pick,
-which closes the run — so one shared key would only make two runs
-indistinguishable in the stack for nothing.
+**A key per field, not per sign.** The three sign fields belong to three different
+kinds and cannot be typed into in the same breath — switching between them *is* a
+pick, which closes the run — so one shared key would only make the runs
+indistinguishable in the stack for nothing. `state.test.ts` asserts that
+directly: type a label, pick Direction, type a destination, and two undos land on
+the label still whole.
 
 **Only for non-empty content, and that boundary is the interesting half.** The
 Kind picker mints a fresh text marking as `content: ""`; if that shared the run's

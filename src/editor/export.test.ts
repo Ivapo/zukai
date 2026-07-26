@@ -7,7 +7,7 @@ import {
   exportFormat,
   strokeAllowance,
 } from "./export";
-import { roadWidth } from "./geometry";
+import { SIGN_SIZE, roadWidth, signPlate } from "./geometry";
 import { Action, EditorState, initialState, reducer } from "../editor/state";
 
 /** Apply a sequence of actions, as the UI would dispatch them. */
@@ -44,6 +44,12 @@ function signed(label: string): Document {
     signs: [{ id: "S1", kind: { type: "custom", label } }],
     layout: { ...base.layout, signs: { S1: { x: 60, y: 60 } } },
   };
+}
+
+/** {@link signed}, but a destination panel — the widest sign the drawing can make. */
+function destination(text: string): Document {
+  const base = signed("");
+  return { ...base, signs: [{ id: "S1", kind: { type: "direction", text } }] };
 }
 
 /** Every kind in the vocabulary, in a row beside {@link road}. */
@@ -808,13 +814,20 @@ describe("signs in an exported file", () => {
       ".sign-disc",
       ".sign-bar",
       ".sign-stop .sign-label",
+      // The two colours, and the two rules the second one exists for: a
+      // destination is a rectangle as wide as its words, exactly as a `custom`
+      // plate is, so colour is the only thing that separates them (Phase 4).
+      "--sign-green",
+      ".sign-direction .sign-plate",
+      ".sign-direction .sign-label",
     ]) {
       expect(css).toContain(rule);
     }
-    // The letters two of them carry, and the one string that is deliberately not
+    // The letters three of them carry, and the one string that is deliberately not
     // drawn: a warning's symbol names a pictogram no phase draws (OQ-6).
     expect(svg).toContain(">50</text>");
     expect(svg).toContain(">STOP</text>");
+    expect(svg).toContain(">M4 W</text>");
     expect(svg).not.toContain("bend_right");
 
     expectSelfContained(svg);
@@ -830,6 +843,38 @@ describe("signs in an exported file", () => {
    */
   it("needs no more allowance for a symbol than for a plate", () => {
     expect(strokeAllowance(vocabulary())).toBe(strokeAllowance(road(3)));
+  });
+
+  /**
+   * **The widest thing the drawing can make, exported whole** (signs spec Phase 4)
+   * — the clipping question §2.8 raised and OQ-2 answered. A long destination is
+   * the only element whose extent is unbounded by a build constant: every other
+   * sign is `SIGN_SIZE` and every road is `roadWidth`, while a plate is as wide as
+   * whatever a human types.
+   *
+   * The framing itself is `measureDiagram`'s and needs a DOM this suite does not
+   * have, so what is asserted here is the half that decides it: the plate is fill
+   * with a 1-unit outline, so half of that stays under `strokeAllowance`'s `2`
+   * floor and `getBBox` — which measures fill — already contains the letters. A
+   * plate that needed *more* room than the road it stands beside is the failure
+   * that would clip, and it would show up here as an allowance that moved.
+   */
+  it("carries a long destination whole, and asks the frame for no more room", () => {
+    const text = "HEATHROW & THE WEST";
+    const svg = diagramSvg(destination(text), box);
+    const plate = signPlate(text);
+
+    // Wider than any symbol in the vocabulary, and wider than its own floor —
+    // otherwise this asserts nothing the `TOLL` case did not.
+    expect(plate.box.width).toBeGreaterThan(SIGN_SIZE * 2);
+    expect(svg).toContain(`<rect class="sign-plate" x="${plate.box.x}"`);
+    expect(svg).toContain(`width="${plate.box.width}"`);
+    // The whole string, escaped — the third human-typed run to reach an XML file.
+    expect(svg).toContain(">HEATHROW &amp; THE WEST</text>");
+
+    expect(svg.match(/@font-face/g)).toHaveLength(1);
+    expectSelfContained(svg);
+    expect(strokeAllowance(destination(text))).toBe(strokeAllowance(road(3)));
   });
 });
 

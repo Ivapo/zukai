@@ -1189,8 +1189,10 @@ function SignShape({
  * which has a fall-through bar because a hand-edited document can carry a kind
  * (`hatching`) that is deliberately out of scope. Every sign kind is in scope.
  *
- * `direction` shares `custom`'s arm: both are plates, and the only difference —
- * which words go on one — is Phase 4's.
+ * `direction` shares `custom`'s arm, and that is the whole of what the two have in
+ * common: both are plates sized to the words they carry, and what tells a
+ * destination from a label is the **colour** `.sign-direction` paints it — a rule
+ * on the group's own kind token, never a second shape here.
  *
  * **An empty label emits no `<text>` at all**, and the plate is what keeps a
  * freshly placed sign visible and selectable: the empty text marking's bar again.

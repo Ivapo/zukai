@@ -79,7 +79,7 @@ phase from a spec still `status: draft`** — it must pass the review loop
 - `specs/road_markings_spec.md` — the paint on the road: stop and give-way lines,
   crossings, lane arrows, lane lines (implemented; 4 phases)
 - `specs/signs_and_text_spec.md` — letters in the drawing: the embedded font,
-  painted road text, and roadside signs (Phases 1–3 implemented; 4 phases)
+  painted road text, and roadside signs (implemented; 4 phases)
 
 **`rules/` — current-state reference (the *what is*).** Terse, authoritative maps
 of subsystems, read on demand. Unlike specs, rules describe the code as it is now;
@@ -120,8 +120,9 @@ there's real cross-file knowledge worth extracting, not for every file.
   the plate that sizes itself to its label, the deliberately conservative
   `needsText`, the two pointer dead zones, the fourth `Selection` arm the compiler
   only half catches, and the vocabulary — shape first and colour second, the one
-  box the chrome is grown from whatever a kind paints, the palette's first sign
-  colour, and the roundel's ring that is fat because the type size is fixed
+  box the chrome is grown from whatever a kind paints, the roundel's ring that is
+  fat because the type size is fixed, and the one place that ordering runs out:
+  the destination panel, which colour has to separate because shape cannot
 
 Specs are authoritative for *intent and plan*; `rules/`, this file, and the code
 are authoritative for *current state*. When a shipped phase changes what a rule

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { findLink, nodePos, RawDocument } from "../model/document";
+import { SignKind } from "../model/types";
 import { Action, EditorState, initialState, reducer } from "./state";
 
 /** Apply a sequence of actions, as the UI would dispatch them. */
@@ -1118,6 +1119,49 @@ describe("signs", () => {
       type: "custom",
       label: "",
     });
+  });
+
+  /**
+   * The **fourth** key, and the last the sign vocabulary needs (signs Phase 4).
+   * Asserted separately from the Symbol run above rather than folded into it,
+   * because "a key per field, not per sign" is the claim: the two runs have to stay
+   * *distinguishable*, which one test typing into both fields could not show.
+   */
+  it("gives a typed destination a run of its own, apart from the label's", () => {
+    const kinded = (state: EditorState, kind: SignKind) =>
+      reducer(state, { type: "setSignKind", id: "S1", kind });
+
+    const picked = kinded(signed(), { type: "direction", text: "" });
+    const typed = ["M", "M4", "M4 W"].reduce(
+      (state, text) => kinded(state, { type: "direction", text }),
+      picked,
+    );
+    expect(typed.doc.signs[0].kind).toEqual({ type: "direction", text: "M4 W" });
+
+    // One undo clears the destination; a second lands on the pick's own step.
+    const once = reducer(typed, { type: "undo" });
+    expect(once.doc.signs[0].kind).toEqual({ type: "direction", text: "" });
+    expect(reducer(once, { type: "undo" }).doc.signs[0].kind).toEqual({
+      type: "custom",
+      label: "",
+    });
+
+    // **The two fields never share a run.** Typing a label and then a destination
+    // is a pick apart, so the label's word survives its own undo rather than being
+    // swallowed by the destination's.
+    const labelled = ["T", "TO", "TOLL"].reduce(
+      (state, label) => kinded(state, { type: "custom", label }),
+      signed(),
+    );
+    const redirected = ["M", "M4"].reduce(
+      (state, text) => kinded(state, { type: "direction", text }),
+      kinded(labelled, { type: "direction", text: "" }),
+    );
+    expect(redirected.doc.signs[0].kind).toEqual({ type: "direction", text: "M4" });
+    // The destination run, then the pick — two steps, and the label is whole under
+    // them. Sharing one key would have collapsed all three into one.
+    const back = [1, 2].reduce((state) => reducer(state, { type: "undo" }), redirected);
+    expect(back.doc.signs[0].kind).toEqual({ type: "custom", label: "TOLL" });
   });
 
   /**
