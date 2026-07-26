@@ -2,8 +2,8 @@
 status: reviewed
 last_updated: 2026-07-25
 note: Render and place road-surface markings — stop and give-way lines, crossings, lane arrows, lane lines. Paint only; signs and any painted text wait on font embedding.
-implemented: ["Phase 1"]
-not_implemented: ["Phase 2", "Phase 3", "Phase 4"]
+implemented: ["Phase 1", "Phase 2"]
+not_implemented: ["Phase 3", "Phase 4"]
 related: [specs/road_rendering_spec.md, specs/ramps_and_tapers_spec.md, specs/diagram_export_spec.md]
 reference: "Road-atlas marking convention — a transverse bar where traffic stops, a triangle line where it gives way, a zebra where people cross, destination arrows in the lane they belong to, and a longitudinal line whose style says whether you may cross it. Not to-scale marking dimensions (that is Assimilator's business, and it has no markings anyway), and not signage, which is textual."
 ---
@@ -467,10 +467,13 @@ discipline to observe and no `cargo` gate beyond the pre-commit hook's.
   action ever lands it must remap every marking to `length - position`, or every
   stop line jumps to the wrong end. (answerable-from-code: no such action exists
   in `state.ts:85-101`; recorded so it is not discovered by a user.)
-- **OQ-2** — **`crosswalk` depth.** A zebra has a real extent along the road, and
-  §2.3 rules extents out for everything but `lane_line`. Proposed: a schematic
-  build constant (`CROSSWALK_DEPTH`, ~12 units — a lane and a third), centred on
-  `position`, on the same footing as `TAPER_LENGTH`. (design-call.)
+- **OQ-2** — **`crosswalk` depth.** **RESOLVED (Phase 2) — `CROSSWALK_DEPTH = 12`,
+  as proposed**: a schematic build constant on the same footing as
+  `TAPER_LENGTH`, centred on `position`. Phase 2 generalised the centring into a
+  rule — *every* transverse kind is centred on `position`, a bar trivially so —
+  and added two constants beside it: `GIVE_WAY_DEPTH = 5` and a shared
+  `MARKING_PITCH = LANE_PX / 3` that both tiled kinds lay out on. (design-call,
+  taken.)
 - **OQ-3** — **Should `lane_line` suppress the dashed divider it replaces, or
   overpaint it?** **RESOLVED (review round 1) — replace.** It is one line of
   `RoadShape`'s divider derivation and reads correctly; overpainting is simpler
@@ -619,6 +622,39 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
   emits its own class token and a `stop_line` document is unchanged from Phase
   1's pins. A `bun run dev` check that a give-way line points the way traffic
   comes, and that the Span control turns §1's M1 into a carriageway-wide bar.
+- **Shipped 2026-07-25.** Three decisions the phase settled, none of them pinned
+  by the scope above:
+  - **A kind with no geometry yet paints the Phase 1 bar.** The picker offers all
+    five in-scope kinds — §2.3's "withholds `lane_line` while `lane ≥ n-1`" rule
+    requires `lane_line` to be *offerable* — so a marking can hold a kind Phases
+    3–4 have not drawn. It falls back to the transverse bar rather than painting
+    nothing, which would leave an object on the canvas findable only by accident;
+    its class token already says which kind it is, and `Diagram.test.tsx` pins the
+    fallback so Phase 4 has to change it deliberately. The hit target and halo are
+    that same bar for **every** kind, which is also what keeps a `stop_line`'s
+    markup byte-identical to Phase 1's.
+  - **`setMarkingKind` carries the whole tagged `MarkingKind`**, not just its
+    `type`. Phases 3–4's payloads (`directions`, `style`) then need no second
+    action, and the *caller* owns the default a fresh pick starts from
+    (`MARKING_PICKER`, `Inspector.tsx`). It never names `lane`, which is how
+    "preserves `lane`" holds for the absent case too — spreading an object with no
+    `lane` key yields one with no `lane` key.
+  - **Containment is a property of the tiling, not a clamp.** `spanCells` derives
+    the cell *count* from the span and lets the pitch follow, so the cells tile it
+    exactly and no shape taking a fraction of its own cell can reach the verge, at
+    any lane count or road class. One shared `MARKING_PITCH` for both kinds, so
+    they read as the same hand.
+
+  Two things worth carrying forward that the spec did not predict:
+  - **`MARKING_PITCH` is `LANE_PX / 3`, not a half, and the app is what decided
+    it.** Two teeth to a lane read as two arrows rather than as a row, which is the
+    one thing a give-way line has to say. Three per lane, nine across a 3-lane
+    carriageway — and the same rhythm gives a legible zebra.
+  - **`.seg`'s `flex: 1` is `flex: 1 1 0%`**, so a `flex-basis` rule for either new
+    control has to *out-specify* it rather than merely follow it in the file. The
+    panel also needed `text-transform: none`: these are the first segment labels
+    that are a phrase rather than a word, and title-casing "Give-way line" reads as
+    a heading rather than as a choice.
 
 ### Phase 3 — `turn_arrow`  (depends on Phase 2)
 

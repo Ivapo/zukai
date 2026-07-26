@@ -52,9 +52,11 @@ dispatches `setView`, which also resets the key, so one drag becomes two undo st
 
 Discrete clicks never coalesce. The Lanes and junction Size steppers are ±1 /
 ±0.25 per click, so N clicks are N undo steps — deliberate, since this design has
-no time or focus boundary that could close such a gesture. `addMarking` is
-discrete too: placing three stop lines across a carriageway is three undo steps,
-which is the honest reading of three deliberate clicks.
+no time or focus boundary that could close such a gesture. The three marking
+actions — `addMarking`, `setMarkingKind`, `setMarkingLane` — are discrete too:
+placing three stop lines across a carriageway is three undo steps, and repainting
+one as a crossing and then widening it to the whole carriageway is two more, which
+is the honest reading of five deliberate clicks.
 
 ## The trap on the other side: an action that deletes nothing must return the doc
 

@@ -986,3 +986,127 @@ export function markingBar(anchor: MarkingAnchor): [Vec2, Vec2] {
     { x: at.x + nx * far, y: at.y + ny * far },
   ];
 }
+
+/**
+ * How deep a crossing runs along the road, in world units.
+ *
+ * A schematic build constant in the manner of {@link TAPER_LENGTH}, not a
+ * converted model quantity — a real zebra is roughly 4 m, which lands near this
+ * anyway, but nothing in the model carries a crossing depth to convert. A lane
+ * and a third, which reads as a crossing rather than as a fat stop line
+ * (markings spec OQ-2).
+ */
+export const CROSSWALK_DEPTH = 12;
+
+/** How far a give-way row reaches along the road: the length of one tooth. */
+export const GIVE_WAY_DEPTH = 5;
+
+/**
+ * The rhythm both tiled kinds are laid out on — a third of a default lane, so a
+ * lane gets three teeth or three stripes and a 3-lane carriageway nine.
+ *
+ * **One constant, not one per kind**, so a give-way row and a crossing on the
+ * same road read as the same hand. It is a *target*: the actual pitch is derived
+ * from the span so the cells tile it exactly (see {@link spanCells}).
+ *
+ * A third rather than a half, decided in the app: two teeth to a lane read as
+ * two arrows rather than as a row, which is the thing a give-way line has to say.
+ */
+export const MARKING_PITCH = LANE_PX / 3;
+
+/**
+ * A marking's span divided into equal cells of roughly {@link MARKING_PITCH} —
+ * the shared tiling every repeated kind is built on.
+ *
+ * **The count is derived from the span and the pitch follows**, rather than the
+ * other way round: the cells then tile the span *exactly*, with no partial cell
+ * at either end. That is what makes containment a property of the construction
+ * rather than a clamp each kind has to remember — a shape occupying any fraction
+ * of its own cell is inside the lane at every lane count and every road class,
+ * and a stripe on the verge is the failure this rules out.
+ */
+function spanCells(span: LaneBand): { centres: number[]; pitch: number } {
+  const count = Math.max(1, Math.round(span.width / MARKING_PITCH));
+  const pitch = span.width / count;
+  const lo = span.offset - span.width / 2;
+  return {
+    centres: Array.from({ length: count }, (_, i) => lo + pitch * (i + 0.5)),
+    pitch,
+  };
+}
+
+/**
+ * A point on a marking, from its lateral offset across the road and its
+ * longitudinal offset along it — the one frame every kind below is built in.
+ *
+ * The normal is {@link markingBar}'s, which is {@link laneBands}' and
+ * {@link offsetPolyline}'s: positive is the right of travel, and no kind gets to
+ * pick a second sign convention.
+ */
+function markingPoint(
+  anchor: MarkingAnchor,
+  across: number,
+  along: number,
+): Vec2 {
+  const { at, dir } = anchor;
+  return {
+    x: at.x - dir.y * across + dir.x * along,
+    y: at.y + dir.x * across + dir.y * along,
+  };
+}
+
+/** What share of its cell a give-way tooth's base takes; the rest is the gap. */
+const TOOTH_DUTY = 0.7;
+/** What share of its cell a zebra stripe takes. Near half, so paint and gap read alike. */
+const STRIPE_DUTY = 0.55;
+
+/**
+ * A give-way line: one triangle per cell across the marking's span.
+ *
+ * **The apex points upstream, at the driver**, who arrives from behind the
+ * marking — so the bases sit downstream and a reader sees the points aimed at
+ * them (markings spec §2.7). Getting this backwards draws a row of arrowheads
+ * telling traffic to keep going, which no assertion on a magnitude would catch.
+ *
+ * Centred on `position`, as every transverse kind is: a bar has no depth and so
+ * is trivially centred, and a give-way row placed where a stop line sits covers
+ * the same stretch of road.
+ */
+export function markingTeeth(anchor: MarkingAnchor): Vec2[][] {
+  const { centres, pitch } = spanCells(anchor.span);
+  const half = (pitch * TOOTH_DUTY) / 2;
+  const back = GIVE_WAY_DEPTH / 2;
+  return centres.map((c) => [
+    markingPoint(anchor, c, -back),
+    markingPoint(anchor, c - half, back),
+    markingPoint(anchor, c + half, back),
+  ]);
+}
+
+/**
+ * A crossing: zebra stripes **parallel to travel**, tiled across the span over
+ * {@link CROSSWALK_DEPTH}, centred on `position`.
+ *
+ * Stripes run along the road rather than across it, which is what distinguishes
+ * a crossing from the transverse kinds at a glance — and what makes the depth a
+ * constant of its own rather than a stroke width.
+ */
+export function markingZebra(anchor: MarkingAnchor): Vec2[][] {
+  const { centres, pitch } = spanCells(anchor.span);
+  const half = (pitch * STRIPE_DUTY) / 2;
+  const back = CROSSWALK_DEPTH / 2;
+  return centres.map((c) => [
+    markingPoint(anchor, c - half, -back),
+    markingPoint(anchor, c + half, -back),
+    markingPoint(anchor, c + half, back),
+    markingPoint(anchor, c - half, back),
+  ]);
+}
+
+/**
+ * Several closed polygons as one `d` — so a marking of many pieces is still one
+ * element, and one class token, in the markup.
+ */
+export function polygonsPath(polygons: Vec2[][]): string {
+  return polygons.map((p) => `${polylinePath(p)} Z`).join(" ");
+}

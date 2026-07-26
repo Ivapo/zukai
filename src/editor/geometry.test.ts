@@ -18,12 +18,16 @@ import {
   Vec2,
 } from "../model/types";
 import {
+  CROSSWALK_DEPTH,
   DRIVE_SIDE,
+  GIVE_WAY_DEPTH,
   GORE_LENGTH,
   GoreArm,
   JointEnd,
   LANE_PX,
+  MARKING_PITCH,
   MIN_ROAD_WIDTH,
+  MarkingAnchor,
   ROAD_MARGIN,
   SCHEMATIC_MEDIAN,
   TAPER_LENGTH,
@@ -37,9 +41,12 @@ import {
   gore,
   gorePair,
   laneBands,
+  markingTeeth,
+  markingZebra,
   nearestOnPolyline,
   offsetPolyline,
   pointAlongPolyline,
+  polygonsPath,
   rayCircleExit,
   rayIntersection,
   roadWidth,
@@ -1158,5 +1165,149 @@ describe("drawnPolyline", () => {
     };
 
     expect(drawnPolyline(doc, doc.links[0], carriageways(doc))).toBeUndefined();
+  });
+});
+
+/**
+ * The two tiled kinds (markings spec Phase 2). Every anchor below points **due
+ * east**, so the frame reads straight off the coordinates: `y` is the lateral
+ * offset across the road — the one `laneBands` and `offsetPolyline` share — and
+ * `x` is the distance along it, positive downstream.
+ */
+describe("markingTeeth and markingZebra", () => {
+  function anchor(offset: number, width: number): MarkingAnchor {
+    return { at: { x: 0, y: 0 }, dir: { x: 1, y: 0 }, span: { offset, width } };
+  }
+
+  /** The whole lane region of `n` default lanes — a carriageway-wide marking. */
+  function carriageway(n: number, style: LinkStyle = DEFAULT_LINK_STYLE) {
+    const bands = laneBands(defaults(n), style);
+    return anchor(
+      0,
+      bands.reduce((s, b) => s + b.width, 0),
+    );
+  }
+
+  /** Each shape's lateral centre, in span order. */
+  function centres(shapes: Vec2[][]): number[] {
+    return shapes.map(
+      (s) => (Math.min(...s.map((p) => p.y)) + Math.max(...s.map((p) => p.y))) / 2,
+    );
+  }
+
+  /**
+   * The count is derived from the span so the cells tile it *exactly* — which is
+   * why no kind below needs a clamp, and why a stripe cannot end up on the verge.
+   */
+  it("divides a span into whole cells of roughly the marking pitch", () => {
+    // 3 default lanes is 27 units, exactly nine cells of the 3-unit pitch.
+    const wide = centres(markingTeeth(carriageway(3)));
+    expect(wide).toHaveLength(9);
+    expect(wide[1] - wide[0]).toBeCloseTo(MARKING_PITCH);
+    expect(wide[0]).toBeCloseTo(-13.5 + MARKING_PITCH / 2);
+
+    // One lane is 9 units: three cells, and the row is symmetric about it.
+    const one = centres(markingTeeth(anchor(0, LANE_PX)));
+    expect(one).toHaveLength(3);
+    expect(one[1] - one[0]).toBeCloseTo(MARKING_PITCH);
+    expect(one[1]).toBeCloseTo(0);
+
+    // A narrow band still gets one whole cell rather than none.
+    expect(markingTeeth(anchor(0, 2))).toHaveLength(1);
+
+    // And the pitch is the span's, not the constant's, wherever the two differ:
+    // a 1-lane ramp is 7.2 units, which is two and two fifths of a nominal cell.
+    const ramp = centres(markingZebra(anchor(0, 7.2)));
+    expect(ramp).toHaveLength(2);
+    expect(ramp[1] - ramp[0]).toBeCloseTo(3.6);
+  });
+
+  /**
+   * **The teeth point upstream, at the driver**, who arrives from behind the
+   * marking. Drawn the other way round they read as arrowheads telling traffic to
+   * keep going — and no assertion on a magnitude or a count would see it.
+   */
+  it("points every give-way tooth back at the driver", () => {
+    for (const [apex, ...base] of markingTeeth(carriageway(3))) {
+      expect(apex.x).toBeCloseTo(-GIVE_WAY_DEPTH / 2);
+      expect(base.map((p) => p.x)).toEqual([GIVE_WAY_DEPTH / 2, GIVE_WAY_DEPTH / 2]);
+      expect(apex.x).toBeLessThan(base[0].x);
+      // The apex is centred on its own cell, between the two base corners.
+      expect(apex.y).toBeCloseTo((base[0].y + base[1].y) / 2);
+    }
+  });
+
+  /** A zebra's stripes run **along** the road, over a depth of its own. */
+  it("runs the zebra's stripes along the road, centred on the position", () => {
+    const stripes = markingZebra(carriageway(3));
+    expect(stripes).toHaveLength(9);
+
+    for (const stripe of stripes) {
+      const xs = stripe.map((p) => p.x);
+      expect(Math.min(...xs)).toBeCloseTo(-CROSSWALK_DEPTH / 2);
+      expect(Math.max(...xs)).toBeCloseTo(CROSSWALK_DEPTH / 2);
+      // Longer along the road than it is wide across it — the whole of what
+      // distinguishes a crossing from the transverse kinds at a glance.
+      const ys = stripe.map((p) => p.y);
+      expect(Math.max(...ys) - Math.min(...ys)).toBeLessThan(CROSSWALK_DEPTH);
+    }
+  });
+
+  /**
+   * The failure this rules out is a stripe on the verge. Containment is a
+   * property of the tiling rather than a clamp, so it has to hold at every lane
+   * count *and* every road class — `ramp` narrows each lane to 0.8, which is
+   * where a pitch computed from a nominal lane width would spill.
+   */
+  it("keeps every point inside the span, at every lane count and class", () => {
+    const styles: LinkStyle[] = ["motorway", "arterial", "local", "ramp"];
+    for (const style of styles) {
+      for (let n = 1; n <= 8; n++) {
+        const spans = [
+          ...laneBands(defaults(n), style),
+          carriageway(n, style).span,
+        ];
+        for (const span of spans) {
+          const lo = span.offset - span.width / 2;
+          const hi = span.offset + span.width / 2;
+          for (const shape of [
+            ...markingTeeth(anchor(span.offset, span.width)),
+            ...markingZebra(anchor(span.offset, span.width)),
+          ]) {
+            for (const p of shape) {
+              expect(p.y).toBeGreaterThan(lo);
+              expect(p.y).toBeLessThan(hi);
+            }
+          }
+        }
+      }
+    }
+  });
+
+  /**
+   * The sign trap the road spec burned four review rounds on: lane 0 is the
+   * nearside lane at the most **positive** offset, so paint on an offside lane
+   * must land wholly negative. A containment test alone passes under an
+   * inversion, since both bands are the same width.
+   */
+  it("paints an offside lane on the offside", () => {
+    const offside = laneBands(defaults(3))[2];
+    expect(offside.offset).toBeLessThan(0);
+
+    for (const shape of [
+      ...markingTeeth(anchor(offside.offset, offside.width)),
+      ...markingZebra(anchor(offside.offset, offside.width)),
+    ]) {
+      for (const p of shape) expect(p.y).toBeLessThan(0);
+    }
+  });
+
+  it("closes every polygon, so many pieces are one path", () => {
+    expect(
+      polygonsPath([
+        [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }],
+        [{ x: 2, y: 2 }, { x: 3, y: 2 }, { x: 3, y: 3 }],
+      ]),
+    ).toBe("M 0 0 L 1 0 L 1 1 Z M 2 2 L 3 2 L 3 3 Z");
   });
 });

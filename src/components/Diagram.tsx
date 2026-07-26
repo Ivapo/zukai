@@ -40,7 +40,10 @@ import {
   lateralShift,
   markingAnchor,
   markingBar,
+  markingTeeth,
+  markingZebra,
   offsetPolyline,
+  polygonsPath,
   polylinePath,
   rayCircleExit,
   roadWidth,
@@ -436,18 +439,22 @@ function isSelected(
 }
 
 /**
- * Paint a human placed on the road: at this phase, a stop line — one solid bar
- * across the lane it sits in, or across the whole carriageway.
+ * Paint a human placed on the road: a stop line, a give-way line, or a crossing.
  *
  * **Not the same object as a signalised junction's `.jn-stopbar`**, which is
  * drawn per arm from the junction outward and is what makes that glyph read as
  * "signals". A document can carry both, and that is not a duplicate: it is a
  * signalised junction whose approach also has a painted bar (§2.7).
  *
+ * **The hit target and halo are the anchor's transverse bar for every kind**, so
+ * selecting a marking feels the same whatever it paints, and a stop line's markup
+ * is exactly what Phase 1 emitted. Phase 4's `lane_line` runs *along* the road
+ * rather than across it, and is the one kind that will need its own.
+ *
  * **No `vector-effect`**, unlike the glyph's bar and the roads' hairlines. Those
  * are symbol and hairline respectively, and want to hold their weight as the
- * canvas zooms; this is 4 world units of paint on a road, and scales with it —
- * which also leaves the marking layer byte-identical between canvas and export.
+ * canvas zooms; this is paint on a road, and scales with it — which also leaves
+ * the marking layer byte-identical between canvas and export.
  */
 function MarkingShape({
   marking,
@@ -464,8 +471,8 @@ function MarkingShape({
     "marking",
     marking.id,
   );
-  // `stop_line` → `stop-line`, so every kind Phase 2 onward adds gets its token
-  // from the model rather than from a table that could fall out of step.
+  // `stop_line` → `stop-line`, so every kind gets its token from the model
+  // rather than from a table that could fall out of step with it.
   const kind = marking.kind.type.replace(/_/g, "-");
 
   return (
@@ -482,9 +489,36 @@ function MarkingShape({
           it stays inside the lane the marking spans. */}
       {interaction && <path className="marking-hit" d={d} strokeWidth={12} />}
       {selected && <path className="marking-halo" d={d} strokeWidth={9} />}
-      <path className="marking-bar" d={d} />
+      {markingPaint(marking, anchor, d)}
     </g>
   );
+}
+
+/**
+ * What one marking actually paints.
+ *
+ * The `default` arm is doing real work and is not a tidy-up: `turn_arrow` and
+ * `lane_line` are pickable in the Inspector but have no geometry until Phases 3
+ * and 4, and `hatching`/`text` are out of scope entirely (§2.8, §2.10). All of
+ * them draw the transverse bar, which keeps a marking **visible and selectable**
+ * while its own shape is still to come — painting nothing would leave an object
+ * on the canvas that could only be found by accident. Its class token already
+ * says which kind it is.
+ */
+function markingPaint(marking: Marking, anchor: MarkingAnchor, bar: string) {
+  switch (marking.kind.type) {
+    case "give_way_line":
+      return (
+        <path className="marking-teeth" d={polygonsPath(markingTeeth(anchor))} />
+      );
+    case "crosswalk":
+      return (
+        <path className="marking-zebra" d={polygonsPath(markingZebra(anchor))} />
+      );
+    case "stop_line":
+    default:
+      return <path className="marking-bar" d={bar} />;
+  }
 }
 
 /**

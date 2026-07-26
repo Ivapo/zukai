@@ -149,6 +149,22 @@
   stroke-linecap: butt;
 }
 
+/* A give-way line: a row of solid triangles whose apexes point back at the
+   driver. Filled, not stroked - a stroked outline would read as a row of little
+   hollow arrows, and the shape is the whole message. Both this and the zebra
+   below are built from polygons in `editor/geometry.ts` and arrive as one path
+   of closed subpaths, so a marking of many pieces is still one element. */
+.marking-teeth {
+  fill: var(--paint-white);
+}
+
+/* A crossing: stripes parallel to travel. Same paint as every other marking -
+   what distinguishes it is that its stripes run along the road while the
+   transverse kinds run across it. */
+.marking-zebra {
+  fill: var(--paint-white);
+}
+
 /* ----- road class ----- */
 
 /* Motorway and arterial take the base treatment above; the local pair is the

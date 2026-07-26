@@ -22,6 +22,7 @@ import {
   LinkStyle,
   Marking,
   MarkingId,
+  MarkingKind,
   NodeId,
   NodeKind,
   Vec2,
@@ -102,6 +103,8 @@ export type EditAction =
   | { type: "setLinkStyle"; id: LinkId; style: LinkStyle }
   | { type: "setLinkAlign"; id: LinkId; align: LinkAlign }
   | { type: "addMarking"; link: LinkId; position: number; lane?: LaneIdx }
+  | { type: "setMarkingKind"; id: MarkingId; kind: MarkingKind }
+  | { type: "setMarkingLane"; id: MarkingId; lane?: LaneIdx }
   | { type: "select"; selection: Selection | null }
   | { type: "deleteSelection" };
 
@@ -368,6 +371,12 @@ function editReducer(state: EditorState, action: EditAction): EditorState {
     case "addMarking":
       return addMarking(state, action.link, action.position, action.lane);
 
+    case "setMarkingKind":
+      return setMarkingKind(state, action.id, action.kind);
+
+    case "setMarkingLane":
+      return setMarkingLane(state, action.id, action.lane);
+
     case "select":
       return { ...state, selection: action.selection };
 
@@ -605,6 +614,76 @@ function addMarking(
     ...state,
     doc: { ...doc, markings: [...doc.markings, marking] },
     selection: { kind: "marking", id },
+  };
+}
+
+/**
+ * Repaint a marking as another kind, keeping where it sits and what it spans.
+ *
+ * **Carries the whole tagged value, not just its `type`**, so the kinds with a
+ * payload — `turn_arrow`'s directions, `lane_line`'s style — need no second
+ * action of their own, and the caller owns the default a fresh pick starts from.
+ *
+ * `lane` survives because it is never named here: spreading a marking with no
+ * `lane` key produces one with no `lane` key, so a carriageway-wide marking stays
+ * carriageway-wide rather than acquiring an explicit `undefined`. An unknown
+ * marking returns `state` itself, so {@link recordHistory} records nothing.
+ */
+function setMarkingKind(
+  state: EditorState,
+  id: MarkingId,
+  kind: MarkingKind,
+): EditorState {
+  const { doc } = state;
+  if (!findMarking(doc, id)) return state;
+  return {
+    ...state,
+    doc: {
+      ...doc,
+      markings: doc.markings.map((m) => (m.id === id ? { ...m, kind } : m)),
+    },
+  };
+}
+
+/**
+ * Set what a marking spans — one lane, or the whole carriageway.
+ *
+ * The deliberate route to `lane: undefined`, which placement can otherwise reach
+ * only by clicking the casing lip (markings spec §2.4). As everywhere else,
+ * **absent is the one representation**: the old key is destructured away rather
+ * than overwritten with `undefined`, the rule {@link setLaneKind} follows for
+ * `general` and {@link setLinkAlign} for `centre`.
+ *
+ * **Kind-agnostic on purpose.** A `lane_line`'s `lane` names a *boundary*, of
+ * which there are only `n-1`, so its valid range is narrower — but that is the
+ * Span control's business (§2.3), and encoding it here would make the same lane
+ * index legal or illegal depending on a field this action does not touch. The
+ * guard is the link's own lane count, the same one {@link setLaneKind} applies,
+ * and it is unreachable from the UI either way.
+ */
+function setMarkingLane(
+  state: EditorState,
+  id: MarkingId,
+  lane: LaneIdx | undefined,
+): EditorState {
+  const { doc } = state;
+  const marking = findMarking(doc, id);
+  if (!marking) return state;
+  const link = findLink(doc, marking.link);
+  if (lane !== undefined && (!link || lane < 0 || lane >= link.lanes.length)) {
+    return state;
+  }
+
+  return {
+    ...state,
+    doc: {
+      ...doc,
+      markings: doc.markings.map((m) => {
+        if (m.id !== id) return m;
+        const { lane: _dropped, ...rest } = m;
+        return lane === undefined ? rest : { ...rest, lane };
+      }),
+    },
   };
 }
 

@@ -1,6 +1,8 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
+  CROSSWALK_DEPTH,
+  GIVE_WAY_DEPTH,
   GORE_LENGTH,
   LANE_PX,
   ROAD_MARGIN,
@@ -1233,6 +1235,126 @@ describe("road markings", () => {
     expect(exported).not.toMatch(/marking-hit|marking-halo|is-selected/);
     // Paint on the road scales with the road, unlike the glyph's own bar.
     expect(exported).not.toMatch(/vector-effect/);
+  });
+
+  /**
+   * The kinds Phase 2 draws. The exact points are pinned in `geometry.test.ts`,
+   * where they read off a due-east frame instead of out of a `d` string; what
+   * matters here is that the right builder reaches the right kind, under a class
+   * token taken from the model.
+   */
+  describe("the kinds that are not a bar", () => {
+    /** `marked`'s document with its one marking repainted as `kind`. */
+    function repainted(kind: Marking["kind"], lane: number | "all" = 0): Document {
+      const doc = marked(lane);
+      return withMarkings(doc, [{ ...doc.markings[0], kind }]);
+    }
+
+    /** Every number in the first `d` of `cls`, in order. */
+    function path(svg: string, cls: string): number[] {
+      const d = svg.match(new RegExp(`class="${cls}" d="([^"]*)"`))?.[1] ?? "";
+      return [...d.matchAll(/-?\d+(\.\d+)?/g)].map((m) => Number(m[0]));
+    }
+
+    it("draws a give-way line as a row of closed triangles in its lane", () => {
+      const svg = renderToStaticMarkup(
+        <Diagram doc={repainted({ type: "give_way_line" })} />,
+      );
+
+      expect(svg).toContain('<g class="marking marking-give-way-line">');
+      expect(svg).toContain('class="marking-teeth"');
+      // Lane 0 is 9 units wide: three cells of the 3-unit pitch, so three closed
+      // subpaths — one `Z` each.
+      const d = svg.match(/class="marking-teeth" d="([^"]*)"/)![1];
+      expect(d.match(/Z/g)).toHaveLength(3);
+      expect(d).not.toMatch(/NaN|undefined/);
+
+      const n = path(svg, "marking-teeth");
+      const xs = n.filter((_, i) => i % 2 === 0);
+      const ys = n.filter((_, i) => i % 2 === 1);
+      // Centred on the position, GIVE_WAY_DEPTH deep, and wholly inside lane 0.
+      expect(Math.min(...xs)).toBeCloseTo(ALONG - GIVE_WAY_DEPTH / 2);
+      expect(Math.max(...xs)).toBeCloseTo(ALONG + GIVE_WAY_DEPTH / 2);
+      expect(Math.min(...ys)).toBeGreaterThan(4.5);
+      expect(Math.max(...ys)).toBeLessThan(13.5);
+    });
+
+    it("draws a crossing as stripes running along the road", () => {
+      const svg = renderToStaticMarkup(
+        <Diagram doc={repainted({ type: "crosswalk" })} />,
+      );
+
+      expect(svg).toContain('<g class="marking marking-crosswalk">');
+      const n = path(svg, "marking-zebra");
+      const xs = n.filter((_, i) => i % 2 === 0);
+      const ys = n.filter((_, i) => i % 2 === 1);
+
+      expect(Math.min(...xs)).toBeCloseTo(ALONG - CROSSWALK_DEPTH / 2);
+      expect(Math.max(...xs)).toBeCloseTo(ALONG + CROSSWALK_DEPTH / 2);
+      expect(Math.min(...ys)).toBeGreaterThan(4.5);
+      expect(Math.max(...ys)).toBeLessThan(13.5);
+    });
+
+    /**
+     * **The placeholder, pinned so Phase 4 has to change it deliberately.**
+     * `turn_arrow` and `lane_line` are pickable in the Inspector before they have
+     * any geometry, and a marking that paints nothing is an object on the canvas
+     * that can only be found by accident. Its class token already says which kind
+     * it is.
+     */
+    it("falls back to the bar for a kind that has no geometry yet", () => {
+      for (const kind of [
+        { type: "lane_line", style: "solid" },
+        { type: "turn_arrow", directions: ["through"] },
+      ] as Marking["kind"][]) {
+        const svg = renderToStaticMarkup(<Diagram doc={repainted(kind)} />);
+
+        expect(svg).toContain(`class="marking-bar" d="M ${ALONG} 4.5 L ${ALONG} 13.5"`);
+        expect(svg).not.toMatch(/marking-teeth|marking-zebra/);
+      }
+    });
+
+    /**
+     * The hit target and the halo are the anchor's transverse bar whatever the
+     * marking paints, so selecting one feels the same for every kind — and a
+     * `stop_line`'s markup is exactly what Phase 1 emitted.
+     */
+    it("keeps the same hit target and halo whatever the kind paints", () => {
+      const bar = `d="M ${ALONG} 4.5 L ${ALONG} 13.5"`;
+      const selected: Interaction = {
+        ...interaction(),
+        selection: { kind: "marking", id: "M1" },
+      };
+
+      for (const kind of [
+        { type: "stop_line" },
+        { type: "give_way_line" },
+        { type: "crosswalk" },
+      ] as Marking["kind"][]) {
+        const svg = renderToStaticMarkup(
+          <Diagram doc={repainted(kind)} interaction={selected} />,
+        );
+
+        expect(svg).toContain(`class="marking-hit" ${bar}`);
+        expect(svg).toContain(`class="marking-halo" ${bar}`);
+      }
+    });
+
+    it("skips a give-way line and a crossing on the same terms as a bar", () => {
+      for (const kind of [
+        { type: "give_way_line" },
+        { type: "crosswalk" },
+      ] as Marking["kind"][]) {
+        const svg = renderToStaticMarkup(
+          <Diagram doc={withMarkings(marked(0), [
+            { id: "M1", link: "L1", position: 14, lane: 7, kind },
+          ])} />,
+        );
+
+        expect(svg).not.toContain("marking");
+        expect(svg).not.toMatch(/NaN|undefined|Infinity/);
+      }
+    });
   });
 
   /**

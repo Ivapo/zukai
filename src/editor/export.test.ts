@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Document, LinkStyle } from "../model/types";
+import { Document, LinkStyle, MarkingKind } from "../model/types";
 import {
   EXPORT_PAD,
   diagramInner,
@@ -428,13 +428,11 @@ describe("gores in an exported file", () => {
 
 describe("road markings in an exported file", () => {
   /** §1's approach: a 3-lane arterial with a stop line in its kerb lane. */
-  function painted(): Document {
+  function painted(kind: MarkingKind = { type: "stop_line" }): Document {
     const base = road(3);
     return {
       ...base,
-      markings: [
-        { id: "M1", link: "L1", position: 14, lane: 0, kind: { type: "stop_line" } },
-      ],
+      markings: [{ id: "M1", link: "L1", position: 14, lane: 0, kind }],
     };
   }
 
@@ -471,6 +469,29 @@ describe("road markings in an exported file", () => {
     expect(diagramInner(painted())).not.toMatch(/<text[\s>]|<tspan[\s>]/);
     // And the stylesheet names no font either, so nothing can resolve to one.
     expect(embeddedCss(svg)).not.toMatch(/@font-face|font-family/);
+  });
+
+  /**
+   * The tiled kinds travel on the same terms: their paint is a rule in
+   * `diagram.css` like every other, and their geometry is polygons, so nothing
+   * about them reaches outside the file.
+   */
+  it("carries a give-way line and a crossing too", () => {
+    for (const [kind, cls] of [
+      [{ type: "give_way_line" }, "marking-teeth"],
+      [{ type: "crosswalk" }, "marking-zebra"],
+    ] as [MarkingKind, string][]) {
+      const doc = painted(kind);
+      const svg = diagramSvg(doc, { x: 0, y: 0, width: 120, height: 40 });
+
+      expect(svg).toContain(`class="${cls}"`);
+      expect(embeddedCss(svg)).toContain(`.${cls}`);
+      expect(svg).not.toMatch(/<text[\s>]|<tspan[\s>]|font-family/);
+      expect(embeddedCss(svg)).not.toContain("url(");
+      expect(svg).not.toMatch(CHROME);
+      // And no widening: every marking is inside the road it is painted on.
+      expect(strokeAllowance(doc)).toBe(strokeAllowance(road(3)));
+    }
   });
 });
 

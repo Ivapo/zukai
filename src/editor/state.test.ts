@@ -745,4 +745,115 @@ describe("markings", () => {
       expect(next.selection).toBeNull();
     });
   });
+
+  /** The Inspector's Kind picker and Span control (markings spec Phase 2). */
+  describe("what a marking paints, and what it spans", () => {
+    it("repaints a marking without moving it or changing what it spans", () => {
+      const next = reducer(painted(3, 1), {
+        type: "setMarkingKind",
+        id: "M1",
+        kind: { type: "crosswalk" },
+      });
+
+      expect(next.doc.markings[0]).toEqual({
+        id: "M1",
+        link: "L1",
+        position: 20,
+        lane: 1,
+        kind: { type: "crosswalk" },
+      });
+      expect(next.dirty).toBe(true);
+    });
+
+    /**
+     * The absent-key case, which a spread preserves only because the action never
+     * names `lane`: writing `{ ...m, lane: m.lane, kind }` would give a
+     * carriageway-wide marking an explicit `undefined` and a second encoding of
+     * itself, which saves to the same bytes but differs by document identity.
+     */
+    it("leaves a carriageway-wide marking carriageway-wide across a repaint", () => {
+      const marking = reducer(painted(3, "all"), {
+        type: "setMarkingKind",
+        id: "M1",
+        kind: { type: "give_way_line" },
+      }).doc.markings[0];
+
+      expect("lane" in marking).toBe(false);
+      expect(marking.kind).toEqual({ type: "give_way_line" });
+    });
+
+    it("carries a kind's own payload, so no second action sets it", () => {
+      const marking = reducer(painted(), {
+        type: "setMarkingKind",
+        id: "M1",
+        kind: { type: "turn_arrow", directions: ["left", "through"] },
+      }).doc.markings[0];
+
+      expect(marking.kind).toEqual({
+        type: "turn_arrow",
+        directions: ["left", "through"],
+      });
+    });
+
+    /**
+     * The deliberate route to `lane: undefined`, which placement can otherwise
+     * reach only by clicking the 1.5-unit casing lip (§2.4). **Absent, never
+     * `undefined`** — the one-representation rule every optional field follows.
+     */
+    it("spans the whole carriageway, and back to a lane, without moving", () => {
+      const wide = reducer(painted(3, 2), {
+        type: "setMarkingLane",
+        id: "M1",
+        lane: undefined,
+      });
+      expect("lane" in wide.doc.markings[0]).toBe(false);
+      expect(wide.doc.markings[0].position).toBe(20);
+
+      const narrow = reducer(wide, { type: "setMarkingLane", id: "M1", lane: 0 });
+      expect(narrow.doc.markings[0].lane).toBe(0);
+      expect(narrow.doc.markings[0].position).toBe(20);
+      expect(narrow.doc.markings[0].kind).toEqual({ type: "stop_line" });
+    });
+
+    it("is undoable a step at a time, like every other deliberate click", () => {
+      const wide = reducer(painted(3, 2), {
+        type: "setMarkingLane",
+        id: "M1",
+        lane: undefined,
+      });
+      const back = reducer(wide, { type: "setMarkingLane", id: "M1", lane: 1 });
+
+      expect(reducer(back, { type: "undo" }).doc.markings[0].lane).toBeUndefined();
+      expect(
+        reducer(reducer(back, { type: "undo" }), { type: "undo" }).doc.markings[0]
+          .lane,
+      ).toBe(2);
+    });
+
+    /**
+     * Both no-ops matter **by identity**: a rebuilt `doc` that changed nothing
+     * dirties the file and pushes an undo snapshot, which is the trap
+     * `rules/history.md` names.
+     */
+    it("is a no-op, by identity, on a marking that is not there", () => {
+      const start = painted();
+      for (const action of [
+        { type: "setMarkingKind", id: "M9", kind: { type: "crosswalk" } },
+        { type: "setMarkingLane", id: "M9", lane: 1 },
+      ] as const) {
+        expect(reducer(start, action).doc).toBe(start.doc);
+      }
+    });
+
+    it("is a no-op on a lane the link does not have", () => {
+      const start = painted(2, 0);
+
+      expect(reducer(start, { type: "setMarkingLane", id: "M1", lane: 2 }).doc).toBe(
+        start.doc,
+      );
+      expect(reducer(start, { type: "setMarkingLane", id: "M1", lane: -1 }).doc).toBe(
+        start.doc,
+      );
+    });
+  });
 });

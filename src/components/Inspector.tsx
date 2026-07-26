@@ -11,10 +11,12 @@ import {
 import {
   JunctionGlyph,
   Lane,
+  LaneIdx,
   LaneKind,
   LinkAlign,
   LinkId,
   LinkStyle,
+  Marking,
   MarkingKind,
   Node,
   NodeKind,
@@ -46,7 +48,7 @@ const LANE_KINDS: { value: LaneKind; label: string }[] = [
 /**
  * How each kind of paint is named in the panel. Exhaustive over `MarkingKind`, so
  * a kind added to the model without a label here will not build — the Kind picker
- * of Phase 2 reads the same table.
+ * reads the same table.
  */
 const MARKING_KINDS: Record<MarkingKind["type"], string> = {
   stop_line: "Stop line",
@@ -57,6 +59,24 @@ const MARKING_KINDS: Record<MarkingKind["type"], string> = {
   hatching: "Hatching",
   text: "Text",
 };
+/**
+ * The kinds the picker offers, in order, each carrying the payload a fresh pick
+ * starts from — `setMarkingKind` takes a whole `MarkingKind`, so the default for
+ * a turn arrow's directions and a lane line's style belongs here rather than in
+ * the reducer.
+ *
+ * A **separate list** from the labels above rather than a reordering of them, so
+ * that table stays exhaustive: `hatching` is an area and `text` needs a font, and
+ * both are out of scope (markings spec §2.8, §2.10) — but a hand-edited document
+ * can still carry either, and the panel has to be able to name what it is showing.
+ */
+const MARKING_PICKER: MarkingKind[] = [
+  { type: "stop_line" },
+  { type: "give_way_line" },
+  { type: "crosswalk" },
+  { type: "turn_arrow", directions: ["through"] },
+  { type: "lane_line", style: "solid" },
+];
 const GLYPHS: { value: JunctionGlyph; label: string }[] = [
   { value: "generic", label: "Plain" },
   { value: "roundabout", label: "Roundabout" },
@@ -125,11 +145,12 @@ export function Inspector({ state, dispatch }: InspectorProps) {
   // `type X = string`, so without this a marking selection would fall through to
   // the link branch below, miss `findLink`, and render the blank `<aside>` —
   // not a wrong panel but *no* panel, with nothing to say why (markings §2.6).
-  //
-  // Read-only at this phase: the Kind picker and Span control are Phase 2.
   if (selection.kind === "marking") {
     const marking = findMarking(doc, selection.id);
     if (!marking) return <aside className="inspector" />;
+    // A marking whose link is gone draws nothing and cannot be spanned across
+    // lanes it has no count for; the panel falls back to reporting what it has.
+    const lanes = findLink(doc, marking.link)?.lanes.length;
     return (
       <aside className="inspector">
         <div className="inspector-head">
@@ -138,7 +159,7 @@ export function Inspector({ state, dispatch }: InspectorProps) {
         </div>
 
         <Field label="Paint">
-          <div className="readout">{MARKING_KINDS[marking.kind.type]}</div>
+          <MarkingKindPicker marking={marking} lanes={lanes} dispatch={dispatch} />
         </Field>
 
         <Field label="Road">
@@ -146,11 +167,15 @@ export function Inspector({ state, dispatch }: InspectorProps) {
         </Field>
 
         <Field label="Span">
-          <div className="readout">
-            {marking.lane === undefined
-              ? "Whole carriageway"
-              : `Lane ${marking.lane}`}
-          </div>
+          {lanes === undefined ? (
+            <div className="readout">
+              {marking.lane === undefined
+                ? "Whole carriageway"
+                : `Lane ${marking.lane}`}
+            </div>
+          ) : (
+            <MarkingSpan marking={marking} lanes={lanes} dispatch={dispatch} />
+          )}
         </Field>
 
         <Field label="Position">
@@ -246,6 +271,98 @@ export function Inspector({ state, dispatch }: InspectorProps) {
         Delete link
       </button>
     </aside>
+  );
+}
+
+/**
+ * What this marking paints — the control that turns the `stop_line` every
+ * placement mints into anything else (markings spec §2.4).
+ *
+ * **`lane_line` is withheld while `lane` names the offside-most lane.** A lane
+ * line's `lane` names a *boundary*, and `n` lanes have only `n-1` of them, so
+ * `lane = n-1` names none: the renderer would skip it and the drawing would
+ * silently lose a line the user just asked for (§2.3). The remedy is to set a
+ * valid span first, not to re-home the marking behind their back.
+ */
+function MarkingKindPicker({
+  marking,
+  lanes,
+  dispatch,
+}: {
+  marking: Marking;
+  lanes: number | undefined;
+  dispatch: (action: Action) => void;
+}) {
+  const onLastLane =
+    marking.lane !== undefined && lanes !== undefined && marking.lane >= lanes - 1;
+  return (
+    <div className="segmented segmented-wrap segmented-labels segmented-kinds">
+      {MARKING_PICKER.filter(
+        (k) => k.type !== "lane_line" || !onLastLane,
+      ).map((k) => (
+        <button
+          key={k.type}
+          className={`seg${marking.kind.type === k.type ? " is-active" : ""}`}
+          onClick={() =>
+            dispatch({ type: "setMarkingKind", id: marking.id, kind: k })
+          }
+        >
+          {MARKING_KINDS[k.type]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * What the marking spans, and **the deliberate route to a carriageway-wide
+ * marking** — which placement can otherwise only reach by clicking the 1.5-unit
+ * casing lip, a gesture nobody finds (§2.4).
+ *
+ * Kind-aware, in the two ways §2.3 and §2.7 require:
+ *
+ * - a **`lane_line` names a boundary, not a lane**, so it offers `Centreline`
+ *   plus `0|1 … n-2|n-1` — one fewer entry than there are lanes;
+ * - a **`turn_arrow` has no carriageway-wide meaning**, so it offers lanes only.
+ *   Switching a carriageway-wide marking to one preserves its absent `lane`, so
+ *   no entry reads as active until a lane is picked; it draws in the nearside
+ *   lane meanwhile.
+ */
+function MarkingSpan({
+  marking,
+  lanes,
+  dispatch,
+}: {
+  marking: Marking;
+  lanes: number;
+  dispatch: (action: Action) => void;
+}) {
+  const boundaries = marking.kind.type === "lane_line";
+  const count = boundaries ? lanes - 1 : lanes;
+  const wide = boundaries ? "Centreline" : "Whole carriageway";
+  const set = (lane: LaneIdx | undefined) =>
+    dispatch({ type: "setMarkingLane", id: marking.id, lane });
+
+  return (
+    <div className="segmented segmented-wrap segmented-labels">
+      {marking.kind.type !== "turn_arrow" && (
+        <button
+          className={`seg seg-wide${marking.lane === undefined ? " is-active" : ""}`}
+          onClick={() => set(undefined)}
+        >
+          {wide}
+        </button>
+      )}
+      {Array.from({ length: Math.max(0, count) }, (_, i) => (
+        <button
+          key={i}
+          className={`seg${marking.lane === i ? " is-active" : ""}`}
+          onClick={() => set(i)}
+        >
+          {boundaries ? `${i}|${i + 1}` : i}
+        </button>
+      ))}
+    </div>
   );
 }
 

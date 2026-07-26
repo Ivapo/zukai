@@ -399,6 +399,31 @@ body {
   color: #241f00;
 }
 
+/* The marking panel's two controls. Both come after `.seg` and out-specify it,
+   because `flex: 1` is shorthand for `flex: 1 1 0%` and would otherwise win the
+   basis back. */
+
+/* `.seg` capitalizes every word, which suits the one-word labels the node kinds
+   and junction glyphs use. These are the first segments with a phrase for a
+   label ("Give-way line", "Whole carriageway"), and title-casing a phrase reads
+   as a heading rather than as a choice. */
+.segmented-labels .seg {
+  text-transform: none;
+}
+
+/* Two kinds to a row. Five across a 240px panel leaves 40px a button, which
+   wraps "Give-way line" onto three lines and makes the picker a wall of text. */
+.segmented-kinds .seg {
+  flex-basis: calc(50% - 3px);
+}
+
+/* The span's whole-carriageway option takes its own row above the numbered
+   lanes: it is the odd one out semantically, and sharing a row with up to eight
+   one-character buttons squeezes both it and them. */
+.segmented .seg-wide {
+  flex-basis: 100%;
+}
+
 .direction {
   font-family: "Overpass Mono", monospace;
   font-size: 13px;
