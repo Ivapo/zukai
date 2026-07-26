@@ -52,7 +52,23 @@ dispatches `setView`, which also resets the key, so one drag becomes two undo st
 
 Discrete clicks never coalesce. The Lanes and junction Size steppers are ±1 /
 ±0.25 per click, so N clicks are N undo steps — deliberate, since this design has
-no time or focus boundary that could close such a gesture.
+no time or focus boundary that could close such a gesture. `addMarking` is
+discrete too: placing three stop lines across a carriageway is three undo steps,
+which is the honest reading of three deliberate clicks.
+
+## The trap on the other side: an action that deletes nothing must return the doc
+
+`recordHistory` decides everything from document **identity**, so an action that
+rebuilds `doc` while changing nothing in it pushes a snapshot and dirties the
+file for no visible change. `deleteSelection` had exactly that bug the moment
+`Selection` grew a third arm: a marking selection fell into the **node** branch,
+which filters no marking out and still spreads a fresh `doc`.
+
+So every arm that may remove nothing has to preserve identity deliberately — the
+marking arm returns `doc` itself when the id is not there, and `keepMarkings`
+returns the *same array* when its filter drops nothing, so history snapshots keep
+sharing it. `state.test.ts` asserts both. See `rules/road-markings.md`, "What
+removes a marking".
 
 ## What resets history, and what must not touch it
 

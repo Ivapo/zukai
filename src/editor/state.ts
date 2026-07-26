@@ -5,6 +5,7 @@ import {
   defaultLane,
   emptyDocument,
   findLink,
+  findMarking,
   findNode,
   nextId,
   normalizeDocument,
@@ -19,6 +20,8 @@ import {
   LinkAlign,
   LinkId,
   LinkStyle,
+  Marking,
+  MarkingId,
   NodeId,
   NodeKind,
   Vec2,
@@ -26,12 +29,13 @@ import {
 import { IDENTITY_VIEW, ViewTransform } from "./geometry";
 
 /** The active drawing tool. */
-export type Tool = "select" | "node" | "link";
+export type Tool = "select" | "node" | "link" | "marking";
 
 /** What is currently selected on the canvas. */
 export type Selection =
   | { kind: "node"; id: NodeId }
-  | { kind: "link"; id: LinkId };
+  | { kind: "link"; id: LinkId }
+  | { kind: "marking"; id: MarkingId };
 
 /** The complete editor state. */
 export interface EditorState {
@@ -97,6 +101,7 @@ export type EditAction =
   | { type: "setLaneKind"; id: LinkId; lane: LaneIdx; kind: LaneKind }
   | { type: "setLinkStyle"; id: LinkId; style: LinkStyle }
   | { type: "setLinkAlign"; id: LinkId; align: LinkAlign }
+  | { type: "addMarking"; link: LinkId; position: number; lane?: LaneIdx }
   | { type: "select"; selection: Selection | null }
   | { type: "deleteSelection" };
 
@@ -275,12 +280,41 @@ function restore(
   };
 }
 
-/** Whether a selection still refers to something present in `doc`. */
+/**
+ * Whether a selection still refers to something present in `doc`.
+ *
+ * A `switch` rather than the ternary this was, because **the compiler is no help
+ * here**: every id is a bare `type X = string`, so `MarkingId` and `LinkId` are
+ * the same type and a new `Selection` arm falls silently through a binary test.
+ * That miss cost a marking selection its survival across every undo and redo
+ * (markings spec §2.6).
+ */
 function selectionValid(doc: Document, sel: Selection | null): boolean {
   if (!sel) return false;
-  return sel.kind === "node"
-    ? findNode(doc, sel.id) !== undefined
-    : findLink(doc, sel.id) !== undefined;
+  switch (sel.kind) {
+    case "node":
+      return findNode(doc, sel.id) !== undefined;
+    case "link":
+      return findLink(doc, sel.id) !== undefined;
+    case "marking":
+      return findMarking(doc, sel.id) !== undefined;
+    default:
+      return unreachable(sel);
+  }
+}
+
+/**
+ * The `never`-typed guard that makes a `Selection` `switch` exhaustive: adding a
+ * fourth arm without handling it fails to type-check at the call site.
+ *
+ * A function rather than `const _: never = sel`, because `tsconfig.json` sets
+ * `noUnusedLocals`. It cannot actually run — `Selection` values are built only by
+ * this module and the components that dispatch `select`, and a loaded document
+ * resets the selection to `null` — so the throw documents an impossibility rather
+ * than handling degenerate input.
+ */
+function unreachable(x: never): never {
+  throw new Error(`unhandled selection kind: ${JSON.stringify(x)}`);
 }
 
 /** Apply an editing action; leaves `dirty`/`currentPath` to {@link reducer}. */
@@ -330,6 +364,9 @@ function editReducer(state: EditorState, action: EditAction): EditorState {
 
     case "setLinkAlign":
       return setLinkAlign(state, action.id, action.align);
+
+    case "addMarking":
+      return addMarking(state, action.link, action.position, action.lane);
 
     case "select":
       return { ...state, selection: action.selection };
@@ -502,7 +539,72 @@ function setLinkLanes(
             }
           : l,
       ),
+      // A marking on a lane this shrink removed is **dropped, not clamped** to a
+      // surviving lane: a turn arrow that silently moves lane is worse than one
+      // that goes away, because the drawing still looks deliberate (markings
+      // spec §2.5). Same scar as the lane `kind` this control used to destroy.
+      markings: keepMarkings(
+        doc.markings,
+        (m) => m.link !== id || m.lane === undefined || m.lane < n,
+      ),
     },
+  };
+}
+
+/**
+ * `markings` filtered by `keep`, returning **the same array** when nothing is
+ * dropped.
+ *
+ * The identity matters twice over: a document with no marking must share the
+ * array with its history snapshots the way `rules/history.md` assumes, and the
+ * marking arm of {@link deleteSelection} must be able to leave `doc` itself
+ * untouched — a fresh array there would dirty the document and push an undo
+ * snapshot while deleting nothing.
+ */
+function keepMarkings(
+  markings: Marking[],
+  keep: (m: Marking) => boolean,
+): Marking[] {
+  const kept = markings.filter(keep);
+  return kept.length === markings.length ? markings : kept;
+}
+
+/**
+ * Paint a marking on a link, at `position` **metres** along it.
+ *
+ * Always a `stop_line`: one kind is all the renderer draws, and the Inspector's
+ * Kind picker is what turns it into another, so there is no kind argument and no
+ * placement dialog (markings spec §2.4). `lane` absent means the whole
+ * carriageway, and is **omitted** rather than stored as `undefined` — the one
+ * representation rule {@link setLaneKind} and {@link setLinkAlign} already
+ * follow, matching Rust's `skip_serializing_if = "Option::is_none"`.
+ *
+ * An unknown link returns `state` itself, so {@link recordHistory} records
+ * nothing and `dirty` stays put.
+ */
+function addMarking(
+  state: EditorState,
+  link: LinkId,
+  position: number,
+  lane: LaneIdx | undefined,
+): EditorState {
+  const { doc } = state;
+  if (!findLink(doc, link)) return state;
+  const id = nextId(
+    doc.markings.map((m) => m.id),
+    "M",
+  );
+  const marking: Marking = {
+    id,
+    link,
+    position,
+    ...(lane === undefined ? {} : { lane }),
+    kind: { type: "stop_line" },
+  };
+  return {
+    ...state,
+    doc: { ...doc, markings: [...doc.markings, marking] },
+    selection: { kind: "marking", id },
   };
 }
 
@@ -596,50 +698,89 @@ function setLinkAlign(
   };
 }
 
+/**
+ * Remove whatever is selected, and everything that only existed because of it.
+ *
+ * A `switch` with a `never`-checked default rather than the `kind === "link"`
+ * test this was: a marking selection took the **node** arm, which filters nothing
+ * out and yet returns a freshly built `doc` — dirtying the document and pushing
+ * an undo snapshot while deleting nothing (markings spec §2.6). Nothing about
+ * that is a build error, since every id is a bare `string`.
+ *
+ * **A marking must not outlive the road it is painted on.** Left alone it would
+ * be invisible (nothing draws a marking whose link is gone), saved (`markings` is
+ * serialized whatever it references) and permanent, so the file grows a ghost per
+ * deleted road (§2.5). Both the link arm and the node arm drop them.
+ */
 function deleteSelection(state: EditorState): EditorState {
   const { doc, selection } = state;
   if (!selection) return state;
 
-  if (selection.kind === "link") {
-    const links = { ...doc.layout.links };
-    delete links[selection.id];
-    return {
-      ...state,
-      doc: {
-        ...doc,
-        links: doc.links.filter((l) => l.id !== selection.id),
-        layout: { ...doc.layout, links },
-      },
-      selection: null,
-    };
-  }
+  switch (selection.kind) {
+    case "link": {
+      const links = { ...doc.layout.links };
+      delete links[selection.id];
+      return {
+        ...state,
+        doc: {
+          ...doc,
+          links: doc.links.filter((l) => l.id !== selection.id),
+          layout: { ...doc.layout, links },
+          markings: keepMarkings(doc.markings, (m) => m.link !== selection.id),
+        },
+        selection: null,
+      };
+    }
 
-  // Deleting a node also removes its incident links and any junction record.
-  const id = selection.id;
-  const nodeViews = { ...doc.layout.nodes };
-  delete nodeViews[id];
-  const junctionViews = { ...doc.layout.junctions };
-  delete junctionViews[id];
-  const linkViews = { ...doc.layout.links };
-  const links = doc.links.filter((l) => {
-    const incident = l.from_node === id || l.to_node === id;
-    if (incident) delete linkViews[l.id];
-    return !incident;
-  });
-  return {
-    ...state,
-    doc: {
-      ...doc,
-      nodes: doc.nodes.filter((n) => n.id !== id),
-      links,
-      junctions: doc.junctions.filter((j) => j.node_id !== id),
-      layout: {
-        ...doc.layout,
-        nodes: nodeViews,
-        links: linkViews,
-        junctions: junctionViews,
-      },
-    },
-    selection: null,
-  };
+    case "marking": {
+      // The one arm that can leave `doc` alone: deleting a marking that is
+      // already gone must not dirty the document (see {@link keepMarkings}).
+      const markings = keepMarkings(doc.markings, (m) => m.id !== selection.id);
+      return {
+        ...state,
+        doc: markings === doc.markings ? doc : { ...doc, markings },
+        selection: null,
+      };
+    }
+
+    case "node": {
+      // Deleting a node also removes its incident links, their markings, and any
+      // junction record.
+      const id = selection.id;
+      const nodeViews = { ...doc.layout.nodes };
+      delete nodeViews[id];
+      const junctionViews = { ...doc.layout.junctions };
+      delete junctionViews[id];
+      const linkViews = { ...doc.layout.links };
+      const dropped = new Set<LinkId>();
+      const links = doc.links.filter((l) => {
+        const incident = l.from_node === id || l.to_node === id;
+        if (incident) {
+          delete linkViews[l.id];
+          dropped.add(l.id);
+        }
+        return !incident;
+      });
+      return {
+        ...state,
+        doc: {
+          ...doc,
+          nodes: doc.nodes.filter((n) => n.id !== id),
+          links,
+          junctions: doc.junctions.filter((j) => j.node_id !== id),
+          layout: {
+            ...doc.layout,
+            nodes: nodeViews,
+            links: linkViews,
+            junctions: junctionViews,
+          },
+          markings: keepMarkings(doc.markings, (m) => !dropped.has(m.link)),
+        },
+        selection: null,
+      };
+    }
+
+    default:
+      return unreachable(selection);
+  }
 }

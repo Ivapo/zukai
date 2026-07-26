@@ -514,3 +514,235 @@ describe("undo / redo", () => {
     expect(state.past[0].nodes).toHaveLength(5);
   });
 });
+
+describe("markings", () => {
+  /**
+   * `twoNodesLinked` with `n` lanes and a stop line placed on `lane` — `"all"`
+   * for the whole carriageway. A sentinel rather than `undefined`, which a
+   * default parameter would silently replace with lane 0.
+   */
+  function painted(n = 3, lane: number | "all" = 0): EditorState {
+    return run(
+      twoNodesLinked(),
+      { type: "setLinkLanes", id: "L1", count: n },
+      {
+        type: "addMarking",
+        link: "L1",
+        position: 20,
+        lane: lane === "all" ? undefined : lane,
+      },
+    );
+  }
+
+  it("mints a stop_line on the link, and selects it", () => {
+    const state = painted();
+
+    expect(state.doc.markings).toEqual([
+      { id: "M1", link: "L1", position: 20, lane: 0, kind: { type: "stop_line" } },
+    ]);
+    expect(state.selection).toEqual({ kind: "marking", id: "M1" });
+    expect(state.dirty).toBe(true);
+  });
+
+  /**
+   * `lane` absent means the whole carriageway, and is **omitted** rather than
+   * stored as `undefined` — the one-representation rule `setLaneKind` follows for
+   * `general` and `setLinkAlign` for `centre`, matching Rust's
+   * `skip_serializing_if = "Option::is_none"`.
+   */
+  it("stores a carriageway-wide marking as no lane key at all", () => {
+    const marking = painted(3, "all").doc.markings[0];
+
+    expect(marking.lane).toBeUndefined();
+    expect("lane" in marking).toBe(false);
+  });
+
+  it("mints ids one past the highest already in use", () => {
+    const two = run(painted(), {
+      type: "addMarking",
+      link: "L1",
+      position: 30,
+      lane: 2,
+    });
+
+    expect(two.doc.markings.map((m) => m.id)).toEqual(["M1", "M2"]);
+  });
+
+  it("is a no-op, by identity, on a link that does not exist", () => {
+    const start = twoNodesLinked();
+    const next = reducer(start, { type: "addMarking", link: "L9", position: 5 });
+
+    expect(next.doc).toBe(start.doc);
+    expect(next.dirty).toBe(start.dirty);
+  });
+
+  it("is undoable like any other edit", () => {
+    const undone = reducer(painted(), { type: "undo" });
+
+    expect(undone.doc.markings).toEqual([]);
+    expect(reducer(undone, { type: "redo" }).doc.markings).toHaveLength(1);
+  });
+
+  /**
+   * A document that never placed one still has an empty array — the byte-level
+   * elision is Rust serde's `skip_serializing_if = "Vec::is_empty"`, already
+   * covered by the persistence tests. This is the TypeScript-side half.
+   */
+  it("leaves markings empty in a document that never placed one", () => {
+    expect(initialState().doc.markings).toEqual([]);
+    expect(twoNodesLinked().doc.markings).toEqual([]);
+  });
+
+  describe("a marking does not outlive its road", () => {
+    it("goes with the link it is painted on", () => {
+      const gone = run(
+        painted(),
+        { type: "select", selection: { kind: "link", id: "L1" } },
+        { type: "deleteSelection" },
+      );
+
+      expect(gone.doc.links).toEqual([]);
+      expect(gone.doc.markings).toEqual([]);
+    });
+
+    it("goes with a node whose deletion takes the link with it", () => {
+      const gone = run(
+        painted(),
+        { type: "select", selection: { kind: "node", id: "N2" } },
+        { type: "deleteSelection" },
+      );
+
+      expect(gone.doc.links).toEqual([]);
+      expect(gone.doc.markings).toEqual([]);
+      // The other node is untouched: only the incident links and their paint go.
+      expect(gone.doc.nodes.map((n) => n.id)).toEqual(["N1"]);
+    });
+
+    it("survives a node deletion that does not remove its link", () => {
+      const other = run(
+        painted(),
+        { type: "addNode", pos: { x: 50, y: 50 } },
+        { type: "select", selection: { kind: "node", id: "N3" } },
+        { type: "deleteSelection" },
+      );
+
+      expect(other.doc.markings).toHaveLength(1);
+    });
+
+    /**
+     * **Dropped, not clamped to a surviving lane.** A marking that silently moved
+     * to a different lane is worse than one that goes away, because the drawing
+     * still looks deliberate (markings spec §2.5) — the same class of bug the
+     * Lanes stepper already had with `Lane.kind`.
+     */
+    it("goes when the lane count shrinks past its lane", () => {
+      const shrunk = reducer(painted(4, 3), {
+        type: "setLinkLanes",
+        id: "L1",
+        count: 2,
+      });
+
+      expect(shrunk.doc.markings).toEqual([]);
+    });
+
+    it("stays when the lane count shrinks but not past it", () => {
+      const shrunk = reducer(painted(4, 1), {
+        type: "setLinkLanes",
+        id: "L1",
+        count: 2,
+      });
+
+      expect(shrunk.doc.markings).toHaveLength(1);
+      expect(shrunk.doc.markings[0].lane).toBe(1);
+    });
+
+    it("keeps a carriageway-wide marking through any lane count", () => {
+      const shrunk = reducer(painted(4, "all"), {
+        type: "setLinkLanes",
+        id: "L1",
+        count: 1,
+      });
+
+      expect(shrunk.doc.markings).toHaveLength(1);
+    });
+
+    it("leaves markings on other links alone", () => {
+      const two = run(
+        painted(),
+        { type: "addNode", pos: { x: 20, y: 20 } },
+        { type: "startLink", from: "N2" },
+        { type: "completeLink", to: "N3" },
+        { type: "addMarking", link: "L2", position: 5 },
+        { type: "select", selection: { kind: "link", id: "L1" } },
+        { type: "deleteSelection" },
+      );
+
+      expect(two.doc.markings.map((m) => m.link)).toEqual(["L2"]);
+    });
+  });
+
+  /**
+   * The three failures of markings spec §2.6, **none of which is a build error**.
+   * Every id is a bare `type X = string`, so `MarkingId` and `LinkId` are the
+   * same type, and the four sites that narrow on `Selection` all did so with a
+   * binary `if`/ternary whose `else` was an implicit fall-through. The new arm
+   * compiled clean and misrouted silently.
+   */
+  describe("the third Selection arm, which the compiler does not police", () => {
+    it("survives undo and redo (selectionValid)", () => {
+      const state = run(painted(), { type: "setLinkLanes", id: "L1", count: 4 });
+      // Re-select the marking: the lane bump selected nothing, but the stepper
+      // pushed a snapshot to undo back over.
+      const selected = reducer(state, {
+        type: "select",
+        selection: { kind: "marking", id: "M1" },
+      });
+
+      const undone = reducer(selected, { type: "undo" });
+      expect(undone.selection).toEqual({ kind: "marking", id: "M1" });
+
+      const redone = reducer(undone, { type: "redo" });
+      expect(redone.selection).toEqual({ kind: "marking", id: "M1" });
+    });
+
+    it("drops the selection when the undo removes the marking", () => {
+      const undone = reducer(painted(), { type: "undo" });
+
+      expect(undone.doc.markings).toEqual([]);
+      expect(undone.selection).toBeNull();
+    });
+
+    it("deletes exactly the marking, leaving nodes and links untouched", () => {
+      const start = painted();
+      const gone = reducer(start, { type: "deleteSelection" });
+
+      expect(gone.doc.markings).toEqual([]);
+      expect(gone.doc.nodes).toBe(start.doc.nodes);
+      expect(gone.doc.links).toBe(start.doc.links);
+      expect(gone.doc.layout).toBe(start.doc.layout);
+      expect(gone.selection).toBeNull();
+    });
+
+    /**
+     * Without an explicit arm this took the **node** branch, which filters
+     * nothing out and still returns a freshly built `doc` — dirtying the document
+     * and pushing an undo snapshot while deleting nothing.
+     */
+    it("does not dirty the document when the marking is already gone", () => {
+      const stale: EditorState = {
+        ...twoNodesLinked(),
+        selection: { kind: "marking", id: "M7" },
+        dirty: false,
+        past: [],
+      };
+
+      const next = reducer(stale, { type: "deleteSelection" });
+
+      expect(next.doc).toBe(stale.doc);
+      expect(next.dirty).toBe(false);
+      expect(next.past).toEqual([]);
+      // The stale selection is cleared even so — there is nothing to point at.
+      expect(next.selection).toBeNull();
+    });
+  });
+});

@@ -266,6 +266,27 @@ body {
   opacity: 0.6;
 }
 
+/* ----- road markings ----- */
+/* The painted bar itself is in `styles/diagram.css`. */
+
+.marking-hit {
+  fill: none;
+  stroke: transparent;
+  cursor: pointer;
+}
+
+/* Butt caps, like the bar it sits under — `.road-halo` takes round ones because
+   the road does, and the rule is the same both times: a halo matches the shape
+   it highlights. Round caps here would balloon past the lane the marking spans,
+   over the divider into the next lane and past the edge line onto the verge,
+   which misreports the span at exactly the moment the user is looking at it. */
+.marking-halo {
+  fill: none;
+  stroke: var(--paint-yellow);
+  stroke-linecap: butt;
+  opacity: 0.55;
+}
+
 /* ----- nodes ----- */
 
 .node {
@@ -387,6 +408,14 @@ body {
 .direction .arrow {
   color: var(--paint-yellow);
   margin: 0 4px;
+}
+
+/* A field the panel only reports. `.direction`'s treatment without the assumption
+   that it holds two node ids and an arrow. */
+.readout {
+  font-family: "Overpass Mono", monospace;
+  font-size: 13px;
+  color: var(--chrome-text);
 }
 
 .stepper {

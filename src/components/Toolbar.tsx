@@ -24,6 +24,7 @@ const TOOLS: { tool: Tool; label: string; hint: string; icon: ReactNode }[] = [
   { tool: "select", label: "Select", hint: "V", icon: <CursorIcon /> },
   { tool: "node", label: "Node", hint: "N", icon: <NodeIcon /> },
   { tool: "link", label: "Link", hint: "L", icon: <LinkIcon /> },
+  { tool: "marking", label: "Marking", hint: "M", icon: <MarkingIcon /> },
 ];
 
 /** Shortcut prefixes, shown in tooltips: ⌘ on macOS, Ctrl elsewhere. */
@@ -205,6 +206,22 @@ function LinkIcon() {
       <circle cx="3" cy="13" r="2" fill="currentColor" />
       <circle cx="13" cy="3" r="2" fill="currentColor" />
       <path d="M4 12L12 4" stroke="currentColor" strokeWidth="2" />
+    </svg>
+  );
+}
+
+/** A stop line across a road: two faint edges, one heavy transverse bar. */
+function MarkingIcon() {
+  return (
+    <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden>
+      <path
+        d="M1 4h14M1 12h14"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        opacity="0.45"
+      />
+      <path d="M10 4v8" fill="none" stroke="currentColor" strokeWidth="2.6" />
     </svg>
   );
 }

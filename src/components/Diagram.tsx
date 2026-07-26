@@ -9,7 +9,7 @@
  */
 
 import type React from "react";
-import { linkAlign, linkPolyline, linkStyle, nodePos } from "../model/document";
+import { linkStyle, nodePos } from "../model/document";
 import {
   Document,
   JunctionGlyph,
@@ -17,6 +17,7 @@ import {
   Link,
   LinkId,
   LinkStyle,
+  Marking,
   Node,
   NodeId,
   Vec2,
@@ -26,15 +27,19 @@ import {
   GoreArm,
   JointEnd,
   MIN_ROAD_WIDTH,
+  MarkingAnchor,
   ROAD_MARGIN,
   TAPER_LENGTH,
-  alignmentShift,
   carriageways,
   distance,
+  drawnPolyline,
   endDirection,
   gore,
   gorePair,
   laneBands,
+  lateralShift,
+  markingAnchor,
+  markingBar,
   offsetPolyline,
   polylinePath,
   rayCircleExit,
@@ -51,6 +56,13 @@ export interface Interaction {
   cursor: Vec2 | null;
   onNodePointerDown: (e: React.PointerEvent, node: Node) => void;
   onLinkPointerDown: (e: React.PointerEvent, link: Link) => void;
+  /**
+   * Markings are their own layer, drawn after every road, so a marking's hit
+   * target is **not** a descendant of any road group and SVG events bubble only
+   * to ancestors — `onLinkPointerDown` can never fire from one. Hence a callback
+   * of its own (markings spec §2.4).
+   */
+  onMarkingPointerDown: (e: React.PointerEvent, marking: Marking) => void;
 }
 
 /** The whole drawing under one group; `interaction` absent means export mode. */
@@ -95,6 +107,24 @@ export function Diagram({
       {wedges.map((w, i) => (
         <TaperShape key={i} wedge={w} interaction={interaction} />
       ))}
+
+      {/* Paint, so it goes above every road and wedge; below the junction
+          glyphs, because a pad is the intersection's own surface and paint under
+          one is genuinely covered (§2.7). A **sibling** layer, never a child of
+          `RoadShape`'s group: that group carries `onLinkPointerDown`, and a road
+          drawn after its neighbour would paint over the neighbour's markings. */}
+      {doc.markings.map((marking) => {
+        const anchor = markingAnchor(doc, marking, offsets);
+        if (!anchor) return null;
+        return (
+          <MarkingShape
+            key={marking.id}
+            marking={marking}
+            anchor={anchor}
+            interaction={interaction}
+          />
+        );
+      })}
 
       {fromPos && cursor && (
         <line
@@ -204,48 +234,6 @@ function HatchPattern() {
  */
 function hairline(interaction?: Interaction): "non-scaling-stroke" | undefined {
   return interaction ? "non-scaling-stroke" : undefined;
-}
-
-/**
- * The polyline a link is *drawn* along: its layout polyline, stepped sideways by
- * **two** lateral terms — the carriageway offset of a divided road, and the
- * shift that holds an aligned link's own edge on the polyline. Identical to the
- * layout polyline — the same array, not a copy — for a centred link with no
- * opposing twin, which is every link in a document that has set neither.
- *
- * **They compose by addition, and this is the only site that knows it.** The
- * roads, the junction arms and (through `Arm.origin`) the junction interiors all
- * inherit both from here, so nothing else has to learn about alignment — and the
- * roads and the arms cannot come to disagree about where a road runs.
- */
-function drawnPolyline(
-  doc: Document,
-  link: Link,
-  offsets: Record<LinkId, number>,
-): Vec2[] | undefined {
-  const pts = linkPolyline(doc, link);
-  const d = lateralShift(doc, link, offsets);
-  if (!pts || d === 0) return pts;
-  return offsetPolyline(pts, d);
-}
-
-/**
- * The sum of the two lateral terms, in the link's own polyline frame — the `d`
- * {@link drawnPolyline} applies.
- *
- * Its own function because the taper rule compares these as **signed offsets**
- * rather than as world points (§2.4), and a second derivation of the same number
- * is exactly how the drawing and the rule that measures it come to disagree.
- */
-function lateralShift(
-  doc: Document,
-  link: Link,
-  offsets: Record<LinkId, number>,
-): number {
-  return (
-    (offsets[link.id] ?? 0) +
-    alignmentShift(link.lanes, linkStyle(doc, link.id), linkAlign(doc, link.id))
-  );
 }
 
 /** An arm meeting a junction, as drawn. */
@@ -439,8 +427,64 @@ function TaperShape({
   );
 }
 
-function isSelected(sel: Selection | null, kind: "node" | "link", id: string) {
+function isSelected(
+  sel: Selection | null,
+  kind: "node" | "link" | "marking",
+  id: string,
+) {
   return sel?.kind === kind && sel.id === id;
+}
+
+/**
+ * Paint a human placed on the road: at this phase, a stop line — one solid bar
+ * across the lane it sits in, or across the whole carriageway.
+ *
+ * **Not the same object as a signalised junction's `.jn-stopbar`**, which is
+ * drawn per arm from the junction outward and is what makes that glyph read as
+ * "signals". A document can carry both, and that is not a duplicate: it is a
+ * signalised junction whose approach also has a painted bar (§2.7).
+ *
+ * **No `vector-effect`**, unlike the glyph's bar and the roads' hairlines. Those
+ * are symbol and hairline respectively, and want to hold their weight as the
+ * canvas zooms; this is 4 world units of paint on a road, and scales with it —
+ * which also leaves the marking layer byte-identical between canvas and export.
+ */
+function MarkingShape({
+  marking,
+  anchor,
+  interaction,
+}: {
+  marking: Marking;
+  anchor: MarkingAnchor;
+  interaction?: Interaction;
+}) {
+  const d = polylinePath(markingBar(anchor));
+  const selected = isSelected(
+    interaction?.selection ?? null,
+    "marking",
+    marking.id,
+  );
+  // `stop_line` → `stop-line`, so every kind Phase 2 onward adds gets its token
+  // from the model rather than from a table that could fall out of step.
+  const kind = marking.kind.type.replace(/_/g, "-");
+
+  return (
+    <g
+      className={`marking marking-${kind}${selected ? " is-selected" : ""}`}
+      onPointerDown={
+        interaction &&
+        ((e: React.PointerEvent) => interaction.onMarkingPointerDown(e, marking))
+      }
+    >
+      {/* Fat invisible hit target, on the road-hit model: a 4-unit bar is a
+          small thing to hit, and the halo/paint over it select through the
+          group's own handler. The halo is narrower, and butt-capped in CSS, so
+          it stays inside the lane the marking spans. */}
+      {interaction && <path className="marking-hit" d={d} strokeWidth={12} />}
+      {selected && <path className="marking-halo" d={d} strokeWidth={9} />}
+      <path className="marking-bar" d={d} />
+    </g>
+  );
 }
 
 /**

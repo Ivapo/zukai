@@ -8,6 +8,11 @@ disk, or changes the schema. The design rationale lives in
 `specs/road_rendering_spec.md`, and from `Arm.origin` onward in
 `specs/ramps_and_tapers_spec.md`; hand-maintained.
 
+The paint a *human* places on a road — stop lines, crossings, lane arrows — is a
+separate subsystem: see `rules/road-markings.md`. The line between them is who
+chose it. Everything here is derived from the model (lane count, class, kinds);
+a marking is a decoration someone placed by hand.
+
 ## The rule the whole subsystem follows
 
 **The model already describes the road; the renderer's job is to stop ignoring
@@ -110,7 +115,11 @@ directional: a two-way street is two links with opposite `from_node`/`to_node`."
 
 `Diagram.tsx` applies this through **one** `drawnPolyline` helper that the roads
 and `junctionArms` share, so the two cannot come to disagree about where a road
-runs.
+runs. It lives in `geometry.ts` (with `lateralShift`) rather than in
+`Diagram.tsx`, where it started: the marking tool has to place paint on the
+polyline a road is *actually drawn along*, and a second derivation of it is
+precisely what the "only site" claim forbids — so the fix was to move the one
+site, not add another (`rules/road-markings.md`).
 
 ### Arms carry their position, so the glyph follows the carriageways
 
@@ -375,12 +384,18 @@ two-way" from "one carriageway of a pair": `Link` carries no direction flag and
 holds no signal. This is a **modelling** gap recorded for the ramps/junction
 spec, not a rendering one — the fix is a field, which this spec ruled out.
 
+**That last clause is now known to be wrong, and the fix needs no field at all**:
+an undivided two-way road is a `lane_line { style: double }` with `lane: None`,
+which the `Marking` anchor already expresses (`specs/road_markings_spec.md` §2.3).
+Phase 4 of that spec draws it and replaces this section; until then, no
+centreline is drawn.
+
 ## Where each piece lives
 
 | Piece | Where | Tested by |
 |---|---|---|
-| `laneBands`, `roadWidth`, `classWidthFactor`, `carriageways`, `alignmentShift`, `rayCircleExit`, `taperWedge`/`taperWedges`/`taperEdge`, `rayIntersection`/`gorePair`/`gore`, `UNITS_PER_METRE`, `MIN_ROAD_WIDTH`, `DRIVE_SIDE`, `SCHEMATIC_MEDIAN`, `TAPER_LENGTH`, `TAPER_MAX_BEND`, `GORE_LENGTH` | `src/editor/geometry.ts` | `geometry.test.ts` (pure) |
-| `RoadShape`, `HatchPattern`/`needsHatch`, `drawnPolyline`/`lateralShift`, `junctionArms`, `jointEnd`/`tapers`/`TaperShape`, `JunctionGlyphShape`/`GoreShape` | `src/components/Diagram.tsx` | `Diagram.test.tsx` via `renderToStaticMarkup` |
+| `laneBands`, `roadWidth`, `classWidthFactor`, `carriageways`, `alignmentShift`, `drawnPolyline`/`lateralShift`, `rayCircleExit`, `taperWedge`/`taperWedges`/`taperEdge`, `rayIntersection`/`gorePair`/`gore`, `UNITS_PER_METRE`, `MIN_ROAD_WIDTH`, `DRIVE_SIDE`, `SCHEMATIC_MEDIAN`, `TAPER_LENGTH`, `TAPER_MAX_BEND`, `GORE_LENGTH` | `src/editor/geometry.ts` | `geometry.test.ts` (pure) |
+| `RoadShape`, `HatchPattern`/`needsHatch`, `junctionArms`, `jointEnd`/`tapers`/`TaperShape`, `JunctionGlyphShape`/`GoreShape` | `src/components/Diagram.tsx` | `Diagram.test.tsx` via `renderToStaticMarkup` |
 | Colour, tints, line treatments | `src/styles/diagram.css` | `export.test.ts` — reaches exports free |
 | `setLaneKind`, `setLinkLanes`, `setLinkAlign` | `src/editor/state.ts` | `state.test.ts` |
 | `LinkAlign`/`LinkView.align` and `JunctionGlyph::Gore` — the two mirrored model additions | `src/model/types.ts` **and** `src-tauri/src/model/layout.rs`; read through `linkAlign`/`linkStyle` in `src/model/document.ts` | `layout.rs` serde tests |

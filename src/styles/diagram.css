@@ -131,6 +131,24 @@
   stroke-linecap: round;
 }
 
+/* ----- road markings ----- */
+
+/* A stop line: one solid bar across the lane the marking sits in, or across the
+   whole lane region. Butt caps, because the bar ends exactly at the lane
+   boundary - a round cap would bulge half a stroke past it and read as paint
+   spilling onto the neighbouring lane.
+
+   Same weight as the signalised glyph's `.jn-stopbar`, which is deliberate: the
+   two mean the same thing to a reader even though one is a symbol and the other
+   is paint a human placed. That also leaves `strokeAllowance`'s floor of 2 - half
+   the fattest non-casing stroke in this file - exactly where it was. */
+.marking-bar {
+  fill: none;
+  stroke: var(--paint-white);
+  stroke-width: 4;
+  stroke-linecap: butt;
+}
+
 /* ----- road class ----- */
 
 /* Motorway and arterial take the base treatment above; the local pair is the

@@ -77,7 +77,7 @@ phase from a spec still `status: draft`** — it must pass the review loop
 - `specs/ramps_and_tapers_spec.md` — the joins between roads: arm positions, link
   alignment, lane-drop tapers, gores (implemented; 4 phases)
 - `specs/road_markings_spec.md` — the paint on the road: stop and give-way lines,
-  crossings, lane arrows, lane lines (reviewed; 4 phases, none implemented)
+  crossings, lane arrows, lane lines (reviewed; 4 phases, Phase 1 implemented)
 
 **`rules/` — current-state reference (the *what is*).** Terse, authoritative maps
 of subsystems, read on demand. Unlike specs, rules describe the code as it is now;
@@ -100,6 +100,10 @@ there's real cross-file knowledge worth extracting, not for every file.
   cannot be a CSS rule, the junction arms that carry their own position, the
   three tests a joint passes before it tapers, and the arm pair a gore is drawn
   between
+- `rules/road-markings.md` — the paint a human places: the one metre/unit
+  boundary, the lane that falls out of the click, why the marking layer is a
+  sibling and not a child of the road, the third `Selection` arm and the three
+  failures the compiler does not catch, and what removes a marking
 
 Specs are authoritative for *intent and plan*; `rules/`, this file, and the code
 are authoritative for *current state*. When a shipped phase changes what a rule

@@ -33,10 +33,13 @@ import {
   carriageways,
   classWidthFactor,
   distance,
+  drawnPolyline,
   gore,
   gorePair,
   laneBands,
+  nearestOnPolyline,
   offsetPolyline,
+  pointAlongPolyline,
   rayCircleExit,
   rayIntersection,
   roadWidth,
@@ -944,5 +947,216 @@ describe("carriageways", () => {
     for (let i = 0; i < spine.length; i++) {
       expect(distance(spine[i], drawn[i])).toBeCloseTo(OFFSET_2);
     }
+  });
+});
+
+describe("nearestOnPolyline", () => {
+  /** A road drawn due east from the origin — offsets read straight off `y`. */
+  const east: Vec2[] = [
+    { x: 0, y: 0 },
+    { x: 120, y: 0 },
+  ];
+
+  it("returns the exact arc-length of the nearest point", () => {
+    expect(nearestOnPolyline(east, { x: 40, y: 0 })).toEqual({
+      along: 40,
+      offset: 0,
+    });
+    // Off the road: the projection is what counts, not the distance to it.
+    expect(nearestOnPolyline(east, { x: 40, y: 30 }).along).toBe(40);
+  });
+
+  /**
+   * **The offset is signed, and the sign is the whole of which lane was
+   * clicked.** A magnitude assertion passes under an inversion — the trap the
+   * road spec hit four times — so this pins it against `offsetPolyline`, whose
+   * `d` is the same number: a point on `offsetPolyline(pts, +5)` must measure
+   * back as `+5`, not as `5` in whichever direction.
+   */
+  it("signs the offset the way offsetPolyline does", () => {
+    for (const d of [5, -5, 13.5]) {
+      const shifted = offsetPolyline(east, d);
+      const mid = { x: (shifted[0].x + shifted[1].x) / 2, y: (shifted[0].y + shifted[1].y) / 2 };
+      expect(nearestOnPolyline(east, mid).offset).toBeCloseTo(d);
+    }
+    // Concretely, in SVG's y-down frame: positive is *below* an eastbound road,
+    // which is the nearside under right-hand traffic — where `laneBands` puts
+    // lane 0.
+    expect(nearestOnPolyline(east, { x: 60, y: 9 }).offset).toBe(9);
+    expect(nearestOnPolyline(east, { x: 60, y: -9 }).offset).toBe(-9);
+    expect(laneBands(defaults(3))[0].offset).toBe(9);
+  });
+
+  it("lands a point past either end on that end", () => {
+    expect(nearestOnPolyline(east, { x: -40, y: 0 }).along).toBe(0);
+    expect(nearestOnPolyline(east, { x: 400, y: 0 }).along).toBe(120);
+    // …and the offset there is measured from the end point, not extrapolated.
+    expect(nearestOnPolyline(east, { x: -40, y: 7 }).offset).toBe(7);
+  });
+
+  it("keeps the arc-length across a bend, in the bent segment's own frame", () => {
+    const bent: Vec2[] = [
+      { x: 0, y: 0 },
+      { x: 100, y: 0 },
+      { x: 100, y: 100 },
+    ];
+    // 100 along the first leg, then 40 down the second.
+    const hit = nearestOnPolyline(bent, { x: 95, y: 40 });
+
+    expect(hit.along).toBe(140);
+    // The second leg runs due south, whose normal points west — so a point 5
+    // units west of it is at `+5`, the same sign `offsetPolyline` would give.
+    expect(hit.offset).toBe(5);
+    expect(offsetPolyline(bent, 5)[2]).toEqual({ x: 95, y: 100 });
+  });
+
+  it("floors on a polyline with no length rather than dividing by it", () => {
+    expect(nearestOnPolyline([], { x: 5, y: 5 })).toEqual({ along: 0, offset: 0 });
+    expect(nearestOnPolyline([{ x: 0, y: 0 }], { x: 5, y: 5 })).toEqual({
+      along: 0,
+      offset: 0,
+    });
+    expect(
+      nearestOnPolyline([{ x: 3, y: 3 }, { x: 3, y: 3 }], { x: 5, y: 5 }),
+    ).toEqual({ along: 0, offset: 0 });
+  });
+});
+
+describe("pointAlongPolyline", () => {
+  const bent: Vec2[] = [
+    { x: 0, y: 0 },
+    { x: 100, y: 0 },
+    { x: 100, y: 100 },
+  ];
+
+  it("round-trips against nearestOnPolyline on a bent polyline", () => {
+    for (const p of [
+      { x: 30, y: 0 },
+      { x: 100, y: 0 },
+      { x: 100, y: 55 },
+      { x: 95, y: 40 },
+    ]) {
+      const { along } = nearestOnPolyline(bent, p);
+      const back = pointAlongPolyline(bent, along)!;
+
+      expect(nearestOnPolyline(bent, back.at).along).toBeCloseTo(along);
+      // A unit direction, always — the frame every marking is drawn in.
+      expect(Math.hypot(back.dir.x, back.dir.y)).toBeCloseTo(1);
+    }
+  });
+
+  it("takes the direction of the segment it lands on", () => {
+    expect(pointAlongPolyline(bent, 40)).toEqual({
+      at: { x: 40, y: 0 },
+      dir: { x: 1, y: 0 },
+    });
+    expect(pointAlongPolyline(bent, 140)).toEqual({
+      at: { x: 100, y: 40 },
+      dir: { x: 0, y: 1 },
+    });
+  });
+
+  /**
+   * **The clamp is what keeps a marking on a road the user has shortened.**
+   * `Marking.position` is absolute metres, so dragging a node can leave a
+   * marking's distance past the drawn end; it sits at the end rather than off it
+   * (markings spec §2.2).
+   */
+  it("clamps past either end instead of running off the polyline", () => {
+    expect(pointAlongPolyline(bent, -40)!.at).toEqual({ x: 0, y: 0 });
+    expect(pointAlongPolyline(bent, 1000)!.at).toEqual({ x: 100, y: 100 });
+    expect(pointAlongPolyline(bent, 200)!.at).toEqual({ x: 100, y: 100 });
+  });
+
+  it("gives nothing for a polyline with no length to walk", () => {
+    expect(pointAlongPolyline([], 10)).toBeUndefined();
+    expect(pointAlongPolyline([{ x: 0, y: 0 }], 10)).toBeUndefined();
+    expect(
+      pointAlongPolyline([{ x: 4, y: 4 }, { x: 4, y: 4 }], 10),
+    ).toBeUndefined();
+  });
+});
+
+/**
+ * The one site that knows the two lateral terms compose by addition — moved here
+ * from `Diagram.tsx` so the marking tool can place a marking on the polyline the
+ * road is *actually drawn along* rather than derive it a second time (markings
+ * spec §2.4).
+ */
+describe("drawnPolyline", () => {
+  /** A two-way pair `N1 ⇄ N2` 120 units apart, `L1` carrying `lanes` lanes. */
+  function twoWay(lanes: number, views: Record<LinkId, LinkView> = {}): Document {
+    const base = emptyDocument("drawn");
+    return {
+      ...base,
+      nodes: [
+        { id: "N1", type: "endpoint" },
+        { id: "N2", type: "endpoint" },
+      ],
+      links: [
+        { id: "L1", from_node: "N1", to_node: "N2", lanes: defaults(lanes), median_gap: DEFAULT_MEDIAN_GAP },
+        { id: "L2", from_node: "N2", to_node: "N1", lanes: defaults(2), median_gap: DEFAULT_MEDIAN_GAP },
+      ],
+      layout: {
+        ...base.layout,
+        nodes: { N1: { pos: { x: 0, y: 0 } }, N2: { pos: { x: 120, y: 0 } } },
+        links: views,
+      },
+    };
+  }
+
+  it("returns the layout polyline itself when neither term applies", () => {
+    const base = emptyDocument("plain");
+    const doc: Document = {
+      ...base,
+      nodes: [
+        { id: "N1", type: "endpoint" },
+        { id: "N2", type: "endpoint" },
+      ],
+      links: [
+        { id: "L1", from_node: "N1", to_node: "N2", lanes: defaults(2), median_gap: DEFAULT_MEDIAN_GAP },
+      ],
+      layout: {
+        ...base.layout,
+        nodes: { N1: { pos: { x: 0, y: 0 } }, N2: { pos: { x: 120, y: 0 } } },
+      },
+    };
+
+    expect(drawnPolyline(doc, doc.links[0], carriageways(doc))).toEqual([
+      { x: 0, y: 0 },
+      { x: 120, y: 0 },
+    ]);
+  });
+
+  /**
+   * The assertion this describe exists for: both terms, added, on one link. A
+   * test of either alone passes while the other is silently dropped.
+   */
+  it("adds the carriageway offset and the alignment shift, on one link", () => {
+    const doc = twoWay(3, { L1: { style: DEFAULT_LINK_STYLE, align: "offside" } });
+    const offsets = carriageways(doc);
+    const drawn = drawnPolyline(doc, doc.links[0], offsets)!;
+
+    const carriageway = roadWidth(defaults(3)) / 2 + SCHEMATIC_MEDIAN / 2;
+    const shift = alignmentShift(defaults(3), DEFAULT_LINK_STYLE, "offside");
+
+    expect(offsets.L1).toBe(carriageway);
+    expect(shift).toBe((roadWidth(defaults(3)) - ROAD_MARGIN) / 2);
+    // Due east, so the whole lateral sum reads off `y` — and it is the *sum*,
+    // not either term.
+    expect(drawn.map((p) => p.y)).toEqual([carriageway + shift, carriageway + shift]);
+    expect(drawn[0].y).toBeGreaterThan(carriageway);
+  });
+
+  it("gives nothing for a link whose endpoints have no position", () => {
+    const base = emptyDocument("homeless");
+    const doc: Document = {
+      ...base,
+      links: [
+        { id: "L1", from_node: "N1", to_node: "N2", lanes: defaults(2), median_gap: DEFAULT_MEDIAN_GAP },
+      ],
+    };
+
+    expect(drawnPolyline(doc, doc.links[0], carriageways(doc))).toBeUndefined();
   });
 });

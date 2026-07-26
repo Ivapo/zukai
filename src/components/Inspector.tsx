@@ -1,7 +1,13 @@
 /** Right panel: properties of the current selection, or a getting-started hint. */
 
 import type { ReactNode } from "react";
-import { findLink, findNode, linkAlign, linkStyle } from "../model/document";
+import {
+  findLink,
+  findMarking,
+  findNode,
+  linkAlign,
+  linkStyle,
+} from "../model/document";
 import {
   JunctionGlyph,
   Lane,
@@ -9,6 +15,7 @@ import {
   LinkAlign,
   LinkId,
   LinkStyle,
+  MarkingKind,
   Node,
   NodeKind,
 } from "../model/types";
@@ -36,6 +43,20 @@ const LANE_KINDS: { value: LaneKind; label: string }[] = [
   { value: "cycle", label: "Cycle lane" },
   { value: "turn", label: "Turn pocket" },
 ];
+/**
+ * How each kind of paint is named in the panel. Exhaustive over `MarkingKind`, so
+ * a kind added to the model without a label here will not build — the Kind picker
+ * of Phase 2 reads the same table.
+ */
+const MARKING_KINDS: Record<MarkingKind["type"], string> = {
+  stop_line: "Stop line",
+  give_way_line: "Give-way line",
+  crosswalk: "Crossing",
+  turn_arrow: "Turn arrow",
+  lane_line: "Lane line",
+  hatching: "Hatching",
+  text: "Text",
+};
 const GLYPHS: { value: JunctionGlyph; label: string }[] = [
   { value: "generic", label: "Plain" },
   { value: "roundabout", label: "Roundabout" },
@@ -95,6 +116,52 @@ export function Inspector({ state, dispatch }: InspectorProps) {
           onClick={() => dispatch({ type: "deleteSelection" })}
         >
           Delete node
+        </button>
+      </aside>
+    );
+  }
+
+  // An arm of its own, and it has to be explicit: every id is a bare
+  // `type X = string`, so without this a marking selection would fall through to
+  // the link branch below, miss `findLink`, and render the blank `<aside>` —
+  // not a wrong panel but *no* panel, with nothing to say why (markings §2.6).
+  //
+  // Read-only at this phase: the Kind picker and Span control are Phase 2.
+  if (selection.kind === "marking") {
+    const marking = findMarking(doc, selection.id);
+    if (!marking) return <aside className="inspector" />;
+    return (
+      <aside className="inspector">
+        <div className="inspector-head">
+          <span className="inspector-kind">Marking</span>
+          <span className="inspector-id">{marking.id}</span>
+        </div>
+
+        <Field label="Paint">
+          <div className="readout">{MARKING_KINDS[marking.kind.type]}</div>
+        </Field>
+
+        <Field label="Road">
+          <div className="readout">{marking.link}</div>
+        </Field>
+
+        <Field label="Span">
+          <div className="readout">
+            {marking.lane === undefined
+              ? "Whole carriageway"
+              : `Lane ${marking.lane}`}
+          </div>
+        </Field>
+
+        <Field label="Position">
+          <div className="readout">{marking.position.toFixed(1)} m</div>
+        </Field>
+
+        <button
+          className="danger"
+          onClick={() => dispatch({ type: "deleteSelection" })}
+        >
+          Delete marking
         </button>
       </aside>
     );
@@ -303,6 +370,9 @@ function EmptyState() {
         </li>
         <li>
           <b>Link</b> tool — click one node, then another, to lay a road.
+        </li>
+        <li>
+          <b>Marking</b> tool — click a lane to paint a stop line on it.
         </li>
         <li>
           <b>Select</b> tool — drag nodes, pick a road, edit it here.

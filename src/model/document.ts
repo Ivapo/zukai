@@ -8,6 +8,8 @@ import {
   LinkAlign,
   LinkId,
   LinkStyle,
+  Marking,
+  MarkingId,
   Node,
   NodeId,
   SCHEMA_VERSION,
@@ -175,4 +177,9 @@ export function findNode(doc: Document, id: NodeId): Node | undefined {
 /** Look up a link by id. */
 export function findLink(doc: Document, id: LinkId): Link | undefined {
   return doc.links.find((l) => l.id === id);
+}
+
+/** Look up a road-surface marking by id. */
+export function findMarking(doc: Document, id: MarkingId): Marking | undefined {
+  return doc.markings.find((m) => m.id === id);
 }

@@ -8,7 +8,7 @@ import {
   classWidthFactor,
 } from "../editor/geometry";
 import { Action, EditorState, initialState, reducer } from "../editor/state";
-import { Document, LaneKind, LinkAlign, LinkStyle } from "../model/types";
+import { Document, LaneKind, LinkAlign, LinkStyle, Marking } from "../model/types";
 import { Diagram, Interaction } from "./Diagram";
 
 /** Every road class the Inspector offers. */
@@ -45,6 +45,7 @@ function interaction(): Interaction {
     cursor: null,
     onNodePointerDown: () => {},
     onLinkPointerDown: () => {},
+    onMarkingPointerDown: () => {},
   };
 }
 
@@ -1060,6 +1061,198 @@ describe("gores", () => {
     expect(Math.hypot(half[1][0] - half[0][0], half[1][1] - half[0][1])).toBeCloseTo(
       GORE_LENGTH / 2,
     );
+  });
+});
+
+describe("road markings", () => {
+  /**
+   * A 3-lane arterial due east from the origin, with a stop line on `lane`.
+   *
+   * **14 metres is not arbitrary.** `Marking.position` is metres and the
+   * renderer multiplies by `UNITS_PER_METRE` (9/3.5), and 14 m is exactly 36
+   * world units — no rounding tail — so the `x` in every pin below is the
+   * conversion rate itself, pinned rather than restated (markings spec §2.2).
+   */
+  const ALONG = 36;
+
+  function marked(lane: number | "all"): Document {
+    return run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "addNode", pos: { x: 120, y: 0 } },
+      { type: "startLink", from: "N1" },
+      { type: "completeLink", to: "N2" },
+      { type: "setLinkLanes", id: "L1", count: 3 },
+      {
+        type: "addMarking",
+        link: "L1",
+        position: 14,
+        lane: lane === "all" ? undefined : lane,
+      },
+    ).doc;
+  }
+
+  /** `doc` with its markings replaced wholesale — for the cases no gesture can
+   *  produce, which is what makes them the hand-edited-document cases. */
+  function withMarkings(doc: Document, markings: Marking[]): Document {
+    return { ...doc, markings };
+  }
+
+  /**
+   * The band assertions are the ones that matter: `laneBands` puts lane 0 at the
+   * most **positive** offset, so an inverted normal draws this bar at −13.5…−4.5
+   * — the offside lane — and a magnitude assertion would pass either way.
+   */
+  it("draws a bar across the lane it was placed in, at that band's offset and width", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={marked(0)} />);
+
+    // Lane 0 is the nearside: centre +9, width 9.
+    expect(svg).toContain(
+      `<g class="marking marking-stop-line"><path class="marking-bar" d="M ${ALONG} 4.5 L ${ALONG} 13.5"></path></g>`,
+    );
+  });
+
+  it("draws the offside lane's bar on the other side of the road", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={marked(2)} />);
+
+    expect(svg).toContain(`class="marking-bar" d="M ${ALONG} -13.5 L ${ALONG} -4.5"`);
+  });
+
+  /**
+   * The common stop line, and the one no Phase-1 gesture can place — the Span
+   * control that reaches it deliberately is Phase 2, so it is built in the
+   * fixture (markings spec §2.4).
+   */
+  it("spans the whole lane region for a marking with no lane", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={marked("all")} />);
+
+    // The lane region, casing lip excluded: 3 lanes of 9, centred on the road.
+    expect(svg).toContain(`class="marking-bar" d="M ${ALONG} -13.5 L ${ALONG} 13.5"`);
+  });
+
+  it("clamps a marking past the end of its road to the end of it", () => {
+    // 120 units of road is 46.6 m; 400 m is far past it.
+    const far = withMarkings(marked(0), [
+      { id: "M1", link: "L1", position: 400, lane: 0, kind: { type: "stop_line" } },
+    ]);
+
+    expect(renderToStaticMarkup(<Diagram doc={far} />)).toContain(
+      'class="marking-bar" d="M 120 4.5 L 120 13.5"',
+    );
+  });
+
+  /**
+   * §2.5: the cascades in `state.ts` cover every edit the app can make, but
+   * `normalizeDocument` validates nothing, so an imported or hand-edited file
+   * can still carry either of these. Indexing `laneBands` out of range yields
+   * `undefined` and then `NaN` coordinates, which SVG renders as an
+   * invisible-but-corrupt path — so the renderer emits nothing at all.
+   */
+  it("skips a marking whose link is gone, and one whose lane is out of range", () => {
+    const base = marked(0);
+    for (const markings of [
+      [{ id: "M1", link: "L9", position: 14, lane: 0, kind: { type: "stop_line" } }],
+      [{ id: "M1", link: "L1", position: 14, lane: 7, kind: { type: "stop_line" } }],
+      [{ id: "M1", link: "L1", position: Number.NaN, lane: 0, kind: { type: "stop_line" } }],
+    ] as Marking[][]) {
+      const svg = renderToStaticMarkup(
+        <Diagram doc={withMarkings(base, markings)} />,
+      );
+
+      expect(svg).not.toContain("marking");
+      expect(svg).not.toMatch(/NaN|undefined|Infinity/);
+      // The road under it is untouched — a skipped marking is not a broken road.
+      expect(svg).toContain('class="road-casing" d="M 0 0 L 120 0"');
+    }
+  });
+
+  it("draws nothing for a document that has no markings", () => {
+    expect(renderToStaticMarkup(<Diagram doc={initialState().doc} />)).toBe(
+      '<g class="diagram"></g>',
+    );
+    expect(renderToStaticMarkup(<Diagram doc={sample()} />)).not.toContain("marking");
+  });
+
+  /**
+   * **The glyph's stop bars are not markings.** `.jn-stopbar` is drawn per arm by
+   * `signalized_cross` and says "this junction has signals"; a `stop_line`
+   * marking is paint a human placed. A document can carry both, and that is not a
+   * duplicate — it is a signalised junction whose approach also has a painted bar
+   * (§2.7). Any attempt to suppress one from the other couples the glyph to the
+   * decoration list.
+   */
+  it("leaves a signalised junction's own stop bars exactly as they were", () => {
+    const signals = run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "addNode", pos: { x: 120, y: 0 } },
+      { type: "startLink", from: "N1" },
+      { type: "completeLink", to: "N2" },
+      { type: "setLinkLanes", id: "L1", count: 3 },
+      { type: "setNodeKind", id: "N2", kind: "junction" },
+      { type: "setJunctionGlyph", id: "N2", glyph: "signalized_cross" },
+    ).doc;
+
+    const bars = (doc: Document) =>
+      [...renderToStaticMarkup(<Diagram doc={doc} />).matchAll(/<line class="jn-stopbar"[^>]*>/g)]
+        .map((m) => m[0]);
+
+    const before = bars(signals);
+    expect(before).toHaveLength(1);
+
+    const after = bars(
+      withMarkings(signals, [
+        { id: "M1", link: "L1", position: 14, lane: 0, kind: { type: "stop_line" } },
+      ]),
+    );
+    expect(after).toEqual(before);
+  });
+
+  it("carries a hit target and a halo on the canvas, and neither in an export", () => {
+    const doc = marked(0);
+    const selected: Interaction = {
+      ...interaction(),
+      selection: { kind: "marking", id: "M1" },
+    };
+
+    const live = renderToStaticMarkup(<Diagram doc={doc} interaction={selected} />);
+    expect(live).toContain('class="marking-hit"');
+    expect(live).toContain('class="marking-halo"');
+    expect(live).toContain('class="marking marking-stop-line is-selected"');
+
+    // With the *road* selected instead, the marking keeps its hit target and
+    // gains neither halo nor token — the halo follows the selection, not the tool.
+    const unselected = renderToStaticMarkup(
+      <Diagram doc={doc} interaction={interaction()} />,
+    );
+    expect(unselected).toContain('class="marking-hit"');
+    expect(unselected).not.toContain("marking-halo");
+    expect(unselected).toContain('<g class="marking marking-stop-line">');
+
+    const exported = renderToStaticMarkup(<Diagram doc={doc} />);
+    expect(exported).not.toMatch(/marking-hit|marking-halo|is-selected/);
+    // Paint on the road scales with the road, unlike the glyph's own bar.
+    expect(exported).not.toMatch(/vector-effect/);
+  });
+
+  /**
+   * The layer order §2.7 fixes: above every road and wedge, below the junction
+   * glyphs, because a pad is the intersection's own surface and paint under one
+   * is genuinely covered.
+   */
+  it("draws above every road and below the junction glyphs", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={sample()} />);
+    const marked3 = renderToStaticMarkup(
+      <Diagram
+        doc={withMarkings(sample(), [
+          { id: "M1", link: "L1", position: 14, lane: 0, kind: { type: "stop_line" } },
+        ])}
+      />,
+    );
+
+    expect(svg).not.toContain("marking");
+    expect(marked3.indexOf("road-casing")).toBeLessThan(marked3.indexOf("marking-bar"));
+    expect(marked3.indexOf("marking-bar")).toBeLessThan(marked3.indexOf("jn-ring"));
   });
 });
 

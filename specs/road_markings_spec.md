@@ -2,8 +2,8 @@
 status: reviewed
 last_updated: 2026-07-25
 note: Render and place road-surface markings — stop and give-way lines, crossings, lane arrows, lane lines. Paint only; signs and any painted text wait on font embedding.
-implemented: []
-not_implemented: ["Phase 1", "Phase 2", "Phase 3", "Phase 4"]
+implemented: ["Phase 1"]
+not_implemented: ["Phase 2", "Phase 3", "Phase 4"]
 related: [specs/road_rendering_spec.md, specs/ramps_and_tapers_spec.md, specs/diagram_export_spec.md]
 reference: "Road-atlas marking convention — a transverse bar where traffic stops, a triangle line where it gives way, a zebra where people cross, destination arrows in the lane they belong to, and a longitudinal line whose style says whether you may cross it. Not to-scale marking dimensions (that is Assimilator's business, and it has no markings anyway), and not signage, which is textual."
 ---
@@ -567,6 +567,32 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
   "Where each piece lives" table, whose `Diagram.tsx` row still lists
   `drawnPolyline`/`lateralShift` (§2.4); `rules/history.md` for the new actions;
   the project-memory roadmap.
+- **Shipped 2026-07-25.** Two decisions the phase settled, both taken at plan
+  time and both deviations from the letter of the scope above:
+  - **The rule doc is a new `rules/road-markings.md`**, cross-linked from
+    `rules/road-rendering.md` (which is already 400 lines about how a link
+    becomes a road, and has three more phases of markings still to absorb). The
+    line between the two files is *who chose it*: road rendering is derived from
+    the model, a marking is a decoration a human placed.
+  - **`deleteMarking` was not shipped.** Nothing would dispatch it — the
+    Inspector's Delete fires `deleteSelection`, exactly as the node and link
+    panels do and as Delete/Backspace does, and `deleteSelection`'s new marking
+    arm covers every route. An action with no dispatcher is dead code.
+
+  Three things worth carrying forward that the spec did not predict:
+  - **`unreachable(x: never): never` rather than `const _never: never = sel`** —
+    `tsconfig.json` sets `noUnusedLocals`, so §2.6's "`never`-typed default" has
+    to consume its argument.
+  - **`.marking-halo` is butt-capped**, not round like `.road-halo`. The rule is
+    the same both times (a halo matches the shape it highlights), but round caps
+    balloon a lane-wide bar past its own lane — caught in the `bun run dev` pass,
+    not by any assertion.
+  - **OQ-5's arithmetic confirmed in the app**: for §1's 3-lane arterial the
+    junction hit disc measures `r = 23.6` against the glyph's own bar at `25.6`.
+    Two units of clearance on the centreline, about four in an outer lane — the
+    disc is a circle, so its horizontal reach shrinks off-axis. OQ-6 was checked
+    too and needs nothing: shortening a 600-unit road to 350 left a mid-road stop
+    line at 86% along, still on asphalt in its lane.
 
 ### Phase 2 — The Inspector earns its keep: kind, span, and the transverse pair  (depends on Phase 1)
 

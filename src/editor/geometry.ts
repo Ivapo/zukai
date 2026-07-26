@@ -3,6 +3,9 @@
 import {
   DEFAULT_LANE_WIDTH,
   DEFAULT_LINK_STYLE,
+  findLink,
+  linkAlign,
+  linkPolyline,
   linkStyle,
 } from "../model/document";
 import {
@@ -12,6 +15,7 @@ import {
   LinkAlign,
   LinkId,
   LinkStyle,
+  Marking,
   Vec2,
 } from "../model/types";
 
@@ -739,4 +743,246 @@ export function offsetPolyline(points: Vec2[], d: number): Vec2[] {
     }
     return { x: p.x + nx * d, y: p.y + ny * d };
   });
+}
+
+/**
+ * The polyline a link is *drawn* along: its layout polyline, stepped sideways by
+ * **two** lateral terms — the carriageway offset of a divided road, and the
+ * shift that holds an aligned link's own edge on the polyline. Identical to the
+ * layout polyline — the same array, not a copy — for a centred link with no
+ * opposing twin, which is every link in a document that has set neither.
+ *
+ * **They compose by addition, and this is the only site that knows it.** The
+ * roads, the junction arms and (through `Arm.origin`) the junction interiors all
+ * inherit both from here, so nothing else has to learn about alignment — and the
+ * roads and the arms cannot come to disagree about where a road runs.
+ *
+ * Lives here rather than in `Diagram.tsx`, where it started, because placing a
+ * marking means putting it on the polyline the road is *actually drawn along*
+ * (`Canvas.tsx`), and a second derivation of that is exactly what this function's
+ * "only site" claim forbids (markings spec §2.4).
+ */
+export function drawnPolyline(
+  doc: Document,
+  link: Link,
+  offsets: Record<LinkId, number>,
+): Vec2[] | undefined {
+  const pts = linkPolyline(doc, link);
+  const d = lateralShift(doc, link, offsets);
+  if (!pts || d === 0) return pts;
+  return offsetPolyline(pts, d);
+}
+
+/**
+ * The sum of the two lateral terms, in the link's own polyline frame — the `d`
+ * {@link drawnPolyline} applies.
+ *
+ * Its own function because the taper rule compares these as **signed offsets**
+ * rather than as world points (ramps spec §2.4), and a second derivation of the
+ * same number is exactly how the drawing and the rule that measures it come to
+ * disagree.
+ */
+export function lateralShift(
+  doc: Document,
+  link: Link,
+  offsets: Record<LinkId, number>,
+): number {
+  return (
+    (offsets[link.id] ?? 0) +
+    alignmentShift(link.lanes, linkStyle(doc, link.id), linkAlign(doc, link.id))
+  );
+}
+
+/** Where a point falls on a polyline: how far along it, and how far off it. */
+export interface PolylineHit {
+  /** Arc-length from the polyline's start to the nearest point on it. */
+  along: number;
+  /**
+   * Signed lateral distance from that point, in the frame
+   * {@link offsetPolyline} takes — so `offsetPolyline(pts, d)` measures back as
+   * exactly `+d`, and the sign agrees with {@link laneBands}' offsets.
+   */
+  offset: number;
+}
+
+/**
+ * Where `p` lands on `points` — the input the marking tool turns into a
+ * `position` and a lane (markings spec §2.4).
+ *
+ * **The offset is signed, not a distance**, because that sign is the whole of
+ * which lane was clicked: `laneBands` puts the nearside lane at the most
+ * positive offset, and a magnitude would put every click in the nearside half.
+ *
+ * **A point past either end lands on that end**, which falls out of clamping the
+ * projection parameter to `[0, 1]` rather than being a case of its own. So a
+ * click off the end of a road places a marking at the end of it, and never at a
+ * negative distance along.
+ *
+ * A degenerate polyline — fewer than two points, or every segment zero-length —
+ * gives `{ along: 0, offset: 0 }`, the same floor the rest of this module takes
+ * with input only a hand-edited document can produce.
+ */
+export function nearestOnPolyline(points: Vec2[], p: Vec2): PolylineHit {
+  let best: PolylineHit = { along: 0, offset: 0 };
+  let bestDist = Infinity;
+  let travelled = 0;
+
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i];
+    const b = points[i + 1];
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len = Math.hypot(dx, dy);
+    if (len < SAME_EDGE) continue;
+    // Clamped, so a point beyond a segment projects onto its nearer end.
+    const t = Math.min(1, Math.max(0, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (len * len)));
+    const qx = a.x + dx * t;
+    const qy = a.y + dy * t;
+    const dist = Math.hypot(p.x - qx, p.y - qy);
+    if (dist < bestDist) {
+      bestDist = dist;
+      // The segment's own normal, which is `segmentNormals`' — positive to the
+      // right of travel as drawn, so the sign matches `offsetPolyline`'s `d`.
+      best = {
+        along: travelled + len * t,
+        offset: (p.x - qx) * (-dy / len) + (p.y - qy) * (dx / len),
+      };
+    }
+    travelled += len;
+  }
+
+  return best;
+}
+
+/** A point on a polyline and the direction of travel through it. */
+export interface PolylinePoint {
+  at: Vec2;
+  /** Unit direction along the segment `at` lies on. */
+  dir: Vec2;
+}
+
+/**
+ * The point `along` world units from the start of `points`, and the direction of
+ * travel there — the inverse of {@link nearestOnPolyline}'s `along`.
+ *
+ * **`along` is clamped to the polyline**, which is what keeps a marking on a road
+ * the user has since shortened by dragging a node: its stored metres may now
+ * exceed the drawn length, and the marking sits at the end rather than off it
+ * (markings spec §2.2). `undefined` for a polyline with no length to walk, the
+ * same posture {@link endDirection} takes.
+ */
+export function pointAlongPolyline(
+  points: Vec2[],
+  along: number,
+): PolylinePoint | undefined {
+  const segments: { a: Vec2; dir: Vec2; len: number }[] = [];
+  let total = 0;
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i];
+    const b = points[i + 1];
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    if (len < SAME_EDGE) continue;
+    segments.push({ a, dir: { x: (b.x - a.x) / len, y: (b.y - a.y) / len }, len });
+    total += len;
+  }
+  if (segments.length === 0) return undefined;
+
+  let remaining = Math.min(total, Math.max(0, along));
+  for (const s of segments) {
+    if (remaining <= s.len) {
+      return {
+        at: { x: s.a.x + s.dir.x * remaining, y: s.a.y + s.dir.y * remaining },
+        dir: s.dir,
+      };
+    }
+    remaining -= s.len;
+  }
+  // Only reachable on float slack at exactly `total`: the last segment's far end.
+  const last = segments[segments.length - 1];
+  return {
+    at: { x: last.a.x + last.dir.x * last.len, y: last.a.y + last.dir.y * last.len },
+    dir: last.dir,
+  };
+}
+
+/** Everything a marking is drawn from: a point, a direction, and a span. */
+export interface MarkingAnchor extends PolylinePoint {
+  /**
+   * The strip of road it paints across — one {@link laneBands} entry, or the
+   * whole lane region when the marking spans the carriageway.
+   */
+  span: LaneBand;
+}
+
+/**
+ * Where a marking sits on the road it is painted on, or `undefined` if it cannot
+ * be drawn.
+ *
+ * The one place `Marking.position`'s **metres** become world units. Metres are
+ * what the model documents and what Assimilator's own `crossings`/`detectors`
+ * positions mean, and the placement gesture is what keeps that painless: the user
+ * never types a distance, the click divides by {@link UNITS_PER_METRE}, and this
+ * multiplies back (markings spec §2.2).
+ *
+ * **Four ways a marking is skipped rather than drawn**, all of them reachable
+ * only from an imported or hand-edited document — the cascades in `state.ts`
+ * cover every edit the app itself can make (§2.5). Indexing `laneBands` out of
+ * range yields `undefined` and then `NaN` coordinates, which SVG renders as an
+ * invisible-but-corrupt path, so each returns nothing at all instead:
+ *
+ * - the `link` names no link in the document;
+ * - that link has no drawable polyline, or none with any length;
+ * - `position` is not a finite number;
+ * - `lane` is outside the link's lanes.
+ *
+ * `lane` absent means the whole carriageway, whose span is the **lane region** —
+ * summed from the bands rather than taken as `roadWidth - ROAD_MARGIN`, which
+ * would carry the casing lip through a needless round trip.
+ */
+export function markingAnchor(
+  doc: Document,
+  marking: Marking,
+  offsets: Record<LinkId, number>,
+): MarkingAnchor | undefined {
+  const link = findLink(doc, marking.link);
+  if (!link) return undefined;
+  const points = drawnPolyline(doc, link, offsets);
+  if (!points || points.length < 2) return undefined;
+
+  const along = marking.position * UNITS_PER_METRE;
+  if (!Number.isFinite(along)) return undefined;
+  const at = pointAlongPolyline(points, along);
+  if (!at) return undefined;
+
+  const bands = laneBands(link.lanes, linkStyle(doc, link.id));
+  let span: LaneBand;
+  if (marking.lane === undefined) {
+    span = { offset: 0, width: bands.reduce((s, b) => s + b.width, 0) };
+  } else {
+    const band = bands[marking.lane];
+    if (!band) return undefined;
+    span = band;
+  }
+
+  return { ...at, span };
+}
+
+/**
+ * The two ends of a transverse bar across a marking's span — a stop line, and the
+ * baseline every other transverse kind is built on.
+ *
+ * Both the band's centre offset and its half-width run along the same normal, so
+ * the whole bar is one expression and there is no side to name twice. The normal
+ * is the right of travel, matching {@link laneBands} and `jointEnd`'s `nearside`.
+ */
+export function markingBar(anchor: MarkingAnchor): [Vec2, Vec2] {
+  const { at, dir, span } = anchor;
+  const nx = -dir.y;
+  const ny = dir.x;
+  const near = span.offset - span.width / 2;
+  const far = span.offset + span.width / 2;
+  return [
+    { x: at.x + nx * near, y: at.y + ny * near },
+    { x: at.x + nx * far, y: at.y + ny * far },
+  ];
 }

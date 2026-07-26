@@ -19,7 +19,12 @@ import { fileLabel } from "./model/document";
 import "./styles.css";
 
 /** Single-key shortcuts for switching tools. */
-const TOOL_KEYS: Record<string, Tool> = { v: "select", n: "node", l: "link" };
+const TOOL_KEYS: Record<string, Tool> = {
+  v: "select",
+  n: "node",
+  l: "link",
+  m: "marking",
+};
 
 function App() {
   const [state, dispatch] = useReducer(reducer, undefined, initialState);

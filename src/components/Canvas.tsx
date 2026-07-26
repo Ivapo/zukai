@@ -2,9 +2,18 @@
 
 import type React from "react";
 import { useRef, useState } from "react";
-import { nodePos } from "../model/document";
-import { Link, Node, NodeId, Vec2 } from "../model/types";
-import { LANE_PX, screenToWorld, zoomAbout } from "../editor/geometry";
+import { findLink, linkStyle, nodePos } from "../model/document";
+import { Link, Marking, Node, NodeId, Vec2 } from "../model/types";
+import {
+  LANE_PX,
+  UNITS_PER_METRE,
+  carriageways,
+  drawnPolyline,
+  laneBands,
+  nearestOnPolyline,
+  screenToWorld,
+  zoomAbout,
+} from "../editor/geometry";
 import { Action, EditorState } from "../editor/state";
 import { Diagram } from "./Diagram";
 
@@ -90,9 +99,71 @@ export function Canvas({ state, dispatch }: CanvasProps) {
   }
 
   function onLinkPointerDown(e: React.PointerEvent, link: Link) {
+    // The marking tool acts on the *road*, so unlike the others it must claim
+    // the event: letting it reach `onBackgroundPointerDown` would lose the click
+    // and pan instead (markings spec §2.4).
+    if (tool === "marking") {
+      e.stopPropagation();
+      placeMarking(e, link);
+      return;
+    }
     if (tool !== "select") return; // let other tools act on the background
     e.stopPropagation();
     dispatch({ type: "select", selection: { kind: "link", id: link.id } });
+  }
+
+  /**
+   * Put a marking where the pointer landed on `link`. The click carries
+   * everything one needs, which is what keeps this from growing a dialog:
+   *
+   * - **how far along** — an arc-length on the polyline the road is actually
+   *   *drawn* along, carriageway offset and alignment included, divided by
+   *   `UNITS_PER_METRE` because `Marking.position` is metres (§2.2);
+   * - **which lane** — that same click's **signed** lateral offset, matched
+   *   against the lane bands. Outside every band (the casing lip, or the fat
+   *   invisible hit path) means the whole carriageway.
+   */
+  function placeMarking(e: React.PointerEvent, link: Link) {
+    const points = drawnPolyline(doc, link, carriageways(doc));
+    if (!points || points.length < 2) return;
+    const { along, offset } = nearestOnPolyline(points, worldPoint(e));
+    const bands = laneBands(link.lanes, linkStyle(doc, link.id));
+    const lane = bands.findIndex(
+      (b) => Math.abs(offset - b.offset) <= b.width / 2,
+    );
+    dispatch({
+      type: "addMarking",
+      link: link.id,
+      position: along / UNITS_PER_METRE,
+      lane: lane < 0 ? undefined : lane,
+    });
+  }
+
+  /**
+   * A marking's own clicks, and the behaviour is written here rather than
+   * inherited from the tree: markings are a sibling layer, so this event cannot
+   * reach `onLinkPointerDown`, and *not* stopping propagation would send it to
+   * `onBackgroundPointerDown`, whose select tail clears the selection and starts
+   * a pan (§2.4).
+   *
+   * The cost of that unconditional `stopPropagation`, stated so it is a trade
+   * rather than a surprise: a marking is a small **dead zone for the node tool**,
+   * which elsewhere drops a node straight through a road. Nudging the click is
+   * the whole remedy.
+   */
+  function onMarkingPointerDown(e: React.PointerEvent, marking: Marking) {
+    e.stopPropagation();
+    if (tool === "marking") {
+      // Clicking near an existing marking places another on the same road: a
+      // tool that refuses to place a second marking beside the first is the more
+      // surprising behaviour.
+      const link = findLink(doc, marking.link);
+      if (link) placeMarking(e, link);
+      return;
+    }
+    if (tool === "select") {
+      dispatch({ type: "select", selection: { kind: "marking", id: marking.id } });
+    }
   }
 
   function onPointerMove(e: React.PointerEvent) {
@@ -165,6 +236,7 @@ export function Canvas({ state, dispatch }: CanvasProps) {
             cursor,
             onNodePointerDown,
             onLinkPointerDown,
+            onMarkingPointerDown,
           }}
         />
       </g>

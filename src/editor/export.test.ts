@@ -41,7 +41,8 @@ function classed(lanes: number, style: LinkStyle): Document {
  * the substring "hit", so a `/hit/` test can never pass on a file that carries
  * the palette.
  */
-const CHROME = /road-hit|jn-hit|-halo|is-selected|link-preview|grid|cursor/;
+const CHROME =
+  /road-hit|jn-hit|marking-hit|-halo|is-selected|link-preview|grid|cursor/;
 
 /** The text between `<style>` and `</style>` — the embedded stylesheet. */
 function embeddedCss(svg: string): string {
@@ -85,6 +86,25 @@ describe("strokeAllowance", () => {
       roadWidth(ramp.links[0].lanes, "ramp") / 2,
     );
     expect(strokeAllowance(ramp)).toBeLessThan(strokeAllowance(road(4)));
+  });
+
+  /**
+   * A marking needs **no** widening, and this confirms it rather than pre-empting
+   * it (markings spec §2.10). Every marking is painted inside the road it belongs
+   * to, and the allowance is already half the widest road; the bar's own stroke
+   * is 4, which the `2` floor — half the fattest non-casing stroke in
+   * `diagram.css` — already covers.
+   */
+  it("is unchanged by the markings painted on a road", () => {
+    const plain = road(3);
+    const painted: Document = {
+      ...plain,
+      markings: [
+        { id: "M1", link: "L1", position: 14, lane: 0, kind: { type: "stop_line" } },
+      ],
+    };
+
+    expect(strokeAllowance(painted)).toBe(strokeAllowance(plain));
   });
 });
 
@@ -403,6 +423,54 @@ describe("gores in an exported file", () => {
       expect(cy).toBeGreaterThan(y);
       expect(cy).toBeLessThan(y + h);
     }
+  });
+});
+
+describe("road markings in an exported file", () => {
+  /** §1's approach: a 3-lane arterial with a stop line in its kerb lane. */
+  function painted(): Document {
+    const base = road(3);
+    return {
+      ...base,
+      markings: [
+        { id: "M1", link: "L1", position: 14, lane: 0, kind: { type: "stop_line" } },
+      ],
+    };
+  }
+
+  it("carries the marking's paint as a rule, like every other", () => {
+    const svg = diagramSvg(painted(), { x: 0, y: 0, width: 120, height: 40 });
+    const css = embeddedCss(svg);
+
+    expect(svg).toContain('<g class="marking marking-stop-line">');
+    expect(svg).toContain('class="marking-bar"');
+    expect(css).toContain(".marking-bar");
+    expect(css).not.toContain("url(");
+    expect(css).not.toMatch(/[<&]/);
+    expect(svg).not.toMatch(CHROME);
+    // Paint on the road scales with the road: no hairline exemption here.
+    expect(svg).not.toMatch(/vector-effect/);
+  });
+
+  /**
+   * **The hard line of markings spec §2.8, and nothing pinned it before.** An
+   * exported SVG reaches no external font, so the first `<text>` in the drawing
+   * either falls back to whatever the viewer has, or — in the PNG path, which
+   * rasterizes through the webview — bakes that substitution in permanently.
+   * So `MarkingKind::Text` and the whole of `Sign` are out of scope until a font
+   * is embedded as a data-URI `@font-face` (export spec OQ-4), and every kind
+   * this spec renders is pure geometry.
+   *
+   * The interaction chrome carries no text either, so this holds for the live
+   * tree as well as the file.
+   */
+  it("emits no text at all — the constraint the whole spec is cut around", () => {
+    const svg = diagramSvg(painted(), { x: 0, y: 0, width: 120, height: 40 });
+
+    expect(svg).not.toMatch(/<text[\s>]|<tspan[\s>]|font-family/);
+    expect(diagramInner(painted())).not.toMatch(/<text[\s>]|<tspan[\s>]/);
+    // And the stylesheet names no font either, so nothing can resolve to one.
+    expect(embeddedCss(svg)).not.toMatch(/@font-face|font-family/);
   });
 });
 
