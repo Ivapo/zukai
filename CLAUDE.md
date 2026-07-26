@@ -76,6 +76,8 @@ phase from a spec still `status: draft`** — it must pass the review loop
   lane widths, road class, two-way carriageways, lane kinds (implemented; 4 phases)
 - `specs/ramps_and_tapers_spec.md` — the joins between roads: arm positions, link
   alignment, lane-drop tapers, gores (implemented; 4 phases)
+- `specs/road_markings_spec.md` — the paint on the road: stop and give-way lines,
+  crossings, lane arrows, lane lines (draft; needs the §7 review loop)
 
 **`rules/` — current-state reference (the *what is*).** Terse, authoritative maps
 of subsystems, read on demand. Unlike specs, rules describe the code as it is now;
