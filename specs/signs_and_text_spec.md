@@ -1,9 +1,9 @@
 ---
-status: reviewed
+status: in progress (Phase 1 implemented; reviewed in 2 rounds, 2026-07-26)
 last_updated: 2026-07-26
 note: Put text and roadside signs in the drawing — the font that must travel inside an exported file, painted road text, and the sign vocabulary. Closes export spec OQ-4.
-implemented: []
-not_implemented: ["Phase 1", "Phase 2", "Phase 3", "Phase 4"]
+implemented: ["Phase 1"]
+not_implemented: ["Phase 2", "Phase 3", "Phase 4"]
 related: [specs/road_markings_spec.md, specs/diagram_export_spec.md, specs/road_rendering_spec.md]
 reference: "Road-atlas and motorway-signage convention — a speed roundel, an octagonal stop, an inverted give-way triangle, a destination plate, and text painted flat on the carriageway. Not to-scale sign dimensions, not a national sign catalogue (no symbol library), and not Assimilator's business at all: `decoration.rs` says signs never export to `network.yaml`."
 ---
@@ -404,7 +404,19 @@ would frame the drawing to the wrong size. See OQ-2.
 
 ## 3. Open questions
 
-- **OQ-1** — **Does WKWebView rasterize a data-URI `@font-face` inside an
+- **OQ-1 RESOLVED — yes** (Phase 1, 2026-07-26). Measured in a real WKWebView
+  running the exact `rasterizePng` path — Blob, object URL, `Image`,
+  `canvas.drawImage`, readback. The string `IIIIIIII` (chosen because eight `I`s
+  ink 4.718 em monospaced and about 2.2 em in any proportional fallback, where
+  `BUS` in Overpass Mono and in Helvetica land within a pixel of each other) inks
+  **58 px** with the `@font-face` block present and **32 px** with it deleted,
+  against **56.6 px** predicted from the face's own metrics. A second, independent
+  fallback — the bytes embedded under a family name nothing asks for — agrees with
+  the first to the pixel. The canvas is **not** tainted and `toBlob` returned
+  4,954 bytes, so §1's PNG claim stands and the outline fallback below was never
+  reached. The original question, kept for the reasoning:
+
+  **Does WKWebView rasterize a data-URI `@font-face` inside an
   `<img>`-loaded SVG?** `rasterizePng` loads the file through a blob URL into an
   `Image` (`export.tsx:205-215`), which puts the SVG in *secure static mode*: no
   external fetches at all. A `data:` URI is not a fetch and this is the standard
@@ -419,14 +431,18 @@ would frame the drawing to the wrong size. See OQ-2.
   **back to review** with outlines as a new phase — Phases 2–4 are not blocked by
   it (a sign draws in SVG either way), but §1's "survives a rasterized PNG" is.
   (needs-experiment; the one genuine risk in this spec.)
-- **OQ-2** — **Does `measureDiagram` have to wait for the font?** `getBBox` on a
+- **OQ-2 RESOLVED — yes, and it is one `await`** (Phase 1). `getBBox` on a
   `<text>` measures whatever face is currently resolved, so a measurement taken
   before `document.fonts.ready` frames the export to a fallback-font box — a
-  clipped or over-padded file, silently. Making it `await`-ing turns a sync
-  function async and changes its one caller. (answerable-from-code; settle in
-  Phase 1, where the first `<text>` appears.)
+  clipped or over-padded file, silently. `measureDiagram` is now `async` and
+  awaits `document.fonts?.ready`, **gated on `needsText(doc)`** so a document with
+  no glyph is measured exactly as before. Its one caller (`exportDiagram`,
+  `files.ts`) was already `async`, so the change is a single `await`.
+  `strokeAllowance` needed nothing: text is fill and `getBBox` includes fill,
+  confirmed by an assertion rather than assumed.
 - **OQ-3** — **Monospace or proportional?** §2.4 takes monospace and says why.
-  Revisit only if a destination plate reads badly in the app. (design-call,
+  Reads well in the app at `TEXT_SIZE = 6` for `BUS`, `M4 W` and `SLOW` in a
+  3-lane road. Revisit only if a destination plate reads badly. (design-call,
   taken.)
 - **OQ-4** — **Subset the embedded face?** ≈18 kB per exported SVG buys the whole
   latin range and zero drift from the canvas. A digits-and-caps subset would be
@@ -513,6 +529,33 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
   arm loses `text`); `rules/diagram-export.md` — the "no external reference" rule
   and the standing no-font constraint both change here; export spec **OQ-4
   RESOLVED**; the project-memory roadmap.
+- **As built (2026-07-26)** — five departures from the plan above, each recorded
+  because a later phase reads this section as the contract:
+  - **`markingText(anchor)` takes no `content`.** The geometry does not depend on
+    the string — `text-anchor="middle"` centres it — and `noUnusedParameters`
+    rejects a parameter kept for symmetry. `textWidth(content)` is the separate
+    function for the case that does care, which is Phase 4's plate.
+  - **A third constant, `CAP_HEIGHT`.** §2.7 forbids `dominant-baseline`, so
+    centring a run on its band is arithmetic, and arithmetic needs the number.
+  - **Both ratios come from the face's own tables, not from `ctx.measureText`.**
+    `hmtx` gives every glyph an advance of 1232 and `OS/2.sCapHeight` is 1400,
+    against a 2000-unit em — so `ADVANCE = 0.616` and `CAP_HEIGHT = 0.7` exactly,
+    with no rasterizer rounding in them. §2.4's canvas method was run as a check
+    and agrees: `getBBox().width` on `BUS` in the app is 11.09375 against
+    `3 × 0.616 × 6 = 11.088`.
+  - **`state.ts` was touched, which Phase 1's scope did not anticipate.** The
+    Words field dispatches per keystroke so the paint follows the typing, and
+    `coalesceKeyFor` gained a **non-empty-content** text key so a word is one undo
+    step while the picker's empty seed stays its own. `rules/history.md` records
+    the boundary and why it is drawn there.
+  - **`export.test.ts`'s shared helper keeps the stricter rule too.** §2.3 widens
+    the subject from `embeddedCss()` to the whole file; `expectSelfContained`
+    additionally keeps `diagram.css`'s no-`url(`-at-all form, so the widening adds
+    coverage without trading any away.
+  - One trap worth naming, caught by the existing assertions rather than by
+    review: **`diagram.css` may not even *spell* `font-family` or `@font-face`**,
+    comments included, because four assertions forbid the substring across the
+    whole file. `.marking-text`'s comment talks around both.
 
 ### Phase 2 — A sign exists: place, select, drag, delete  (depends on Phase 1)
 

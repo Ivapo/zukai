@@ -213,9 +213,24 @@ function sameList(a: string[], b: string[]): boolean {
  * must never merge with its neighbours. A node drag dispatches one `moveNode`
  * per pointer-move, so those collapse per node; deliberate clicks (a ±1 lane
  * stepper, say) are separate edits and each get their own undo step.
+ *
+ * **Typing is the second gesture, and the only one that is not a drag.** The
+ * Inspector's text field dispatches a whole `setMarkingKind` per keystroke so the
+ * paint follows the typing, and without a key here a five-letter word would burn
+ * five of the hundred snapshots the stack holds (signs spec Phase 1).
+ *
+ * **Empty content is deliberately outside the gesture.** The Kind picker mints a
+ * fresh text marking as `content: ""`, and if that shared the run's key the first
+ * keystroke would *replace* it — so one undo after picking Text and typing a word
+ * would jump back past the repaint to whatever the marking was before, rather
+ * than back to an empty one. The cost is that clearing a field back to empty also
+ * closes the run, which is the honest reading of deleting a word.
  */
 function coalesceKeyFor(action: EditAction): string | null {
-  return action.type === "moveNode" ? `moveNode:${action.id}` : null;
+  if (action.type === "moveNode") return `moveNode:${action.id}`;
+  if (action.type === "setMarkingKind" && action.kind.type === "text")
+    return action.kind.content === "" ? null : `markingText:${action.id}`;
+  return null;
 }
 
 /**

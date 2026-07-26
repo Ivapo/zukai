@@ -16,9 +16,10 @@
  */
 
 import { renderToStaticMarkup } from "react-dom/server";
-import { Diagram } from "../components/Diagram";
+import { Diagram, needsText } from "../components/Diagram";
 import { linkStyle } from "../model/document";
 import { Document } from "../model/types";
+import { FONT_NOTICE, fontFaceCss } from "./fonts";
 import { roadWidth } from "./geometry";
 // The paint travels inside the file. One definition site, two importers: the
 // app loads `diagram.css` as a stylesheet, we embed the same text verbatim —
@@ -92,8 +93,21 @@ export function diagramInner(doc: Document): string {
  *
  * The only DOM-touching function in this module. The host is hidden but
  * *rendered*: `getBBox` returns zeros inside a `display: none` subtree.
+ *
+ * **Async, and only because of the font** (signs spec OQ-2). `getBBox` on a
+ * `<text>` measures whatever face is *currently resolved*, so a measurement taken
+ * before Overpass Mono has loaded frames the export to a fallback-font box — a
+ * clipped or over-padded picture, with nothing to say it happened. Awaiting
+ * `document.fonts.ready` costs nothing once the face is in (it is, by the time
+ * anyone has drawn text and reached for Export) and is the only thing that makes
+ * the guarantee hold on a cold start. Gated on `needsText`, so a document with no
+ * glyph is measured exactly as before.
  */
-export function measureDiagram(doc: Document): Rect | null {
+export async function measureDiagram(doc: Document): Promise<Rect | null> {
+  // Optional-chained: `document.fonts` is a Font Loading API surface, and a
+  // measurement is not worth failing over in an engine that lacks it.
+  if (needsText(doc)) await document.fonts?.ready;
+
   const host = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   host.setAttribute(
     "style",
@@ -166,6 +180,17 @@ function frame(doc: Document, bounds: Rect | null): Rect {
  * was nothing to measure, and falls through the same arithmetic as a zero-size
  * box at the origin — a blank document exports as a small blank picture rather
  * than an error or a `NaN` viewBox.
+ *
+ * **The face travels in a second `<style>`, and only when a glyph does**
+ * (`needsText`, signs spec §2.3). Two things about that block are load-bearing:
+ *
+ * - it is a separate stylesheet rather than a rule added to `diagram.css`, whose
+ *   text is embedded verbatim in every export and would otherwise name a face
+ *   most files never carry — and it cannot be `@import`ed into that one either,
+ *   which would be the external reference this whole design rules out;
+ * - it is emitted **after** it. The stylesheet a reader reaches first is
+ *   `diagram.css`, which is the block every existing assertion about the paint
+ *   measures.
  */
 export function diagramSvg(doc: Document, bounds: Rect | null): string {
   const { x, y, width: w, height: h } = frame(doc, bounds);
@@ -174,6 +199,9 @@ export function diagramSvg(doc: Document, bounds: Rect | null): string {
     `<svg xmlns="http://www.w3.org/2000/svg" class="zukai-diagram"` +
       ` width="${w}" height="${h}" viewBox="${x} ${y} ${w} ${h}">`,
     `<style>\n${diagramCss}</style>`,
+    // The notice sits outside `<style>`, where a `<` is legal, and only where the
+    // bytes it covers do: a picture with no glyph embeds no font to attribute.
+    ...(needsText(doc) ? [FONT_NOTICE, `<style>\n${fontFaceCss()}</style>`] : []),
     `<rect class="diagram-bg" x="${x}" y="${y}" width="${w}" height="${h}"/>`,
     diagramInner(doc),
     `</svg>`,
@@ -245,9 +273,10 @@ function loadImage(url: string): Promise<HTMLImageElement> {
  *
  * `toBlob` hands back `null` when the canvas is tainted or the encoder fails —
  * the failure spec OQ-6 asks this phase to detect. It should not happen: the
- * diagram references nothing outside itself (no linked stylesheet, no web font,
- * no remote image), which is exactly what keeps the canvas clean. If it ever
- * does, this error is the signal, not a blank file.
+ * diagram references nothing outside itself (no linked stylesheet, no remote
+ * image, and a font that is bytes in the file rather than a fetch), which is
+ * exactly what keeps the canvas clean. If it ever does, this error is the signal,
+ * not a blank file.
  */
 function canvasBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   return new Promise((resolve, reject) => {

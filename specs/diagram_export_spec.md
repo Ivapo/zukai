@@ -1,6 +1,6 @@
 ---
 status: implemented (all 4 phases; reviewed in 2 rounds, 2026-07-24)
-last_updated: 2026-07-24
+last_updated: 2026-07-26
 note: Export the schematic as a standalone SVG (and PNG) — the picture leaves the app, chrome-free, at its own scale.
 implemented: ["Phase 1", "Phase 2", "Phase 3", "Phase 4"]
 not_implemented: []
@@ -306,11 +306,14 @@ being true later:
 - **No canvas tainting.** Rasterizing an SVG into a `<canvas>` taints it — making
   `toBlob` throw — if the SVG references anything external. Ours references
   nothing: styles are inline, and there are no images. Keep it that way.
-- **No text, no fonts.** The diagram renders zero `<text>` today (verified across
-  `Canvas.tsx`). The moment markings with `MarkingKind::Text` or signs render
-  glyphs (`src-tauri/src/model/decoration.rs`), PNG export needs the font embedded
-  as a data-URI `@font-face` in `diagram.css`, or the raster silently substitutes.
-  That is a constraint on the decorations work, recorded here as OQ-4.
+- **No text, no fonts.** The diagram rendered zero `<text>` when this spec was
+  written (verified across `Canvas.tsx`). The moment markings with
+  `MarkingKind::Text` or signs render glyphs
+  (`src-tauri/src/model/decoration.rs`), PNG export needs the font embedded as a
+  data-URI `@font-face`, or the raster silently substitutes. That was a constraint
+  on the decorations work, recorded here as OQ-4 — and **paid** by
+  `specs/signs_and_text_spec.md` Phase 1, which embeds the face in a second
+  `<style>` rather than in `diagram.css`. See OQ-4 for where it landed.
 
 ### 2.9 Where the logic lives
 
@@ -392,9 +395,22 @@ a file the user named something else.
   (design-call; proposed: Tauri-only, and rely on the pure `diagramSvg` unit tests
   for browser-path confidence — a second write path doubles the surface for one
   dev convenience.)
-- **OQ-4** — PNG font embedding, once any marking or sign renders text (§2.8).
-  (needs-input, blocked on the decorations spec; **blocks nothing here** — flagged
-  so the decorations spec inherits it rather than discovering it in a raster.)
+- **OQ-4** — **RESOLVED** by `specs/signs_and_text_spec.md` Phase 1
+  (2026-07-26). PNG font embedding, once any marking or sign renders text (§2.8).
+  The face is Overpass Mono — already a dependency, OFL-1.1, and derived from
+  Highway Gothic — embedded as a data-URI `@font-face` built in TypeScript
+  (`src/editor/fonts.ts`, a `?inline` woff2 import) and emitted as a **second**
+  `<style>` after `diagram.css`'s, gated on the document actually drawing a glyph.
+  It is **not** a rule in `diagram.css`: that text ships in every export, and
+  `font-family`/`font-size` travel as presentation attributes instead. ≈17.7 kB
+  base64, unsubsetted.
+
+  The half that could only be answered by experiment — **does WKWebView rasterize
+  it?** — is yes, measured in a real WKWebView on the exact `rasterizePng` path:
+  the string `IIIIIIII` inks 58 px with the block present and 32 px with it
+  deleted, against 56.6 px predicted from the face's own metrics. The canvas is
+  not tainted and `toBlob` returns bytes, so the "no canvas tainting" property
+  above survives — a `data:` URI is not an external reference.
 - **OQ-5** — **RESOLVED** (review round 1, answerable-from-code): yes —
   `diagram.css` is the sole declaration site for the colours it defines, and
   `styles.css` deletes its copies rather than keeping a parallel `:root`. Verified

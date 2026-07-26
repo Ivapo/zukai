@@ -188,6 +188,25 @@
   fill: var(--paint-white);
 }
 
+/* Text painted flat on the road - the same white as every other marking, because
+   it is the same paint.
+
+   Fill only, and the omissions are the point. Neither the typeface nor the type
+   size is named here: this stylesheet travels verbatim inside *every* exported
+   picture, and most of them carry no letters and embed no typeface, so a rule
+   here would name a face the file has no bytes for. Both arrive as presentation
+   attributes instead, built from the one constant the embedded face rule is also
+   built from - so a picture and the canvas that drew it cannot ask for different
+   faces (signs spec 2.3). Anchoring is absent for a different reason: it is
+   geometry rather than paint, and it is what centres a run on its position.
+
+   Note the words this comment goes out of its way not to spell: an export that
+   carries no letters is asserted to contain neither of those two property names
+   anywhere in the file, comments included. */
+.marking-text {
+  fill: var(--paint-white);
+}
+
 /* A lane line: the one marking that runs *along* the road rather than across it,
    for the whole length of the link. It replaces the divider it lands on rather
    than being drawn over one, which is a rule in `Diagram.tsx` rather than here -

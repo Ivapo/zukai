@@ -538,6 +538,41 @@ body {
   color: var(--chrome-dim);
 }
 
+/* The one thing in the panel a human types into: what a text marking says.
+   Chrome, so it belongs here and not in `styles/diagram.css`, which ships inside
+   every exported picture.
+
+   Set in the same monospace face the drawing paints with, at the drawing's own
+   uppercase, so the field reads as a preview of the paint rather than as a form.
+   `transform` rather than the model, though - the document keeps exactly what was
+   typed. */
+.text-field {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 7px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--desk-2);
+  color: var(--chrome-text);
+  font-family: "Overpass Mono", monospace;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.text-field::placeholder {
+  color: var(--chrome-dim);
+}
+
+.text-field:hover {
+  border-color: var(--chrome-dim);
+}
+
+.text-field:focus {
+  outline: none;
+  border-color: var(--paint-yellow);
+}
+
 .danger {
   width: 100%;
   margin-top: 8px;

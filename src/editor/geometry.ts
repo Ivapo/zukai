@@ -1281,6 +1281,108 @@ export function markingArrow(
 }
 
 /**
+ * How tall the drawing sets type, in world units — the one size, for painted road
+ * text and for every sign.
+ *
+ * A schematic build constant like {@link CROSSWALK_DEPTH}, and **fixed rather
+ * than band-derived**, unlike a turn arrow's proportions: a sign is a symbol
+ * beside the road with no band to derive from, and one size across the whole
+ * drawing is what keeps a plate and a painted word reading as the same hand.
+ *
+ * Sized so a run's cap height clears the narrowest band it can land in — a ramp
+ * lane is 7.2 units — with asphalt showing either side. Settled in the app
+ * (signs spec §2.4).
+ */
+export const TEXT_SIZE = 6;
+
+/**
+ * Overpass Mono's advance width, as a fraction of the type size.
+ *
+ * **Measured, not derived**, which is the whole reason the face is monospaced:
+ * every glyph advances the same, so a string's width is one multiplication
+ * ({@link textWidth}) rather than a metrics table that can fall out of step with
+ * the font. Read out of the face itself — `hmtx` gives every glyph an advance of
+ * 1232 against a 2000-unit em — rather than off a canvas, so the number is the
+ * font's own and carries no rounding from a rasterizer (§2.4).
+ *
+ * Pinned as a bare literal in `geometry.test.ts`, so swapping the face fails a
+ * test instead of silently resizing every plate it sizes.
+ */
+export const ADVANCE = 0.616;
+
+/**
+ * Overpass Mono's cap height, as a fraction of the type size.
+ *
+ * From the same source as {@link ADVANCE} — `OS/2.sCapHeight`, 1400 of the same
+ * 2000-unit em, which the outline of a capital `M` confirms exactly. It exists
+ * for one job: centring a run on the strip it is drawn in. SVG offers
+ * `dominant-baseline` for that, and this drawing does not use it — WebKit's
+ * support for it inside a rasterized SVG is exactly the class of thing that fails
+ * silently in the PNG path (§2.7, OQ-1) — so the baseline offset is arithmetic
+ * from a number instead.
+ */
+export const CAP_HEIGHT = 0.7;
+
+/**
+ * How wide a string sets, in world units.
+ *
+ * Exact because the face is monospaced, and pure because nothing measures a DOM:
+ * `signPlate` can therefore size a direction plate to its text in the same suite
+ * that tests the rest of the geometry.
+ */
+export function textWidth(content: string): number {
+  return content.length * ADVANCE * TEXT_SIZE;
+}
+
+/** A run of text: where its baseline sits, the angle it runs at, and how tall. */
+export interface TextRun {
+  /**
+   * The baseline's **midpoint** — `text-anchor="middle"` centres the string on
+   * it, which is what keeps the string itself out of this arithmetic.
+   */
+  at: Vec2;
+  /** Degrees clockwise from due east, for an SVG `rotate(angle, at.x, at.y)`. */
+  angle: number;
+  /** Carried here so the renderer writes one attribute rather than reading two constants. */
+  size: number;
+}
+
+/**
+ * Text painted flat on the road: centred in its lane, running **along** the road
+ * in the direction of travel.
+ *
+ * The one thing in the drawing set at an angle, and it earns it — road paint is
+ * on the road, so it turns with it, exactly as a turn arrow does. There is no
+ * upright flip: a westbound road paints text that reads upside down on screen,
+ * which is what real paint does and what the driver it is aimed at sees the right
+ * way up (§2.9).
+ *
+ * Two offsets, both from the band and neither from the string:
+ *
+ * - **along** the road, nothing — `text-anchor="middle"` puts the string's
+ *   midpoint on `position`, so a word sits where a stop line would;
+ * - **across** it, half a cap height toward the right of travel. Glyphs sit
+ *   *above* their baseline, and {@link markingPoint}'s positive `across` is the
+ *   right of travel, so dropping the baseline by that much lands the run's visual
+ *   centre on the band centre.
+ *
+ * Takes the anchor and nothing else, as every other kind's builder does — the
+ * content changes nothing about where the run goes.
+ */
+export function markingText(anchor: MarkingAnchor): TextRun {
+  const at = markingPoint(
+    anchor,
+    anchor.span.offset + (TEXT_SIZE * CAP_HEIGHT) / 2,
+    0,
+  );
+  return {
+    at,
+    angle: (Math.atan2(anchor.dir.y, anchor.dir.x) * 180) / Math.PI,
+    size: TEXT_SIZE,
+  };
+}
+
+/**
  * How far apart a double line's two strokes sit, centre to centre.
  *
  * A schematic build constant like {@link CROSSWALK_DEPTH}, and **decided in the

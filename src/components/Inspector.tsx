@@ -69,9 +69,15 @@ const MARKING_KINDS: Record<MarkingKind["type"], string> = {
  * the reducer.
  *
  * A **separate list** from the labels above rather than a reordering of them, so
- * that table stays exhaustive: `hatching` is an area and `text` needs a font, and
- * both are out of scope (markings spec §2.8, §2.10) — but a hand-edited document
- * can still carry either, and the panel has to be able to name what it is showing.
+ * that table stays exhaustive: `hatching` is an area rather than paint at a point
+ * on one link and is out of scope (markings spec §2.10) — but a hand-edited
+ * document can still carry it, and the panel has to be able to name what it is
+ * showing.
+ *
+ * `text` joined the list once a font travelled inside an exported picture (signs
+ * spec Phase 1). Its fresh payload is the **empty** string, which draws the
+ * placeholder bar: a marking you can see, select, and then type into, rather than
+ * an invisible object findable only by accident.
  */
 const MARKING_PICKER: MarkingKind[] = [
   { type: "stop_line" },
@@ -79,6 +85,7 @@ const MARKING_PICKER: MarkingKind[] = [
   { type: "crosswalk" },
   { type: "turn_arrow", directions: ["through"] },
   { type: "lane_line", style: "solid" },
+  { type: "text", content: "" },
 ];
 /**
  * A turn arrow's directions, **in road order left to right** rather than in the
@@ -206,6 +213,16 @@ export function Inspector({ state, dispatch }: InspectorProps) {
             <MarkingLineStyle
               id={marking.id}
               style={marking.kind.style}
+              dispatch={dispatch}
+            />
+          </Field>
+        )}
+
+        {marking.kind.type === "text" && (
+          <Field label="Words">
+            <MarkingText
+              id={marking.id}
+              content={marking.kind.content}
               dispatch={dispatch}
             />
           </Field>
@@ -461,6 +478,54 @@ function MarkingLineStyle({
         </button>
       ))}
     </div>
+  );
+}
+
+/**
+ * What a text marking says — the **fourth** dispatcher of `setMarkingKind`, and
+ * still no action of its own, which is what markings Phase 2's "carry the whole
+ * tagged `MarkingKind`" bought (signs spec Phase 1).
+ *
+ * **The panel's first `<input>`, and the first control that is not a click.** Two
+ * consequences it inherits rather than solves:
+ *
+ * - the app's global key handler already ignores keystrokes aimed at an `INPUT`,
+ *   so typing `m` here switches no tool and Backspace deletes no marking;
+ * - a keystroke is an edit, so this dispatches on every one — the paint follows
+ *   the typing — and `coalesceKeyFor` collapses the run into a single undo step,
+ *   the way it does for a node drag. The empty payload the picker mints is
+ *   deliberately outside that gesture, so one undo after picking Text and typing
+ *   a word clears the word rather than the kind.
+ *
+ * Controlled by the document rather than by local state: the marking *is* the
+ * value, and a second copy of it here could disagree with the drawing after an
+ * undo.
+ */
+function MarkingText({
+  id,
+  content,
+  dispatch,
+}: {
+  id: MarkingId;
+  content: string;
+  dispatch: (action: Action) => void;
+}) {
+  return (
+    <input
+      className="text-field"
+      type="text"
+      value={content}
+      placeholder="BUS"
+      spellCheck={false}
+      autoComplete="off"
+      onChange={(e) =>
+        dispatch({
+          type: "setMarkingKind",
+          id,
+          kind: { type: "text", content: e.target.value },
+        })
+      }
+    />
   );
 }
 

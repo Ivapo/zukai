@@ -6,12 +6,12 @@ places one, how it is selected and drawn, and what removes it. Frontend only —
 nothing here crosses IPC, reaches disk, or moves `SCHEMA_VERSION`. The design
 rationale lives in `specs/road_markings_spec.md`; hand-maintained.
 
-**All five in-scope kinds are drawn** (spec Phases 1–4): `stop_line`,
-`give_way_line`, `crosswalk` and `turn_arrow` sit at a point across the road;
-`lane_line` runs **along** it for the whole link and is the odd one out in
-almost every section below. `MarkingKind::Hatching` and `Text` are out of scope
-entirely (the last two sections) and paint a placeholder bar if a hand-edited
-document carries one.
+**Six of the seven kinds are drawn.** `stop_line`, `give_way_line`, `crosswalk`,
+`turn_arrow` and `text` sit at a point across the road (spec Phases 1–3, plus
+signs spec Phase 1 for the last); `lane_line` runs **along** it for the whole link
+and is the odd one out in almost every section below. `MarkingKind::Hatching`
+alone is out of scope, and paints a placeholder bar if a hand-edited document
+carries one — as do the two kinds whose fresh payload is empty.
 
 ## The anchor, and the one place metres become units
 
@@ -103,7 +103,8 @@ projection parameter to `[0, 1]` rather than being a case of its own.
 The Inspector's marking panel carries a **Kind picker** (`setMarkingKind`), a
 **Span control** (`setMarkingLane`), and one payload control per kind that has a
 payload — a **Directions multi-select** for a `turn_arrow`, a **Style
-single-select** for a `lane_line`. `Road` stays a readout, and so does `Position`,
+single-select** for a `lane_line`, a **Words field** for a `text`. `Road` stays a
+readout, and so does `Position`,
 which reads **"Whole link"** for a lane line: `position` is ignored for one, and a
 distance in metres there would be a lie at the only place the panel could tell the
 truth. The Span control is the deliberate route to `lane: undefined` that
@@ -114,10 +115,28 @@ so `turn_arrow`'s directions and `lane_line`'s style need no action of their own
 and the *caller* owns the default a fresh pick starts from (`MARKING_PICKER` in
 `Inspector.tsx`). It never names `lane`, which is how a carriageway-wide marking
 stays carriageway-wide across a repaint: spreading an object with no `lane` key
-yields one with no `lane` key. **The two payload controls are that decision
+yields one with no `lane` key. **The three payload controls are that decision
 paying off** — each is one more dispatcher of the same action, sending a whole
-`{ type, …payload }`, and neither can move the marking because the action names
-nothing else. Phases 3 and 4 added a control apiece and no action at all.
+`{ type, …payload }`, and none can move the marking because the action names
+nothing else. Markings Phases 3 and 4 added a control apiece and no action at
+all; so did signs Phase 1's Words field.
+
+**The Words field is the panel's first `<input>`, and the first control that is
+not a click** — which makes it the first to touch two things every other control
+was insulated from:
+
+- **Global keys.** `App.tsx`'s keydown handler already returns early on an
+  `INPUT`/`TEXTAREA` target, so typing `m` switches no tool and Backspace deletes
+  no marking. Confirmed in the app rather than assumed.
+- **History.** It dispatches on every keystroke, so the paint follows the typing —
+  which without help would burn one of a hundred undo snapshots per character.
+  `coalesceKeyFor` gives it a gesture key (`rules/history.md`), and deliberately
+  **only for non-empty content**: the picker's fresh `content: ""` must stay
+  outside the run, or one undo after picking Text and typing would jump back past
+  the repaint instead of back to an empty marking.
+
+It is controlled by the document, not by local state — the marking *is* the value,
+and a second copy could disagree with the drawing after an undo.
 
 **Four rules live in the controls, not in the reducer**, because each depends on
 a field the action does not touch:
@@ -206,6 +225,7 @@ of step as Phases 3–4 add kinds.
 | `crosswalk` | `.marking-zebra` | filled stripes **along** the road, `CROSSWALK_DEPTH` deep |
 | `turn_arrow` | `.marking-arrow-stem` + `.marking-arrow-head` | one shaft, one branch per direction — the only **two-element** kind |
 | `lane_line` | `.marking-line` + a style token | the whole link, along a boundary — the only kind not drawn from the anchor |
+| `text` | `.marking-text` | one `<text>` along the road, centred in the band — the only kind that is not a path, and the only one at an angle |
 | everything else | `.marking-bar` | the bar again — a placeholder, see below |
 
 Three rules hold across all of them but the lane line, which is longitudinal and
@@ -330,13 +350,18 @@ Three more things about it are decisions rather than detail:
   it — against *yellow* paint that reads as no halo at all. Also caught in the
   app, not by an assertion.
 
-**The `default` arm is load-bearing, not tidiness.** A `turn_arrow` can be left
-with no direction it can draw by a hand-edited file, and `hatching`/`text` are out
-of scope but reachable the same way. Both draw the bar, which keeps a marking
-**visible and selectable** — painting nothing would leave an object on the canvas
-findable only by accident. Its class token already says which kind it is.
-`lane_line` was in this list until Phase 4 drew it, and `Diagram.test.tsx` pinned
-the fallback so that phase had to change it deliberately; it did.
+**The `default` arm is load-bearing, not tidiness.** Three things reach it, and
+only one of them is a hand-edited document: `hatching` is out of scope, while a
+`turn_arrow` with no direction and a `text` with no content are what the app
+itself mints when you pick either kind. All three draw the bar, which keeps a
+marking **visible and selectable** — painting nothing would leave an object on
+the canvas findable only by accident, and for the two empty payloads it is the
+thing you then click to fill in. Its class token already says which kind it is.
+
+Every phase that draws a kind has to leave this list deliberately, because
+`Diagram.test.tsx` pins its membership: `lane_line` left in markings Phase 4, and
+**non-empty** `text` in signs Phase 1 — which is also why the empty one had to
+stay, rather than the entry simply being deleted.
 
 **The hit target and halo are the anchor's transverse bar for every kind that
 sits at a point**, so selection feels identical whatever is painted — and a
@@ -433,37 +458,62 @@ rather than narrowed. `state.test.ts` tests all three failures directly.
 dispatches `deleteSelection`, exactly as the node and link panels do and as the
 Delete/Backspace key does, so a separate action would have no dispatcher.
 
-## No text, and it is a hard line
+## Text is the seventh kind, and it cost a font
 
-`MarkingKind::Text` and the whole of `Sign` are out of scope, and not for
-tidiness. **The drawing renders zero `<text>`**, because an exported SVG reaches
-no external font: the first glyph either falls back to whatever the viewer has
-or — in the PNG path, which rasterizes through the webview — **bakes that
-substitution in permanently**. Fixing it means embedding a font as a data-URI
-`@font-face` inside `diagram.css`, with its own size and licensing questions
-(`rules/diagram-export.md`, export spec OQ-4). Every kind this subsystem renders
-is pure geometry, and `export.test.ts` now asserts the absence directly — nothing
-pinned it before.
+`MarkingKind::Text` was out of scope for the whole of the markings spec, and not
+for tidiness: an exported SVG reaches no external font, so the first glyph either
+falls back to whatever the viewer has or — in the PNG path, which rasterizes
+through the webview — **bakes that substitution in permanently**. Signs spec
+Phase 1 paid that cost, embedding Overpass Mono as a data-URI `@font-face`
+(`rules/diagram-export.md` owns the export half; export spec OQ-4, resolved). The
+constraint has not been repealed — it has been *satisfied*, and it still governs
+every future glyph.
 
-`MarkingKind::Hatching` is out for a different reason: it is an **area**, and the
-`Marking` anchor is one link at one position. (A gore's chevrons are not
-`Marking`s either, for the same reason — they live in a triangle *between* two
-links — and belong on `GoreShape`; spec OQ-4.)
+What that buys the marking layer is one arm of `markingPaint`:
+
+- **A run is drawn from the anchor and nothing else**, like every other kind.
+  `markingText(anchor)` returns `{ at, angle, size }` — a baseline midpoint, a
+  rotation, and the type size. The **content is not an argument**, because
+  `text-anchor="middle"` centres the string and nothing about where the run goes
+  depends on what it says. `textWidth(content)` is the separate function for the
+  case that does care, which is a sign plate.
+- **It is the one thing in the drawing set at an angle**, and it earns it: paint
+  is on the road, so it turns with the road, exactly as a turn arrow does. There
+  is deliberately **no upright flip** — a westbound road paints text that reads
+  upside down on screen and the right way up to the driver it is aimed at.
+- **Centred across the band by arithmetic, not by `dominant-baseline`**, whose
+  support in a rasterized SVG is precisely the class of thing that fails silently
+  in the PNG path. Glyphs sit above their baseline and `markingPoint`'s positive
+  `across` is the right of travel, so the baseline drops `TEXT_SIZE * CAP_HEIGHT
+  / 2`. `ADVANCE` (0.616) and `CAP_HEIGHT` (0.7) are the **face's own** metrics —
+  `hmtx` and `OS/2.sCapHeight` against a 2000-unit em — pinned as literals so a
+  face swap fails a test rather than quietly resizing everything.
+- **Empty content draws the placeholder bar**, which is why it can join the
+  picker at all: a fresh pick is a marking you can see, select, and type into.
+  That is also exactly what `needsText` counts, so the font and the glyph cannot
+  disagree.
+
+`MarkingKind::Hatching` is still out, for a different reason that has nothing to
+do with fonts: it is an **area**, and the `Marking` anchor is one link at one
+position. (A gore's chevrons are not `Marking`s either, for the same reason —
+they live in a triangle *between* two links — and belong on `GoreShape`; markings
+spec OQ-4.) It is what remains of the fall-through's original list, alongside the
+two kinds whose fresh payload is empty.
 
 ## Where each piece lives
 
 | Piece | Where | Tested by |
 |---|---|---|
 | `markingForm` — the one call the renderer makes; `nearestOnPolyline`, `pointAlongPolyline`, `markingAnchor` | `src/editor/geometry.ts` | `geometry.test.ts` (pure) |
-| `markingBar`/`markingTeeth`/`markingZebra`/`markingArrow`, `spanCells`, `polygonsPath`/`polylinesPath`, and the build constants | `src/editor/geometry.ts` | `geometry.test.ts` (pure) |
+| `markingBar`/`markingTeeth`/`markingZebra`/`markingArrow`/`markingText`, `textWidth`, `spanCells`, `polygonsPath`/`polylinesPath`, and the build constants | `src/editor/geometry.ts` | `geometry.test.ts` (pure) |
 | `laneLine`/`boundaryOffset`, and `laneLineOffsets`/`boundaryTaken` — the replacement, which is the only piece the *roads* read | `src/editor/geometry.ts` | `geometry.test.ts` (pure) |
-| `MarkingShape`, `markingPaint`, `haloWidth`, the marking layer, `Interaction.onMarkingPointerDown`; `RoadShape`'s `replaced` prop | `src/components/Diagram.tsx` | `Diagram.test.tsx` via `renderToStaticMarkup` |
-| `.marking-bar`, `.marking-teeth`, `.marking-zebra`, `.marking-arrow-stem`, `.marking-arrow-head`, `.marking-line` and its two style modifiers — the paint, and the only marking rules that reach an export | `src/styles/diagram.css` | `export.test.ts` |
+| `MarkingShape`, `markingPaint`, `haloWidth`, `needsText` (**exported** — its consumer is `export.tsx`), the marking layer, `Interaction.onMarkingPointerDown`; `RoadShape`'s `replaced` prop | `src/components/Diagram.tsx` | `Diagram.test.tsx` via `renderToStaticMarkup` |
+| `.marking-bar`, `.marking-teeth`, `.marking-zebra`, `.marking-arrow-stem`, `.marking-arrow-head`, `.marking-line` and its two style modifiers, `.marking-text` — the paint, and the only marking rules that reach an export. `.marking-text` is **fill only**: the face and the size are attributes (`rules/diagram-export.md`) | `src/styles/diagram.css` | `export.test.ts` |
 | `.marking-hit`, `.marking-halo`, the panel-control rules — interaction, so **not** in `diagram.css` | `src/styles.css` | `export.test.ts`'s `CHROME` regex |
 | `addMarking`, `setMarkingKind`, `setMarkingLane`, the `Selection` arm, `keepMarkings` and the three cascades, `unreachable` | `src/editor/state.ts` | `state.test.ts` |
 | The marking tool: `placeMarking`, the two pointer handlers | `src/components/Canvas.tsx` | the `bun run dev` pass — SVG bubbling is what is under test |
 | The toolbar button and `TOOL_KEYS` entry `m` | `src/components/Toolbar.tsx`, `src/App.tsx` | — |
-| The marking panel: `MarkingKindPicker`, `MarkingSpan`, `MarkingDirections`, `MarkingLineStyle`, `MARKING_PICKER`, `TURN_DIRECTIONS`, `LINE_STYLES` | `src/components/Inspector.tsx` | the `bun run dev` pass |
+| The marking panel: `MarkingKindPicker`, `MarkingSpan`, `MarkingDirections`, `MarkingLineStyle`, `MarkingText`, `MARKING_PICKER`, `TURN_DIRECTIONS`, `LINE_STYLES` | `src/components/Inspector.tsx` | the `bun run dev` pass |
 
 `strokeAllowance` (`src/editor/export.tsx`) needed **no** change and
 `export.test.ts` confirms it, for every kind: every marking is painted inside the
@@ -472,7 +522,8 @@ road it belongs to, the allowance is already half the widest road, and the bar's
 `diagram.css` — was already sized for. The teeth and the zebra are *fill* geometry,
 which `getBBox` measures with no allowance at all; the arrow is a fill and a stroke
 narrower than the bar's; and a lane line runs the length of the road it is painted
-on, at half the bar's weight.
+on, at half the bar's weight. Text is fill too, painted inside its band — the
+one kind where that was worth confirming rather than assuming.
 
 ## Open, and deliberately
 

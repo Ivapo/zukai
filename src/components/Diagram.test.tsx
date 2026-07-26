@@ -1365,28 +1365,74 @@ describe("road markings", () => {
     });
 
     /**
-     * **The placeholder, and Phase 4 changed it deliberately**: `lane_line` has
-     * geometry of its own now and has left this list. What remains is what the
-     * arm exists for — the two kinds that are out of scope entirely (§2.8,
-     * §2.10) and an arrow a hand-edited file left with no direction to draw. A
-     * marking that paints nothing is an object on the canvas that can only be
-     * found by accident; its class token already says which kind it is.
+     * **The placeholder, and every phase that draws a kind changes it
+     * deliberately**: `lane_line` left this list in markings Phase 4 and `text`
+     * with *content* leaves it here, once a font travels inside an exported file
+     * (signs spec Phase 1). What remains is what the arm exists for — the one
+     * kind out of scope entirely (markings §2.10), and the two whose fresh pick
+     * starts empty and so has nothing to draw yet. A marking that paints nothing
+     * is an object on the canvas that can only be found by accident; its class
+     * token already says which kind it is.
      */
     it("falls back to the bar for a kind with no geometry of its own", () => {
       for (const kind of [
         { type: "hatching" },
-        { type: "text", content: "BUS" },
+        { type: "text", content: "" },
         { type: "turn_arrow", directions: [] },
       ] as Marking["kind"][]) {
         const svg = renderToStaticMarkup(<Diagram doc={repainted(kind)} />);
 
         expect(svg).toContain(`class="marking-bar" d="M ${ALONG} 4.5 L ${ALONG} 13.5"`);
         expect(svg).not.toMatch(/marking-teeth|marking-zebra|marking-arrow/);
+        // And nothing that would drag a font into an exported file with it: an
+        // empty text marking must cost no `<text>` and no `@font-face`.
+        expect(svg).not.toMatch(/<text[\s>]|font-family/);
         // And the fall-through paints *across* the road, so it takes no divider
         // with it: a kind with no geometry is not a lane line.
         expect(svg).not.toContain("marking-line");
         expect(svg.match(/road-divider/g)).toHaveLength(2);
       }
+    });
+
+    /**
+     * **The drawing's first glyph** (signs spec Phase 1). Two things are asserted
+     * here that nothing else can assert: that the face and the size ride as
+     * *presentation attributes* rather than as rules in `diagram.css`, which is
+     * what keeps a `font-family` out of every text-free export; and that the run
+     * is rotated onto the road rather than laid flat on the page.
+     *
+     * Lane 0 is the nearside: centre +9, so a baseline dropped half a cap height
+     * (`TEXT_SIZE * CAP_HEIGHT / 2`, 2.1) lands at 11.1 — the run's visual middle
+     * on the band's middle, since `dominant-baseline` is deliberately unused.
+     */
+    it("paints text along its lane, in the face the file embeds", () => {
+      const svg = renderToStaticMarkup(
+        <Diagram doc={repainted({ type: "text", content: "BUS" })} />,
+      );
+
+      expect(svg).toContain(
+        '<g class="marking marking-text">' +
+          `<text class="marking-text" x="${ALONG}" y="11.1"` +
+          ' font-family="Overpass Mono" font-size="6" text-anchor="middle"' +
+          ` transform="rotate(0 ${ALONG} 11.1)">BUS</text></g>`,
+      );
+      // The bar is the *empty* case, so a run replaces it rather than backing it.
+      expect(svg).not.toContain("marking-bar");
+    });
+
+    /**
+     * The content is the one thing in the drawing a human types, so it is the one
+     * thing that can carry a `<` or an `&` — which would end the element or start
+     * an entity in the XML an export writes. React escapes it; this pins that we
+     * never build the element by hand.
+     */
+    it("escapes markup a human typed into the content", () => {
+      const svg = renderToStaticMarkup(
+        <Diagram doc={repainted({ type: "text", content: "A<B&C" })} />,
+      );
+
+      expect(svg).toContain(">A&lt;B&amp;C</text>");
+      expect(svg.match(/<text[\s>]/g)).toHaveLength(1);
     });
 
     /**
@@ -1405,6 +1451,10 @@ describe("road markings", () => {
         { type: "stop_line" },
         { type: "give_way_line" },
         { type: "crosswalk" },
+        // Text included: it is the one kind whose paint is not a path at all, and
+        // the hit target and halo are drawn outside `markingPaint` precisely so
+        // that changes nothing about selecting it.
+        { type: "text", content: "BUS" },
       ] as Marking["kind"][]) {
         const svg = renderToStaticMarkup(
           <Diagram doc={repainted(kind)} interaction={selected} />,

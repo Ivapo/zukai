@@ -142,7 +142,7 @@ export async function exportDiagram(state: EditorState): Promise<void> {
 
     // Built once: both formats frame the same drawing, and the raster is this
     // very file rendered by the webview rather than a second drawing of it.
-    const svg = diagramSvg(state.doc, measureDiagram(state.doc));
+    const svg = diagramSvg(state.doc, await measureDiagram(state.doc));
 
     if (exportFormat(chosen) === "png") {
       const bytes = await rasterizePng(svg, PNG_SCALE);

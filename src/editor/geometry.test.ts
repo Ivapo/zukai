@@ -22,6 +22,8 @@ import {
   Vec2,
 } from "../model/types";
 import {
+  ADVANCE,
+  CAP_HEIGHT,
   CROSSWALK_DEPTH,
   DRIVE_SIDE,
   GIVE_WAY_DEPTH,
@@ -37,6 +39,7 @@ import {
   SCHEMATIC_MEDIAN,
   TAPER_LENGTH,
   TAPER_MAX_BEND,
+  TEXT_SIZE,
   TURN_ARROW_LENGTH,
   TurnArrow,
   UNITS_PER_METRE,
@@ -53,6 +56,7 @@ import {
   laneLineOffsets,
   markingArrow,
   markingTeeth,
+  markingText,
   markingZebra,
   nearestOnPolyline,
   offsetPolyline,
@@ -65,6 +69,7 @@ import {
   taperEdge,
   taperWedge,
   taperWedges,
+  textWidth,
 } from "./geometry";
 
 /** `n` lanes at the model's default width, as every link the UI creates has. */
@@ -1502,6 +1507,96 @@ describe("markingArrow", () => {
     for (const p of points(mixed)) {
       expect(Number.isFinite(p.x) && Number.isFinite(p.y)).toBe(true);
     }
+  });
+});
+
+/**
+ * Painted road text (signs spec Phase 1) — the one kind drawn at an angle, so
+ * this is the first describe here that leaves the due-east frame.
+ */
+describe("textWidth and markingText", () => {
+  function anchor(
+    offset: number,
+    width: number,
+    dir: Vec2 = { x: 1, y: 0 },
+  ): MarkingAnchor {
+    return { at: { x: 0, y: 0 }, dir, span: { offset, width } };
+  }
+
+  /**
+   * **The assertion that can fail, and the reason the numbers are literals.**
+   * Restating `chars × ADVANCE × TEXT_SIZE` would pass for any wrong `ADVANCE`;
+   * what is load-bearing is whether these are *Overpass Mono's* ratios. They are
+   * read out of the face's own tables — every glyph's `hmtx` advance is 1232 and
+   * `OS/2.sCapHeight` is 1400, against a 2000-unit em (signs spec §2.4). A face
+   * swap lands here rather than in a plate that quietly stopped fitting.
+   */
+  it("pins the face's own metrics", () => {
+    expect(ADVANCE).toBe(1232 / 2000);
+    expect(CAP_HEIGHT).toBe(1400 / 2000);
+    expect(TEXT_SIZE).toBe(6);
+    // Cap height clears the narrowest band text can land in - a ramp lane, which
+    // is `LANE_PX * classWidthFactor("ramp")` - with asphalt showing either side.
+    expect(TEXT_SIZE * CAP_HEIGHT).toBeLessThan(LANE_PX * classWidthFactor("ramp"));
+  });
+
+  it("sets a string as wide as its characters", () => {
+    expect(textWidth("BUS")).toBeCloseTo(3 * ADVANCE * TEXT_SIZE);
+    expect(textWidth("")).toBe(0);
+    // Monotonic, which is the whole property a plate is sized on (Phase 4).
+    expect(textWidth("M4 WEST")).toBeGreaterThan(textWidth("M4"));
+  });
+
+  /**
+   * Centred **across** the band, not on it: glyphs sit above their baseline, so
+   * the baseline drops half a cap height toward the right of travel to land the
+   * run's visual middle on the band's middle.
+   */
+  it("centres the run on the lane band", () => {
+    const band = laneBands(defaults(3))[0];
+    const run = markingText(anchor(band.offset, band.width));
+
+    expect(run.at.y).toBeCloseTo(band.offset + (TEXT_SIZE * CAP_HEIGHT) / 2);
+    // Along the road it sits exactly on `position`; `text-anchor="middle"` does
+    // the rest, which is why the content never enters this arithmetic.
+    expect(run.at.x).toBe(0);
+    expect(run.size).toBe(TEXT_SIZE);
+  });
+
+  /**
+   * A rotation is not a magnitude, so one road cannot pin it: due east must give
+   * zero and due north minus a quarter turn, and an inversion fails exactly one
+   * of the two.
+   */
+  it("runs along the road, whichever way the road runs", () => {
+    expect(markingText(anchor(0, LANE_PX)).angle).toBe(0);
+    // Due north is negative `y` in the drawing's frame.
+    expect(markingText(anchor(0, LANE_PX, { x: 0, y: -1 })).angle).toBe(-90);
+    expect(markingText(anchor(0, LANE_PX, { x: 0, y: 1 })).angle).toBe(90);
+    expect(markingText(anchor(0, LANE_PX, { x: -1, y: 0 })).angle).toBe(180);
+  });
+
+  /**
+   * The band offset is applied in the **rotated** frame, not added to `y` — a run
+   * on a due-north road is offset in `x`, and adding it to `y` would slide the
+   * text down the road instead of across it. Nearside on a northbound road is
+   * east of it, so lane 0's offset lands positive in `x`.
+   */
+  it("offsets across the road it is on, not across the page", () => {
+    const band = laneBands(defaults(3))[0];
+    const north = markingText(anchor(band.offset, band.width, { x: 0, y: -1 }));
+
+    expect(north.at.x).toBeCloseTo(band.offset + (TEXT_SIZE * CAP_HEIGHT) / 2);
+    expect(north.at.y).toBeCloseTo(0);
+  });
+
+  /** The sign trap the tiled kinds are pinned against, applied to the baseline. */
+  it("paints an offside lane on the offside", () => {
+    const offside = laneBands(defaults(3))[2];
+    expect(offside.offset).toBeLessThan(0);
+
+    const run = markingText(anchor(offside.offset, offside.width));
+    expect(run.at.y).toBeLessThan(0);
   });
 });
 

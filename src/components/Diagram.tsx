@@ -46,6 +46,7 @@ import {
   markingBar,
   markingForm,
   markingTeeth,
+  markingText,
   markingZebra,
   offsetPolyline,
   polygonsPath,
@@ -56,6 +57,7 @@ import {
   taperEdge,
   taperWedges,
 } from "../editor/geometry";
+import { FONT_FAMILY } from "../editor/fonts";
 import { Selection } from "../editor/state";
 
 /** Everything the live canvas adds on top of the drawing itself. */
@@ -202,6 +204,25 @@ function needsHatch(doc: Document): boolean {
     doc.nodes.some(
       (n) => n.type === "junction" && doc.layout.junctions[n.id]?.glyph === "gore",
     )
+  );
+}
+
+/**
+ * Whether anything in the document draws a glyph — the gate on the ≈18 kB
+ * `@font-face` an exported picture would otherwise carry for nothing.
+ *
+ * `needsHatch`'s posture, but **exported**, because its consumer is `export.tsx`
+ * rather than this module: the font is emitted by the exporter and the glyph by
+ * the tree, and one predicate for both is what stops a file carrying a face with
+ * no text, or worse, text with no face (signs spec §2.3).
+ *
+ * It counts exactly what {@link markingPaint} emits a `<text>` for: **non-empty**
+ * content. An empty one draws the transverse bar instead, so it stays visible and
+ * selectable while needing no font at all.
+ */
+export function needsText(doc: Document): boolean {
+  return doc.markings.some(
+    (m) => m.kind.type === "text" && m.kind.content !== "",
   );
 }
 
@@ -544,9 +565,10 @@ function haloWidth(form: MarkingForm): number {
  * drawn by its caller.
  *
  * **The bar is the fall-through, and that is doing real work rather than tidying
- * up.** `hatching` and `text` are out of scope entirely (§2.8, §2.10) but a
- * hand-edited document can carry either, and a `turn_arrow` can be left with no
- * direction to draw the same way. Both draw the transverse bar, which keeps a
+ * up.** `hatching` is out of scope entirely (markings §2.10) but a hand-edited
+ * document can carry it, and a `turn_arrow` with no direction and a `text` with
+ * no content reach the same place from the app itself — the payload a fresh pick
+ * starts from is empty for both. All three draw the transverse bar, which keeps a
  * marking **visible and selectable** rather than an object on the canvas that
  * could only be found by accident. Its class token already says which kind it is.
  *
@@ -585,6 +607,35 @@ function markingPaint(marking: Marking, anchor: MarkingAnchor, bar: string) {
             />
           </>
         );
+      break;
+    }
+    case "text": {
+      const { content } = marking.kind;
+      if (content) {
+        const run = markingText(anchor);
+        return (
+          <text
+            className="marking-text"
+            x={run.at.x}
+            y={run.at.y}
+            /* The face and the size are attributes, not rules in `diagram.css`,
+               on the arrow's `stroke-width` precedent above — but for a harder
+               reason. `diagram.css` is embedded verbatim in *every* exported
+               picture, and most carry no font; a `font-family` there would name
+               a face the file never embeds. Declaring it only in the gated
+               `@font-face` block would instead leave the canvas drawing this in
+               the chrome's proportional Overpass while the file drew the mono
+               one, which is the canvas/file drift the whole export design exists
+               to rule out (signs spec §2.3). */
+            fontFamily={FONT_FAMILY}
+            fontSize={run.size}
+            textAnchor="middle"
+            transform={`rotate(${run.angle} ${run.at.x} ${run.at.y})`}
+          >
+            {content}
+          </text>
+        );
+      }
       break;
     }
   }

@@ -44,9 +44,39 @@ function classed(lanes: number, style: LinkStyle): Document {
 const CHROME =
   /road-hit|jn-hit|marking-hit|-halo|is-selected|link-preview|grid|cursor/;
 
-/** The text between `<style>` and `</style>` — the embedded stylesheet. */
+/**
+ * The text between the **first** `<style>` and the first `</style>` — the
+ * embedded `diagram.css`.
+ *
+ * The first is load-bearing rather than incidental: a document that draws a glyph
+ * emits a *second* stylesheet carrying the `@font-face` (signs spec §2.3), and
+ * every assertion here about the paint means the first block.
+ */
 function embeddedCss(svg: string): string {
   return svg.slice(svg.indexOf("<style>") + "<style>".length, svg.indexOf("</style>"));
+}
+
+/**
+ * **The file references nothing outside itself** — the rule the whole export
+ * design rests on, since a `url()` that resolved anywhere else would fail to load
+ * in a standalone SVG and would taint the canvas the PNG path draws into.
+ *
+ * The subject is the **whole file**, not just the stylesheet, and that widening
+ * is the point (signs spec §2.3). Scoped to `embeddedCss()` this rule would keep
+ * passing by accident the moment a font arrived, because the font block is a
+ * second `<style>` the slice never reaches — a rule that cannot fail on the one
+ * new thing that could break it. Two references resolve inside the file and
+ * nothing else does: the in-document hatch fragment, and a `data:` URI, which is
+ * not a fetch but the bytes themselves.
+ *
+ * `diagram.css` keeps the stricter form it has always had — no `url(` at all —
+ * because the hatch pattern is markup for exactly that reason.
+ */
+function expectSelfContained(svg: string): void {
+  for (const [ref] of svg.matchAll(/url\([^)]*\)/g)) {
+    expect(ref).toMatch(/^url\((#|data:)/);
+  }
+  expect(embeddedCss(svg)).not.toContain("url(");
 }
 
 describe("strokeAllowance", () => {
@@ -130,14 +160,15 @@ describe("diagramSvg", () => {
   });
 
   it("carries its own styling, with no external reference", () => {
-    const css = embeddedCss(diagramSvg(road(2), null));
+    const svg = diagramSvg(road(2), null);
+    const css = embeddedCss(svg);
 
     expect(css).toContain(":root,\n.zukai-diagram");
     expect(css).toContain("--asphalt: #2b2f36");
     expect(css).toContain(".road-casing");
     expect(css).toContain(".diagram-bg");
     expect(css).not.toContain("@import");
-    expect(css).not.toContain("url(");
+    expectSelfContained(svg);
   });
 
   /**
@@ -153,7 +184,7 @@ describe("diagramSvg", () => {
     expect(svg).toContain('<g class="road road-ramp">');
     expect(embeddedCss(svg)).toContain(".road-ramp .road-casing");
     expect(embeddedCss(svg)).toContain("--asphalt-2");
-    expect(embeddedCss(svg)).not.toContain("url(");
+    expectSelfContained(svg);
     expect(embeddedCss(svg)).not.toMatch(/[<&]/);
   });
 
@@ -178,7 +209,7 @@ describe("diagramSvg", () => {
 
     // The stylesheet is unchanged in kind: still no paint-server reference and
     // still XML-safe, hatched document or not.
-    expect(css).not.toContain("url(");
+    expectSelfContained(svg);
     expect(css).not.toMatch(/[<&]/);
     // It does carry the flat rules — the pattern's own line and the band tints.
     expect(css).toContain(".road-hatch-line");
@@ -339,7 +370,7 @@ describe("tapers in an exported file", () => {
     expect(svg).toContain('class="road-taper"');
     expect(css).toContain(".road-taper");
     expect(css).toContain(".road-casing--butt");
-    expect(css).not.toContain("url(");
+    expectSelfContained(svg);
     expect(css).not.toMatch(/[<&]/);
     expect(svg).not.toMatch(CHROME);
     expect(svg).not.toMatch(/vector-effect/);
@@ -388,7 +419,7 @@ describe("gores in an exported file", () => {
     expect([...svg.matchAll(/url\([^)]*\)/g)].map((m) => m[0])).toEqual([
       "url(#road-hatch)",
     ]);
-    expect(css).not.toContain("url(");
+    expectSelfContained(svg);
     expect(css).not.toMatch(/[<&]/);
     expect(css).toContain(".jn-gore");
     expect(diagramInner(gored())).not.toMatch(/xlink|href|https?:/);
@@ -443,7 +474,7 @@ describe("road markings in an exported file", () => {
     expect(svg).toContain('<g class="marking marking-stop-line">');
     expect(svg).toContain('class="marking-bar"');
     expect(css).toContain(".marking-bar");
-    expect(css).not.toContain("url(");
+    expectSelfContained(svg);
     expect(css).not.toMatch(/[<&]/);
     expect(svg).not.toMatch(CHROME);
     // Paint on the road scales with the road: no hairline exemption here.
@@ -451,18 +482,24 @@ describe("road markings in an exported file", () => {
   });
 
   /**
-   * **The hard line of markings spec §2.8, and nothing pinned it before.** An
-   * exported SVG reaches no external font, so the first `<text>` in the drawing
-   * either falls back to whatever the viewer has, or — in the PNG path, which
-   * rasterizes through the webview — bakes that substitution in permanently.
-   * So `MarkingKind::Text` and the whole of `Sign` are out of scope until a font
-   * is embedded as a data-URI `@font-face` (export spec OQ-4), and every kind
-   * this spec renders is pure geometry.
+   * **No text unless the document asks for it.** Markings spec §2.8 held this as
+   * an absolute — an exported SVG reaches no external font, so the first `<text>`
+   * either falls back to whatever the viewer has or, in the PNG path, bakes that
+   * substitution in permanently — and signs spec Phase 1 is the thing that made
+   * it conditional instead, by embedding the face as a data-URI `@font-face`
+   * (export spec OQ-4, resolved).
+   *
+   * What survives unchanged is this document, and that is the whole point: a
+   * drawing with no glyph exports the **same markup and the same font posture as
+   * before**. No `<text>`, no `font-family` anywhere in the file — which is what
+   * pins that the face is declared as an *attribute* on the element rather than
+   * as a rule in `diagram.css`, since that stylesheet travels inside every
+   * picture and would fail this line for all of them (signs spec §2.3).
    *
    * The interaction chrome carries no text either, so this holds for the live
    * tree as well as the file.
    */
-  it("emits no text at all — the constraint the whole spec is cut around", () => {
+  it("emits no text at all for a document that carries none", () => {
     const svg = diagramSvg(painted(), { x: 0, y: 0, width: 120, height: 40 });
 
     expect(svg).not.toMatch(/<text[\s>]|<tspan[\s>]|font-family/);
@@ -492,7 +529,7 @@ describe("road markings in an exported file", () => {
       expect(svg).toContain(`class="${cls}"`);
       expect(embeddedCss(svg)).toContain(`.${cls}`);
       expect(svg).not.toMatch(/<text[\s>]|<tspan[\s>]|font-family/);
-      expect(embeddedCss(svg)).not.toContain("url(");
+      expectSelfContained(svg);
       expect(svg).not.toMatch(CHROME);
       // And no widening: every marking is inside the road it is painted on.
       expect(strokeAllowance(doc)).toBe(strokeAllowance(road(3)));
@@ -535,12 +572,120 @@ describe("road markings in an exported file", () => {
     // — the stylesheet still carries the rule, which is why this reads the
     // markup rather than the whole file.
     expect(diagramInner(twoWay)).not.toContain("road-divider");
-    expect(css).not.toContain("url(");
+    expectSelfContained(svg);
     expect(svg).not.toMatch(/<text[\s>]|<tspan[\s>]|font-family/);
     expect(svg).not.toMatch(CHROME);
     // A line runs the length of the road it is painted on, so it needs no more
     // allowance than the road does.
     expect(strokeAllowance(twoWay)).toBe(strokeAllowance(base));
+  });
+
+  /**
+   * **The font a picture carries inside itself** (signs spec Phase 1). Every
+   * assertion below is about one thing: an exported file that draws a glyph has
+   * to reach nothing outside itself to draw it, and one that draws no glyph must
+   * pay nothing for the ability.
+   */
+  describe("the embedded face", () => {
+    /** §1's flow: a stop line in the kerb lane, repainted as the word `BUS`. */
+    const lettered = painted({ type: "text", content: "BUS" });
+    const box = { x: 0, y: 0, width: 120, height: 40 };
+
+    it("embeds the face exactly once, as bytes rather than a reference", () => {
+      const svg = diagramSvg(lettered, box);
+
+      expect(svg.match(/@font-face/g)).toHaveLength(1);
+      expect(svg).toContain('font-family:"Overpass Mono"');
+      expect(svg).toContain("src:url(data:font/woff2;base64,");
+      // The markup asks for the same family the block defines. One constant,
+      // and this is the assertion that would catch the two drifting apart.
+      expect(svg).toContain('font-family="Overpass Mono"');
+      // Not a fetch, not an @import, and nothing outside the file at all.
+      expect(svg).not.toContain("@import");
+      expectSelfContained(svg);
+      expect(diagramInner(lettered)).not.toMatch(/xlink|href|https?:/);
+    });
+
+    /**
+     * The order is load-bearing, not cosmetic: `embeddedCss()` slices the
+     * **first** stylesheet, so a font block emitted before `diagram.css` would
+     * silently redirect every assertion in this file onto the wrong one.
+     */
+    it("emits the font as a second stylesheet, after the paint", () => {
+      const svg = diagramSvg(lettered, box);
+      const css = embeddedCss(svg);
+
+      expect(css).toContain(".road-casing");
+      expect(css).toContain(".marking-text");
+      expect(css).not.toContain("@font-face");
+      expect(svg.match(/<style>/g)).toHaveLength(2);
+      expect(svg.indexOf("--asphalt")).toBeLessThan(svg.indexOf("@font-face"));
+    });
+
+    /**
+     * Base64's alphabet is `A-Z a-z 0-9 + / =`, so it can carry neither a `<` to
+     * end the element nor an `&` to start an entity — which is what makes it
+     * legal to embed raw inside XML at all. Asserted on **both** blocks, since
+     * the rule was only ever checked on one.
+     */
+    it("keeps both stylesheets XML-safe", () => {
+      const svg = diagramSvg(lettered, box);
+      const blocks = [...svg.matchAll(/<style>([\s\S]*?)<\/style>/g)];
+
+      expect(blocks).toHaveLength(2);
+      for (const [, body] of blocks) expect(body).not.toMatch(/[<&]/);
+    });
+
+    /**
+     * OFL-1.1 requires the notice to travel with the font. It rides as an XML
+     * comment, which is legal outside `<style>` and is the one place in the file
+     * that may carry the URL the notice names — and it carries no `--`, the one
+     * sequence an XML comment may not hold.
+     */
+    it("carries the licence notice with the bytes it covers", () => {
+      const svg = diagramSvg(lettered, box);
+      const comment = svg.match(/<!--[\s\S]*?-->/)![0];
+
+      expect(comment).toContain("The Overpass Project Authors");
+      expect(comment).toContain("SIL Open Font License 1.1");
+      expect(comment.slice(4, -3)).not.toContain("--");
+      // And only where the bytes are: no font, nothing to attribute.
+      expect(diagramSvg(painted(), box)).not.toContain("<!--");
+    });
+
+    /**
+     * The gate is what the tree *emits*, not what the model carries — one
+     * predicate for both, so a file can never hold a face with no text or, worse,
+     * text with no face. An empty content draws the placeholder bar instead, so
+     * the marking stays visible and selectable while costing nothing.
+     */
+    it("costs a document with no glyph nothing at all", () => {
+      for (const doc of [painted(), painted({ type: "text", content: "" })]) {
+        const svg = diagramSvg(doc, box);
+
+        expect(svg).not.toMatch(/@font-face|<text[\s>]|font-family/);
+        expect(svg.match(/<style>/g)).toHaveLength(1);
+        expect(svg).toContain('class="marking-bar"');
+      }
+    });
+
+    /** The one element in the drawing whose content a human types. */
+    it("escapes a typed angle bracket rather than ending the document", () => {
+      const svg = diagramSvg(painted({ type: "text", content: "A<B&C" }), box);
+
+      expect(svg).toContain(">A&lt;B&amp;C</text>");
+      // Which leaves the file's only bare `<` characters as real elements.
+      expect(svg.match(/<text[\s>]/g)).toHaveLength(1);
+    });
+
+    /**
+     * Text is fill, and `getBBox` includes fill — so unlike a road casing's
+     * stroke it needs no allowance of its own. Confirmed rather than assumed:
+     * §2.8 flagged this as the one place a glyph could have widened the frame.
+     */
+    it("needs no more stroke allowance than the road it is painted on", () => {
+      expect(strokeAllowance(lettered)).toBe(strokeAllowance(road(3)));
+    });
   });
 });
 

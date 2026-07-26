@@ -793,6 +793,50 @@ describe("markings", () => {
         type: "turn_arrow",
         directions: ["left", "through"],
       });
+
+      // The same for text, which is the fourth payload to ride this one action
+      // and the fourth phase to add no action of its own (signs spec Phase 1).
+      const lettered = reducer(painted(), {
+        type: "setMarkingKind",
+        id: "M1",
+        kind: { type: "text", content: "BUS" },
+      }).doc.markings[0];
+
+      expect(lettered.kind).toEqual({ type: "text", content: "BUS" });
+      expect(lettered.position).toBe(20);
+      expect(lettered.lane).toBe(0);
+    });
+
+    /**
+     * **Typing is one undo step, not one per letter** (signs spec Phase 1). The
+     * text field dispatches a whole `setMarkingKind` per keystroke so the paint
+     * follows the typing, which without a coalesce key would burn a snapshot on
+     * every character of every word.
+     *
+     * Both halves are asserted, because the interesting one is the boundary: the
+     * empty payload the Kind picker mints stays *outside* the run, so undoing
+     * after picking Text and typing clears the word rather than the repaint.
+     */
+    it("collapses a typed run into one undo step, but not the pick before it", () => {
+      const type = (state: EditorState, content: string) =>
+        reducer(state, {
+          type: "setMarkingKind",
+          id: "M1",
+          kind: { type: "text", content },
+        });
+
+      const picked = type(painted(), "");
+      const typed = ["B", "BU", "BUS"].reduce(type, picked);
+      expect(typed.doc.markings[0].kind).toEqual({ type: "text", content: "BUS" });
+
+      // One undo clears the word and leaves a text marking behind.
+      const once = reducer(typed, { type: "undo" });
+      expect(once.doc.markings[0].kind).toEqual({ type: "text", content: "" });
+      // A second gets back the kind the picker replaced — so the pick and the
+      // typing are two steps, not one and not four.
+      expect(reducer(once, { type: "undo" }).doc.markings[0].kind).toEqual({
+        type: "stop_line",
+      });
     });
 
     /**

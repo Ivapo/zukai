@@ -52,11 +52,24 @@ dispatches `setView`, which also resets the key, so one drag becomes two undo st
 
 Discrete clicks never coalesce. The Lanes and junction Size steppers are ±1 /
 ±0.25 per click, so N clicks are N undo steps — deliberate, since this design has
-no time or focus boundary that could close such a gesture. The three marking
-actions — `addMarking`, `setMarkingKind`, `setMarkingLane` — are discrete too:
-placing three stop lines across a carriageway is three undo steps, and repainting
-one as a crossing and then widening it to the whole carriageway is two more, which
-is the honest reading of five deliberate clicks.
+no time or focus boundary that could close such a gesture. The marking actions are
+discrete on the same terms: placing three stop lines across a carriageway is three
+undo steps, and repainting one as a crossing and then widening it to the whole
+carriageway is two more, which is the honest reading of five deliberate clicks.
+
+**Typing is the second gesture, and the only one that is not a drag.** The
+Inspector's Words field dispatches a whole `setMarkingKind` per keystroke so the
+paint follows the typing, so `coalesceKeyFor` gives it `"markingText:<id>"` —
+without which a five-letter word would burn five of the hundred snapshots.
+
+**Only for non-empty content, and that boundary is the interesting half.** The
+Kind picker mints a fresh text marking as `content: ""`; if that shared the run's
+key, the first keystroke would *replace* it and one undo after picking Text and
+typing a word would jump back past the repaint to whatever the marking was before.
+Excluded, the pick is its own step and the word is another. The cost, recorded
+rather than discovered: clearing a field back to empty also closes the run, which
+is a fair reading of deleting a word. Verified in the app — `BUS` then undo gives
+an empty text marking, undo again gives back the `stop_line`.
 
 ## The trap on the other side: an action that deletes nothing must return the doc
 

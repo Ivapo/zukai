@@ -54,12 +54,20 @@ Vitest stubs CSS imports with `""` by default, which would make every assertion
 about the embedded stylesheet vacuously true — hence `test.css: true` in
 `vitest.config.ts`.
 
+**There is a second stylesheet, and it is not a hole in the one-definition-site
+rule.** A document that draws a glyph gets a gated `@font-face` block after this
+one. That rule governs **paint**, which must match between canvas and file; an
+`@font-face` is not paint but *where the bytes come from*, and the canvas gets
+its bytes from `@fontsource` (`main.tsx`) instead. What must not drift is the
+**family name**, and that is one constant in `src/editor/fonts.ts`. See the
+standing constraints below for the four rules that hold it together.
+
 ## Pure, DOM, Tauri — the three layers
 
 | Piece | Where | Needs |
 |---|---|---|
 | `diagramInner`, `diagramSvg`, `strokeAllowance`, `exportFormat` | `src/editor/export.tsx` | nothing — unit-tested under vitest's node environment |
-| `measureDiagram`, `rasterizePng` | `src/editor/export.tsx` | a DOM |
+| `measureDiagram`, `rasterizePng` | `src/editor/export.tsx` | a DOM; both `async` |
 | `exportDiagram` (dialog + `invoke`) | `src/editor/files.ts` | the Tauri runtime |
 | `write_text_file`, `write_binary_file` | `src-tauri/src/export.rs`, registered in `lib.rs` | — |
 
@@ -86,6 +94,14 @@ the project has no jsdom. Verify it in a browser (`bun run dev`, then
 Measured, not derived from node positions and polylines, for two reasons: it
 cannot drift from what is drawn, and it measures the *export* tree, so the extent
 does not change when something happens to be selected.
+
+**It is `async`, and the font is the only reason.** `getBBox` on a `<text>`
+measures whatever face is *currently resolved*, so a measurement taken before
+Overpass Mono has loaded frames the export to a fallback-font box — a clipped or
+over-padded picture with nothing to say it happened. So it awaits
+`document.fonts?.ready`, gated on `needsText(doc)` so a document with no glyph is
+measured exactly as before. One caller (`exportDiagram`, already `async`), one
+`await` (signs spec OQ-2, resolved).
 
 `getBBox` **excludes stroke width**, so the margin must absorb the widest
 half-stroke:
@@ -118,6 +134,11 @@ already. A wedge's corners sit on the casing rim the allowance is derived from
 and can never reach past it; a gore's sit *inside* the lane region, further in
 still. Widening `strokeAllowance` for either would pad every export for nothing;
 `export.test.ts` pins the unchanged value for both.
+
+**Painted text needs none, for the same reason**, and it was worth confirming
+rather than assuming — a glyph was the one thing plausibly able to reach past the
+casing. It is fill, `getBBox` includes fill, and it is painted inside a lane
+band; the pinned allowance is unchanged.
 
 A document with nothing to measure yields `null` bounds, which `diagramSvg`
 frames as `viewBox="-26 -26 52 52"` — a blank diagram is a blank picture, never
@@ -201,11 +222,19 @@ Same three surfaces as save/open and undo/redo:
 
 ## Standing constraints (they stop being true silently)
 
-- **No external references.** Styles are inline and there are no images. This is
-  what makes the file self-contained anywhere it is opened, and — since a `<svg>`
-  that reaches outside itself taints the `<canvas>` it is drawn into — it is the
-  precondition for PNG working at all. Add one linked asset and `toBlob` starts
-  returning `null`.
+- **No external references.** Styles are inline, there are no images, and the
+  font is bytes rather than a fetch. This is what makes the file self-contained
+  anywhere it is opened, and — since a `<svg>` that reaches outside itself taints
+  the `<canvas>` it is drawn into — it is the precondition for PNG working at
+  all. Add one linked asset and `toBlob` starts returning `null`.
+  - **The assertion's subject is the whole file, not the first stylesheet.**
+    `expectSelfContained(svg)` in `export.test.ts` is the one helper every site
+    shares: every `url(…)` anywhere in the file is `url(#…)` or `url(data:…)`,
+    and `diagram.css` on top of that carries no `url(` at all. The widening is
+    deliberate — scoped to `embeddedCss()` the rule kept passing *by accident*
+    once the font arrived, because the font block is a second `<style>` the slice
+    never reaches, which made it a rule that could not fail on the one new thing
+    able to break it.
   - **The shoulder hatch is not a violation of this, and must not be "fixed".**
     A hatched document carries one `url(#road-hatch)` — an **in-document fragment
     reference** to a `<pattern>` emitted inside the same `<g class="diagram">`,
@@ -219,7 +248,50 @@ Same three surfaces as save/open and undo/redo:
     `hasShoulder(doc)`. That widening is what keeps the file's *only* `url()` the
     one fragment reference above rather than a dangling one, and `export.test.ts`
     pins the whole list for a gore document.
-- **No text, no fonts.** The diagram renders zero `<text>` today. The moment a
-  marking or sign renders glyphs, an exported file needs the font embedded as a
-  data-URI `@font-face` in `diagram.css`, or the SVG falls back to whatever the
-  viewer has and the PNG bakes that substitution in permanently.
+- **Text costs a font, and the font travels only when a glyph does.** The
+  drawing rendered zero `<text>` until signs spec Phase 1; the constraint behind
+  that was real and has not gone away — an SVG that names a face it does not
+  carry falls back to whatever the viewer has, and the PNG bakes that
+  substitution in permanently. What changed is that the face is now embedded.
+  Four rules hold it together, and each is a separate way to get it wrong:
+  - **`needsText(doc)` (exported from `Diagram.tsx`) gates the whole thing**, on
+    `needsHatch`'s model. It counts exactly what `markingPaint` emits a `<text>`
+    for — a `text` marking with **non-empty** content — so one predicate answers
+    both "is there a glyph" and "is there a face", and they cannot disagree. An
+    empty one draws the placeholder bar and costs nothing.
+  - **The `@font-face` is a second `<style>`, emitted *after* `diagram.css`'s.**
+    Not a rule inside it, which travels in every export and would name a face
+    most files have no bytes for; and not an `@import`, which is the external
+    reference the rule above forbids. **The order is load-bearing:**
+    `embeddedCss()` slices the *first* `<style>`, so a font block emitted first
+    would silently redirect every existing assertion about the paint.
+  - **`font-family` and `font-size` are presentation attributes on the `<text>`,
+    never CSS.** In `diagram.css` they would ship to every text-free export (four
+    assertions forbid the substring); in the gated block alone they would leave
+    the *canvas* drawing the chrome's proportional Overpass while the file drew
+    the mono face — canvas/file drift, which is what the two-importer rule exists
+    to prevent. Both come from `FONT_FAMILY`/`TEXT_SIZE`, on the turn arrow's
+    existing `stroke-width` precedent. The attribute beats the root's inherited
+    family because a declaration on the element outranks inheritance — verified
+    in the app, not merely reasoned about.
+  - **`diagram.css` may not even *spell* those two property names**, comments
+    included, for the same reason it may not contain `<` or `&`: the assertions
+    match substrings across the whole file. `.marking-text` carries a fill and a
+    comment that deliberately talks around them.
+- **The bytes come from `src/editor/fonts.ts`, and it must be TypeScript.**
+  `FONT_FAMILY`, `fontFaceCss()`, and `FONT_NOTICE`, built from a
+  `?inline` woff2 import that Vite resolves to a `data:` URL at build time
+  (≈17.7 kB base64, Overpass Mono latin 400, unsubsetted). It cannot be a `.css`
+  file: `?raw` does **no** URL rewriting, so a literal `url(…)` in a stylesheet
+  would travel as an unresolved external reference. The `?inline` transform runs
+  under `vitest.config.ts` too, despite that config carrying no plugins, so the
+  export tests see the real thing. OFL-1.1's notice rides as an XML comment
+  beside the block — legal outside `<style>`, and the attribution string contains
+  no `--`.
+- **A raster does keep the face** — the question this design turned on, and it is
+  answered, not assumed. `rasterizePng` loads the SVG through a blob URL into an
+  `Image`, which puts it in *secure static mode* (no external fetches at all); a
+  `data:` URI is not a fetch, and WKWebView honours it. Measured in a real
+  WKWebView on the exact `rasterizePng` path: `IIIIIIII` inks 58 px with the
+  block present and 32 px with it deleted, against 56.6 px predicted from the
+  face's own metrics. The canvas is **not** tainted and `toBlob` returns bytes.
