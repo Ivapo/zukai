@@ -18,6 +18,7 @@ import {
   LinkStyle,
   LineStyle,
   Marking,
+  SignKind,
   TurnDirection,
   Vec2,
 } from "../model/types";
@@ -1324,6 +1325,23 @@ export const ADVANCE = 0.616;
 export const CAP_HEIGHT = 0.7;
 
 /**
+ * How far a baseline sits **below** the centre of the strip a run is centred in.
+ *
+ * The one centring rule in the drawing, and the reason it is a constant rather
+ * than an expression written out at each site: glyphs sit above their baseline,
+ * so a run whose baseline is on the centre line rides high by half its cap. Every
+ * text in the drawing takes it — a word painted on its lane band
+ * ({@link markingText}), a label on its plate ({@link signPlate}), and the number
+ * in a speed roundel — and `geometry.test.ts` asserts two of them against each
+ * other rather than against a literal they happen to share.
+ *
+ * `dominant-baseline` is what SVG offers for this, and the drawing does not use
+ * it: WebKit's support for it inside a rasterized SVG is exactly the class of
+ * thing that fails silently in the PNG path (§2.7, OQ-1).
+ */
+export const BASELINE_DROP = (TEXT_SIZE * CAP_HEIGHT) / 2;
+
+/**
  * How wide a string sets, in world units.
  *
  * Exact because the face is monospaced, and pure because nothing measures a DOM:
@@ -1361,20 +1379,15 @@ export interface TextRun {
  *
  * - **along** the road, nothing — `text-anchor="middle"` puts the string's
  *   midpoint on `position`, so a word sits where a stop line would;
- * - **across** it, half a cap height toward the right of travel. Glyphs sit
- *   *above* their baseline, and {@link markingPoint}'s positive `across` is the
- *   right of travel, so dropping the baseline by that much lands the run's visual
- *   centre on the band centre.
+ * - **across** it, {@link BASELINE_DROP} toward the right of travel.
+ *   {@link markingPoint}'s positive `across` is the right of travel, so dropping
+ *   the baseline by that much lands the run's visual centre on the band centre.
  *
  * Takes the anchor and nothing else, as every other kind's builder does — the
  * content changes nothing about where the run goes.
  */
 export function markingText(anchor: MarkingAnchor): TextRun {
-  const at = markingPoint(
-    anchor,
-    anchor.span.offset + (TEXT_SIZE * CAP_HEIGHT) / 2,
-    0,
-  );
+  const at = markingPoint(anchor, anchor.span.offset + BASELINE_DROP, 0);
   return {
     at,
     angle: (Math.atan2(anchor.dir.y, anchor.dir.x) * 180) / Math.PI,
@@ -1399,6 +1412,18 @@ export function markingText(anchor: MarkingAnchor): TextRun {
 export const SIGN_SIZE = 22;
 
 /**
+ * How wide the red ring on a speed roundel is stroked, in world units.
+ *
+ * **Fat, and deliberately.** The drawing sets one type size for every text it
+ * carries (§2.4), so the roundel cannot close its white space with a bigger
+ * number; the ring does it instead — which is also what a roundel looks like, and
+ * it keeps the vocabulary's one-size rule intact rather than adding a second
+ * constant that only one sign would use. {@link signRoundel} states what it has to
+ * leave room for.
+ */
+export const SIGN_RING = 4;
+
+/**
  * The clear space either side of a label on its plate, in world units.
  *
  * Two thirds of the type size, so a plate has visible border rather than letters
@@ -1407,12 +1432,30 @@ export const SIGN_SIZE = 22;
  */
 export const PLATE_PAD = 4;
 
-/** A sign's plate and the run of text centred on it, drawn about the origin. */
-export interface SignPlate {
-  /** The plate as a rect, centred on the sign's own position. */
+/**
+ * How much a sign's corners are rounded by, in world units — a third of the type
+ * size, which is enough to read as a sign and little enough that the symbol kinds
+ * can share it for their chrome.
+ */
+const PLATE_RADIUS = TEXT_SIZE / 3;
+
+/**
+ * A rounded box a sign occupies, centred on the sign's own position — a plate, or
+ * the square a symbol is drawn inside.
+ *
+ * It is what the sign's **chrome** is grown from ({@link signBox}): one hit target
+ * and one halo for every kind, so selecting a sign feels identical across the
+ * vocabulary.
+ */
+export interface SignChrome {
+  /** The box as a rect, centred on the sign's own position. */
   box: { x: number; y: number; width: number; height: number };
   /** Corner rounding, so a plate reads as signage rather than as a bare box. */
   radius: number;
+}
+
+/** A sign's plate and the run of text centred on it, drawn about the origin. */
+export interface SignPlate extends SignChrome {
   /**
    * The label's baseline **midpoint** — `text-anchor="middle"` centres the string
    * on it, which is what keeps the string out of this arithmetic, exactly as
@@ -1439,22 +1482,185 @@ export interface SignPlate {
  * - **The height is the type it carries, not `SIGN_SIZE`** — two type sizes, so
  *   there is half a size of clearance above and below the cap. A square plate
  *   reads as a card rather than as a sign.
- * - **The label is centred by arithmetic, not `dominant-baseline`**, whose support
- *   inside a rasterized SVG is precisely the class of thing that fails silently in
- *   the PNG path (§2.7, OQ-1). Glyphs sit above their baseline, so it drops half a
- *   cap height below the plate's centre — the identical rule {@link markingText}
- *   centres a run on its lane band with, and the one number both text sites in the
- *   drawing must agree on. (§2.7 says "arithmetic from `SIGN_SIZE`"; it is not —
- *   it is `TEXT_SIZE * CAP_HEIGHT`, which is what Phase 1 already fixed.)
+ * - **The label is centred by arithmetic, not `dominant-baseline`** — it takes
+ *   {@link BASELINE_DROP} below the plate's centre, which is the identical rule
+ *   {@link markingText} centres a run on its lane band with, and the one number
+ *   every text site in the drawing agrees on. (§2.7 says "arithmetic from
+ *   `SIGN_SIZE`"; it is not — it is the type's own cap height, which is what
+ *   Phase 1 already fixed.)
  */
 export function signPlate(label: string): SignPlate {
   const width = Math.max(SIGN_SIZE, textWidth(label) + 2 * PLATE_PAD);
   const height = TEXT_SIZE * 2;
   return {
     box: { x: -width / 2, y: -height / 2, width, height },
-    radius: TEXT_SIZE / 3,
-    baseline: { x: 0, y: (TEXT_SIZE * CAP_HEIGHT) / 2 },
+    radius: PLATE_RADIUS,
+    baseline: { x: 0, y: BASELINE_DROP },
     size: TEXT_SIZE,
+  };
+}
+
+/**
+ * The words a sign carries on a **plate**, or `null` when its shape carries the
+ * meaning instead.
+ *
+ * The one place that decides which kinds are plates, so the renderer and
+ * {@link signBox} cannot disagree about how wide a sign is — the split that makes
+ * "one hit box and one halo for every kind" hold once six of the eight kinds stop
+ * being rectangles (signs spec §2.7).
+ *
+ * `direction` is a plate already and its own text lands here in Phase 4; until
+ * then it draws the empty one, which is what an unlabelled `custom` sign draws.
+ */
+export function signPlateLabel(kind: SignKind): string | null {
+  switch (kind.type) {
+    case "custom":
+      return kind.label;
+    case "direction":
+      return "";
+    default:
+      return null;
+  }
+}
+
+/**
+ * The box a sign's chrome is grown from — its hit target and its halo.
+ *
+ * **Kind-aware, and it has to be.** A plate is as wide as its label and only
+ * `TEXT_SIZE * 2` tall; a symbol is {@link SIGN_SIZE} in *both* directions, so a
+ * halo taken from the plate would sit inside a roundel rather than around it. One
+ * box per kind, and one hit target and one halo grown from it, is what keeps
+ * selecting a sign feeling identical across the vocabulary.
+ */
+export function signBox(kind: SignKind): SignChrome {
+  const label = signPlateLabel(kind);
+  if (label !== null) {
+    const { box, radius } = signPlate(label);
+    return { box, radius };
+  }
+  const half = SIGN_SIZE / 2;
+  return {
+    box: { x: -half, y: -half, width: SIGN_SIZE, height: SIGN_SIZE },
+    radius: PLATE_RADIUS,
+  };
+}
+
+/**
+ * A regular polygon about the origin: `sides` vertices on a circle of radius `r`,
+ * the first at `phase` radians clockwise from due east.
+ *
+ * The one construction every straight-edged sign below is built from, so the
+ * octagon, the two triangles and the diamond cannot drift apart in how they are
+ * inscribed — each differs only in its count and its phase.
+ */
+function regularPolygon(sides: number, r: number, phase: number): Vec2[] {
+  return Array.from({ length: sides }, (_, i) => {
+    const a = phase + (i * 2 * Math.PI) / sides;
+    return { x: r * Math.cos(a), y: r * Math.sin(a) };
+  });
+}
+
+/**
+ * A stop sign's octagon, inscribed in {@link SIGN_SIZE}.
+ *
+ * **Flat-topped**, which is the half-step phase: an octagon with a vertex at the
+ * top reads as a rotated one. Regular, so all eight sides are equal — the property
+ * `geometry.test.ts` pins, because a magnitude test on one vertex passes for any
+ * number of near-octagons.
+ */
+export function signOctagon(): Vec2[] {
+  return regularPolygon(8, SIGN_SIZE / 2, Math.PI / 8);
+}
+
+/**
+ * A triangular sign, inscribed in {@link SIGN_SIZE} and pointing either way.
+ *
+ * **One construction and one flip, deliberately.** A give-way triangle points
+ * **down** and a warning triangle points **up**, and that is the whole of what
+ * distinguishes them — two separate builders could drift into two different
+ * triangles, and no assertion on a size would notice. SVG's `y` grows downward, so
+ * `down` is the apex at `+y`.
+ */
+export function signTriangle(point: "up" | "down"): Vec2[] {
+  const up = regularPolygon(3, SIGN_SIZE / 2, -Math.PI / 2);
+  return point === "up" ? up : up.map((p) => ({ x: p.x, y: -p.y }));
+}
+
+/**
+ * How far the yellow face's circumradius is inset from the border's — so the white
+ * band a reader sees is this much *along a diagonal*, about three quarters of it
+ * across an edge.
+ */
+const PRIORITY_BORDER = 3;
+
+/**
+ * A priority sign: a yellow diamond with a white border (§2.1).
+ *
+ * **Two polygons, not one stroked path.** The border is drawn as a diamond behind
+ * the face rather than as a stroke on it, because the outer edge also needs the
+ * plate's dark outline: white on light paper is the one place in this vocabulary
+ * where the sign would otherwise dissolve into the page, and a single path cannot
+ * carry two strokes.
+ */
+export function signPriority(): { border: Vec2[]; face: Vec2[] } {
+  const r = SIGN_SIZE / 2;
+  return {
+    border: regularPolygon(4, r, -Math.PI / 2),
+    face: regularPolygon(4, r - PRIORITY_BORDER, -Math.PI / 2),
+  };
+}
+
+/** A speed roundel: the white disc, and the red ring inside its rim. */
+export interface SignRoundel {
+  /** The disc's radius — the sign's own half size. */
+  radius: number;
+  /**
+   * The ring, **stroked**: its own radius is inset by half its width, so the
+   * outermost thing the sign paints is red rather than a sliver of white.
+   */
+  ring: { radius: number; width: number };
+}
+
+/**
+ * A speed limit sign — a white roundel with a red ring, carrying its number.
+ *
+ * **The ring is what closes the white space, not a second type size.** The drawing
+ * sets one size ({@link TEXT_SIZE}, §2.4), so a thin ring would leave a small
+ * number adrift in a large disc; {@link SIGN_RING} is fat instead, which is also
+ * what a roundel looks like.
+ *
+ * The number is the containment case, and the limit is **three digits**: the
+ * widest string the Inspector's stepper can reach has to sit inside the ring, with
+ * its cap centred by {@link BASELINE_DROP} as every other run is.
+ * `geometry.test.ts` asserts that rather than the arithmetic that produced it.
+ */
+export function signRoundel(): SignRoundel {
+  const radius = SIGN_SIZE / 2;
+  return { radius, ring: { radius: radius - SIGN_RING / 2, width: SIGN_RING } };
+}
+
+/** How wide and how tall a no-entry sign's bar is, as fractions of the disc's diameter. */
+const NO_ENTRY_BAR = { width: 0.64, height: 0.2 };
+
+/** A no-entry sign: the red disc, and the white bar across it. */
+export interface SignDisc {
+  radius: number;
+  bar: { x: number; y: number; width: number; height: number };
+}
+
+/**
+ * A no-entry sign — the red disc, and the white bar that is the whole message.
+ *
+ * A red disc *without* the bar is a different sign entirely, which is §2.7's
+ * ordering in miniature: the shape carries the meaning and the colour confirms it,
+ * so the bar is geometry rather than decoration.
+ */
+export function signNoEntry(): SignDisc {
+  const width = SIGN_SIZE * NO_ENTRY_BAR.width;
+  const height = SIGN_SIZE * NO_ENTRY_BAR.height;
+  return {
+    radius: SIGN_SIZE / 2,
+    bar: { x: -width / 2, y: -height / 2, width, height },
   };
 }
 

@@ -60,11 +60,16 @@ undo steps, and repainting one as a crossing and then widening it to the whole
 carriageway is two more, which is the honest reading of five deliberate clicks.
 
 **Typing is the second gesture, and the only one that is not a drag.** The
-Inspector's two text fields — a marking's **Words** and a sign's **Label** —
-dispatch a whole `setMarkingKind`/`setSignKind` per keystroke so the paint follows
-the typing, so `coalesceKeyFor` gives them `"markingText:<id>"` and
-`"signLabel:<id>"` — without which a five-letter word would burn five of the
-hundred snapshots.
+Inspector's three text fields — a marking's **Words**, a sign's **Label**, and a
+warning sign's **Symbol** — dispatch a whole `setMarkingKind`/`setSignKind` per
+keystroke so the paint follows the typing, so `coalesceKeyFor` gives them
+`"markingText:<id>"`, `"signLabel:<id>"` and `"signSymbol:<id>"` — without which a
+five-letter word would burn five of the hundred snapshots.
+
+**A key per field, not per sign.** The two sign fields belong to different kinds
+and cannot be typed into in the same breath — switching between them *is* a pick,
+which closes the run — so one shared key would only make two runs
+indistinguishable in the stack for nothing.
 
 **Only for non-empty content, and that boundary is the interesting half.** The
 Kind picker mints a fresh text marking as `content: ""`; if that shared the run's
@@ -76,11 +81,12 @@ is a fair reading of deleting a word. Verified in the app — `BUS` then undo gi
 an empty text marking, undo again gives back the `stop_line`.
 
 A sign's empty label arrives from `addSign` instead, a different action that gets
-`null` anyway, so the carve-out is doing nothing there **yet**: it is insurance for
-signs Phase 3's Kind picker, which will mint `custom { label: "" }` through
-`setSignKind` and meet the hazard above exactly. Verified the same way — `TOLL`,
-undo, and the sign is still standing with an empty plate; undo again and it is
-gone.
+`null` anyway — so for one phase the carve-out was doing nothing there. **Signs
+Phase 3's Kind picker is what made it load-bearing**: picking Warning or Custom
+mints `{ symbol: "" }`/`{ label: "" }` through `setSignKind` itself, so without the
+carve-out the first keystroke would swallow a kind change the user can see. Both
+verified in the app — `TOLL`, undo, and the sign is still standing with an empty
+plate; undo again and it is gone. `state.test.ts` pins the picker case directly.
 
 ## The trap on the other side: an action that deletes nothing must return the doc
 

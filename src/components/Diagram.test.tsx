@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
+  BASELINE_DROP,
   CROSSWALK_DEPTH,
   GIVE_WAY_DEPTH,
   GORE_LENGTH,
@@ -20,6 +21,7 @@ import {
   LinkAlign,
   LinkStyle,
   Marking,
+  SignKind,
 } from "../model/types";
 import { Diagram, Interaction } from "./Diagram";
 
@@ -1813,6 +1815,125 @@ describe("signs", () => {
     expect(renderToStaticMarkup(<Diagram doc={signed("A<B&C")} />)).toContain(
       ">A&lt;B&amp;C</text>",
     );
+  });
+
+  /** The `d` of the one `<path>` carrying `cls`. */
+  function path(svg: string, cls: string): string {
+    return svg.match(new RegExp(`<path class="${cls}" d="([^"]*)"`))?.[1] ?? "";
+  }
+
+  /** {@link signed}'s sign, carrying `kind` instead of a `custom` plate. */
+  function kinded(kind: SignKind): Document {
+    return run({ ...initialState(), doc: signed() }, {
+      type: "setSignKind",
+      id: "S1",
+      kind,
+    }).doc;
+  }
+
+  /**
+   * **Every kind, and its whole element set** (signs spec Phase 3). Two things are
+   * asserted per kind and the second is the one a presence check misses: the
+   * elements are compared as a *list*, so an extra element is as loud as a missing
+   * one — a stop octagon that also drew its plate would pass any `toContain`.
+   *
+   * The group's token comes from the model (`speed_limit` → `sign-speed-limit`),
+   * so this is also what pins that no table stands between the two.
+   */
+  it("draws each kind as its own shape, under its own token", () => {
+    const cases: [SignKind, string, string[]][] = [
+      [
+        { type: "speed_limit", kph: 50 },
+        "sign-speed-limit",
+        ["sign-roundel", "sign-roundel-ring", "sign-label"],
+      ],
+      [{ type: "stop" }, "sign-stop", ["sign-octagon", "sign-label"]],
+      [{ type: "give_way" }, "sign-give-way", ["sign-triangle"]],
+      [{ type: "warning", symbol: "bend_right" }, "sign-warning", ["sign-triangle"]],
+      [
+        { type: "priority" },
+        "sign-priority",
+        ["sign-diamond-border", "sign-diamond"],
+      ],
+      [{ type: "no_entry" }, "sign-no-entry", ["sign-disc", "sign-bar"]],
+      [{ type: "custom", label: "TOLL" }, "sign-custom", ["sign-plate", "sign-label"]],
+      // Phase 4's kind draws the plate it already has, and no text yet.
+      [{ type: "direction", text: "M4 W" }, "sign-direction", ["sign-plate"]],
+    ];
+
+    for (const [kind, token, elements] of cases) {
+      const svg = renderToStaticMarkup(<Diagram doc={kinded(kind)} />);
+
+      expect(svg).toContain(`<g class="sign ${token}" transform="translate(60 90)">`);
+      expect([...svg.matchAll(/class="(sign-[a-z-]+)"/g)].map((m) => m[1])).toEqual(
+        elements,
+      );
+    }
+  });
+
+  /**
+   * **The symbol names a pictogram and is deliberately not drawn** (§2.9, OQ-6):
+   * a symbol library is a catalogue of artwork rather than a phase, so the
+   * triangle carries "warning" on its own and the string lives in the Inspector.
+   * The two triangles differ only in which way they point, which is geometry —
+   * asserted here as the markup difference it becomes.
+   */
+  it("points the give-way triangle the other way, and draws no symbol", () => {
+    const warning = renderToStaticMarkup(
+      <Diagram doc={kinded({ type: "warning", symbol: "bend_right" })} />,
+    );
+    const giveWay = renderToStaticMarkup(
+      <Diagram doc={kinded({ type: "give_way" })} />,
+    );
+
+    expect(warning).not.toContain("bend_right");
+    expect(warning).not.toMatch(/<text[\s>]/);
+    // Same class, same size, opposite shape — which is the whole message.
+    expect(path(warning, "sign-triangle")).not.toBe(path(giveWay, "sign-triangle"));
+  });
+
+  /**
+   * The roundel's number, as **its own element** rather than as an index into the
+   * file: a document that also carries painted road text has two `<text>`s, and an
+   * assertion on "the second one" would pass for the wrong reason.
+   */
+  it("sets the roundel's number in the roundel, centred like every other run", () => {
+    const svg = renderToStaticMarkup(
+      <Diagram doc={kinded({ type: "speed_limit", kph: 100 })} />,
+    );
+
+    expect(svg).toContain(
+      `<text class="sign-label" x="0" y="${BASELINE_DROP}"` +
+        ' font-family="Overpass Mono" font-size="6" text-anchor="middle">100</text>',
+    );
+  });
+
+  /**
+   * **The chrome follows the shape, not the plate** — the concrete failure being
+   * ruled out is a halo `TEXT_SIZE * 2` tall sitting *inside* a 22-unit octagon.
+   * The hit target is the same box grown by less, so one assertion covers both
+   * gates.
+   */
+  it("grows the hit target and halo from the sign's own box", () => {
+    const svg = renderToStaticMarkup(
+      <Diagram
+        doc={kinded({ type: "stop" })}
+        interaction={{ ...interaction(), selection: { kind: "sign", id: "S1" } }}
+      />,
+    );
+
+    for (const [cls, pad] of [
+      ["sign-hit", 3],
+      ["sign-halo", 4],
+    ] as const) {
+      expect(svg).toContain(
+        `<rect class="${cls}" x="${-SIGN_SIZE / 2 - pad}" y="${-SIGN_SIZE / 2 - pad}"` +
+          ` width="${SIGN_SIZE + 2 * pad}" height="${SIGN_SIZE + 2 * pad}"`,
+      );
+    }
+    // A plate's box is the one it would have taken before, and it is shorter than
+    // the sign it would have had to ring.
+    expect(signPlate("").box.height).toBeLessThan(SIGN_SIZE);
   });
 
   /** The sign layer is an unwrapped `.map()`, so it adds nothing to a document

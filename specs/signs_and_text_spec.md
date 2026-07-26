@@ -1,9 +1,9 @@
 ---
-status: in progress (Phases 1–2 implemented; reviewed in 2 rounds, 2026-07-26)
+status: in progress (Phases 1–3 implemented; reviewed in 2 rounds, 2026-07-26)
 last_updated: 2026-07-26
 note: Put text and roadside signs in the drawing — the font that must travel inside an exported file, painted road text, and the sign vocabulary. Closes export spec OQ-4.
-implemented: ["Phase 1", "Phase 2"]
-not_implemented: ["Phase 3", "Phase 4"]
+implemented: ["Phase 1", "Phase 2", "Phase 3"]
+not_implemented: ["Phase 4"]
 related: [specs/road_markings_spec.md, specs/diagram_export_spec.md, specs/road_rendering_spec.md]
 reference: "Road-atlas and motorway-signage convention — a speed roundel, an octagonal stop, an inverted give-way triangle, a destination plate, and text painted flat on the carriageway. Not to-scale sign dimensions, not a national sign catalogue (no symbol library), and not Assimilator's business at all: `decoration.rs` says signs never export to `network.yaml`."
 ---
@@ -456,12 +456,13 @@ would frame the drawing to the wrong size. See OQ-2.
   (https://github.com/RedHatOfficial/Overpass)`, SIL OFL 1.1. A PNG carries
   nothing, and that is correct rather than a gap — the licence governs the font
   *software*, and a raster contains no font. Landed in §2.3.
-- **OQ-6** — **What does a `warning` sign look like with no symbol?** An empty
-  triangle is honest but says only "warning". The alternatives are drawing the
-  symbol string as text inside it (ugly, and it defeats the shape-carries-meaning
-  rule of §2.7) or dropping the kind from the picker until a symbol library
-  exists. (design-call; proposed: the empty triangle, with the string in the
-  Inspector.)
+- **OQ-6 TAKEN — the empty triangle, with the string editable in the Inspector**
+  (Phase 3). An empty triangle is honest and says "warning", which is what §2.7's
+  shape-first rule buys; drawing the symbol string as text inside it would defeat
+  exactly that, and dropping the kind from the picker would leave a model kind the
+  app cannot reach. The field is an `<input>` rather than a readout for
+  `associated_link`'s reason — a field nothing can set reports on hand-edited files
+  only. A symbol library remains out of scope. (design-call, taken.)
 - **OQ-7** — **Should a sign snap to the road it is associated with?**
   `associated_link` exists and is unused as an anchor by §2.5's decision. A "put
   it beside L2" affordance is plausible later; it is also markings OQ-5's problem
@@ -647,6 +648,41 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
   roundel's own element, not an index into the file). `export.test.ts`: every kind travels, colours and all, with the
   stylesheet rules still XML-safe and reference-free. A `bun run dev` pass on §1's
   50 roundel.
+- **As built (2026-07-26)** — six departures from the plan above, each recorded
+  because Phase 4 reads this section as the contract:
+  - **`signBox(kind)` was not in the scope line, and the phase does not work
+    without it.** Phase 2's chrome inflates `signPlate(label).box`, which is
+    `TEXT_SIZE * 2` tall — so a halo grown from it rings a 22-unit roundel from the
+    *inside*. The box is now the plate's for the two kinds that carry words and the
+    `SIGN_SIZE` square for the six that do not, with `signPlateLabel` as the single
+    place that decides which is which (Phase 4 flips `direction` on one line).
+    `inflate` widened from `SignPlate` to a new `SignChrome`, which `SignPlate`
+    extends.
+  - **The roundel's number keeps `TEXT_SIZE`; the ring got fat instead.** §2.4 fixes
+    one type size for the whole drawing, so closing the white space inside a 22-unit
+    disc is `SIGN_RING = 4`'s job rather than a second constant only one sign would
+    use. What falls out is a containment rule in the manner of `ARROW_REACH`: **three
+    digits fit inside the ring**, asserted in `geometry.test.ts`, and it is why the
+    Inspector's stepper stops at 130.
+  - **`BASELINE_DROP` is a fourth constant**, extracted rather than added: Phase 1's
+    centring expression was written out in `markingText` and `signPlate`, and Phase 3
+    needed it at two more sites (a roundel's number, an octagon's `STOP`). One
+    exported constant, four callers, and the existing assertion that the two text
+    sites agree still holds by construction.
+  - **The warning symbol is an editable field, not a readout.** §2.9 says only that
+    the string is "shown in the Inspector", and Phase 2's review had already rejected
+    a readout of something nothing can set (`associated_link`). It is the panel's
+    third `<input>` and takes a third coalescing key, `signSymbol:<id>` — a key per
+    **field**, not per sign.
+  - **The Kind picker's active button is `disabled`.** A sign's kind is the whole
+    payload, so re-picking the current one resets its field; `MarkingKindPicker`
+    does not have this problem because a marking's `position` and `lane` live
+    outside its kind.
+  - **`priority` is two polygons and `no_entry` is a disc plus a rect**, so §2.1's
+    "one shape per kind" reading is not quite what shipped: a white outer edge needs
+    the plate's ink outline to hold against light paper, and a red disc *without* the
+    bar is a different sign. Both are recorded in `rules/signs.md`'s table, which is
+    the one that now says what each kind emits.
 
 ### Phase 4 — Direction signs, and text that sizes its plate  (depends on Phase 3)
 

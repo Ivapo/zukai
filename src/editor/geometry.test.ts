@@ -18,11 +18,13 @@ import {
   LinkView,
   Marking,
   NodeId,
+  SignKind,
   TurnDirection,
   Vec2,
 } from "../model/types";
 import {
   ADVANCE,
+  BASELINE_DROP,
   CAP_HEIGHT,
   CROSSWALK_DEPTH,
   DRIVE_SIDE,
@@ -38,6 +40,7 @@ import {
   PLATE_PAD,
   ROAD_MARGIN,
   SCHEMATIC_MEDIAN,
+  SIGN_RING,
   SIGN_SIZE,
   TAPER_LENGTH,
   TAPER_MAX_BEND,
@@ -68,7 +71,14 @@ import {
   rayCircleExit,
   rayIntersection,
   roadWidth,
+  signBox,
+  signNoEntry,
+  signOctagon,
   signPlate,
+  signPlateLabel,
+  signPriority,
+  signRoundel,
+  signTriangle,
   taperEdge,
   taperWedge,
   taperWedges,
@@ -1679,6 +1689,161 @@ describe("signPlate", () => {
     expect(markingText(anchor(band.offset, band.width)).at.y - band.offset).toBeCloseTo(
       plate.baseline.y,
     );
+  });
+});
+
+/**
+ * The shapes that carry a sign's meaning (signs spec Phase 3) — every one drawn
+ * about the origin, and every one a **shape** test rather than a magnitude one:
+ * §2.7's whole rule is that the shape says what the sign means and the colour only
+ * confirms it, so a flipped triangle or a rotated octagon is the failure that
+ * matters, and every size assertion in this file would pass through both.
+ */
+describe("the sign vocabulary", () => {
+  /** Every vertex's distance from the origin — a sign is drawn about its own position. */
+  const radii = (pts: Vec2[]) => pts.map((p) => Math.hypot(p.x, p.y));
+  /** Every edge's length, the last one closing the polygon. */
+  const sides = (pts: Vec2[]) =>
+    pts.map((p, i) => distance(p, pts[(i + 1) % pts.length]));
+  /** The six kinds whose shape carries the meaning, in `SIGN_PICKER`'s order. */
+  const SYMBOLS: SignKind[] = [
+    { type: "speed_limit", kph: 50 },
+    { type: "stop" },
+    { type: "give_way" },
+    { type: "priority" },
+    { type: "no_entry" },
+    { type: "warning", symbol: "bend_right" },
+  ];
+
+  it("cuts a regular octagon, inscribed in the sign size", () => {
+    const pts = signOctagon();
+
+    expect(pts).toHaveLength(8);
+    for (const r of radii(pts)) expect(r).toBeCloseTo(SIGN_SIZE / 2);
+    // **Eight equal sides** is the property, and the one an assertion on a vertex
+    // cannot show: any number of near-octagons pass that.
+    const [first, ...rest] = sides(pts);
+    for (const s of rest) expect(s).toBeCloseTo(first);
+    // Flat-topped, which is the half-step phase: an octagon with a vertex at the
+    // top reads as a rotated one. SVG's y grows downward, so the top is the pair
+    // of lowest y's.
+    const ys = pts.map((p) => p.y).sort((a, b) => a - b);
+    expect(ys[0]).toBeCloseTo(ys[1]);
+    expect(ys[6]).toBeCloseTo(ys[7]);
+  });
+
+  /**
+   * **The give-way triangle points down and the warning triangle points up**, and
+   * that is the whole of what tells them apart — same size, same colour, same
+   * class in the stylesheet. A magnitude test passes under the flip, which is why
+   * the apex is compared against its own base rather than against a number.
+   */
+  it("inverts the give-way triangle and stands the warning one upright", () => {
+    for (const point of ["up", "down"] as const) {
+      const pts = signTriangle(point);
+      expect(pts).toHaveLength(3);
+      for (const r of radii(pts)) expect(r).toBeCloseTo(SIGN_SIZE / 2);
+
+      const apex = pts.filter((p) => Math.abs(p.x) < 1e-9);
+      const base = pts.filter((p) => Math.abs(p.x) >= 1e-9);
+      expect(apex).toHaveLength(1);
+      expect(base[0].y).toBeCloseTo(base[1].y);
+      // SVG's y grows downward, so "down" is the apex *below* its own base.
+      expect(Math.sign(apex[0].y - base[0].y)).toBe(point === "down" ? 1 : -1);
+    }
+
+    // One construction and one flip: two builders could drift into two different
+    // triangles, and nothing above would notice.
+    const down = signTriangle("down");
+    signTriangle("up").forEach((p, i) => {
+      expect(down[i].x).toBeCloseTo(p.x);
+      expect(down[i].y).toBeCloseTo(-p.y);
+    });
+  });
+
+  it("insets the priority face inside its border, corner for corner", () => {
+    const { border, face } = signPriority();
+
+    expect(border).toHaveLength(4);
+    for (const r of radii(border)) expect(r).toBeCloseTo(SIGN_SIZE / 2);
+    // Strictly inside at **every** corner, not merely smaller on average — the
+    // white band is what the yellow face is read against on light paper.
+    face.forEach((p, i) => {
+      expect(Math.hypot(p.x, p.y)).toBeLessThan(Math.hypot(border[i].x, border[i].y));
+    });
+  });
+
+  /**
+   * The ring's two jobs, and the second is the one that can actually fail: it has
+   * to leave room for the widest number the Inspector's stepper can reach. Three
+   * digits is that width, and it is geometry rather than a road rule (§2.4's one
+   * type size is what makes the ring the only adjustable part).
+   */
+  it("puts the roundel's ring on its rim, with room for three digits", () => {
+    const { radius, ring } = signRoundel();
+
+    expect(radius).toBe(SIGN_SIZE / 2);
+    expect(ring.width).toBe(SIGN_RING);
+    // Stroked, so the outermost thing the sign paints is red rather than a sliver
+    // of white against light paper.
+    expect(ring.radius + ring.width / 2).toBeCloseTo(radius);
+
+    // The run is centred on the disc, so its four corners sit `BASELINE_DROP`
+    // either side of the centre line and half its width either side of it.
+    const corner = Math.hypot(textWidth("130") / 2, BASELINE_DROP);
+    expect(corner).toBeLessThan(radius - ring.width);
+  });
+
+  it("keeps the no-entry bar inside its disc, and reading as a bar", () => {
+    const { radius, bar } = signNoEntry();
+
+    expect(radius).toBe(SIGN_SIZE / 2);
+    expect(bar.x).toBeCloseTo(-bar.width / 2);
+    expect(bar.y).toBeCloseTo(-bar.height / 2);
+    expect(Math.hypot(bar.width / 2, bar.height / 2)).toBeLessThan(radius);
+    // A red disc *without* the bar is a different sign, so the bar has to read as
+    // one: most of the disc across, and a fraction of that tall.
+    expect(bar.width).toBeGreaterThan(radius);
+    expect(bar.height).toBeLessThan(bar.width / 2);
+  });
+
+  /**
+   * **The one place that decides which kinds are plates.** A symbol deriving a
+   * width from a label it does not carry is the failure it exists to rule out —
+   * and `direction` is a plate *already*, drawing the empty one until Phase 4
+   * gives it its text.
+   */
+  it("names the two plate kinds and no others", () => {
+    expect(signPlateLabel({ type: "custom", label: "TOLL" })).toBe("TOLL");
+    expect(signPlateLabel({ type: "direction", text: "M4 W" })).toBe("");
+    for (const kind of SYMBOLS) expect(signPlateLabel(kind)).toBeNull();
+  });
+
+  /**
+   * **The chrome is grown from the sign's own shape**, which is what keeps "one hit
+   * box and one halo for every kind" true now that six of the eight are not
+   * rectangles. The failure it rules out is concrete: a plate is `TEXT_SIZE * 2`
+   * tall, so a halo taken from one would sit *inside* a 22-unit roundel.
+   */
+  it("boxes a symbol in the sign size and a plate in its own width", () => {
+    for (const kind of SYMBOLS) {
+      expect(signBox(kind)).toEqual({
+        box: {
+          x: -SIGN_SIZE / 2,
+          y: -SIGN_SIZE / 2,
+          width: SIGN_SIZE,
+          height: SIGN_SIZE,
+        },
+        radius: signPlate("").radius,
+      });
+    }
+
+    const wide = signBox({ type: "custom", label: "HEATHROW" });
+    expect(wide.box).toEqual(signPlate("HEATHROW").box);
+    expect(wide.box.width).toBeGreaterThan(SIGN_SIZE);
+    // The two are genuinely different boxes, which is the whole reason this
+    // function exists rather than the plate serving both.
+    expect(signPlate("").box.height).toBeLessThan(SIGN_SIZE);
   });
 });
 

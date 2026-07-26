@@ -134,6 +134,40 @@ const SIGN_KINDS: Record<SignKind["type"], string> = {
   direction: "Direction",
   custom: "Custom",
 };
+/**
+ * The kinds the picker offers, each carrying the payload a fresh pick starts
+ * from — `setSignKind` takes a whole `SignKind`, so a roundel's opening limit and
+ * the empty strings the two free-text kinds begin at belong here rather than in
+ * the reducer. `MARKING_PICKER`'s split from its label table, for its reason.
+ *
+ * **`direction` is withheld** until the phase that draws it, the way that list
+ * withholds `hatching`: it would paint the same empty plate a fresh `custom` sign
+ * does, so offering it would be a control that appears to do nothing. A
+ * hand-edited document carrying one is still *named*, because the table above
+ * stays exhaustive.
+ *
+ * In sign-vocabulary order rather than the model's: the roundel a driver reads
+ * most often first, the two priority signs that face each other next to each
+ * other, then the prohibition and the warning, and the free-text kind last.
+ */
+const SIGN_PICKER: SignKind[] = [
+  { type: "speed_limit", kph: 50 },
+  { type: "stop" },
+  { type: "give_way" },
+  { type: "priority" },
+  { type: "no_entry" },
+  { type: "warning", symbol: "" },
+  { type: "custom", label: "" },
+];
+/**
+ * The limits the roundel's stepper walks between, and the step it takes.
+ *
+ * **The ceiling is three digits, and that is geometry rather than taste**: the
+ * number has to sit inside the ring, which `signRoundel`'s doc-comment states and
+ * `geometry.test.ts` asserts at exactly that width. The step is 10 because every
+ * posted limit is a multiple of it.
+ */
+const KPH = { min: 10, max: 130, step: 10 };
 const GLYPHS: { value: JunctionGlyph; label: string }[] = [
   { value: "generic", label: "Plain" },
   { value: "roundabout", label: "Roundabout" },
@@ -301,13 +335,25 @@ export function Inspector({ state, dispatch }: InspectorProps) {
           <span className="inspector-id">{sign.id}</span>
         </div>
 
-        {/* A readout in Phase 2: `custom` is the only kind drawn, and a picker
-            offering seven undrawable ones would be a control that appears to do
-            nothing. Phase 3 turns this into the picker `SIGN_KINDS` is shaped
-            for. */}
         <Field label="Kind">
-          <div className="readout">{SIGN_KINDS[sign.kind.type]}</div>
+          <SignKindPicker sign={sign} dispatch={dispatch} />
         </Field>
+
+        {sign.kind.type === "speed_limit" && (
+          <Field label="Limit">
+            <SignKph id={sign.id} kph={sign.kind.kph} dispatch={dispatch} />
+          </Field>
+        )}
+
+        {sign.kind.type === "warning" && (
+          <Field label="Symbol">
+            <SignSymbol
+              id={sign.id}
+              symbol={sign.kind.symbol}
+              dispatch={dispatch}
+            />
+          </Field>
+        )}
 
         {sign.kind.type === "custom" && (
           <Field label="Label">
@@ -587,6 +633,120 @@ function MarkingText({
           type: "setMarkingKind",
           id,
           kind: { type: "text", content: e.target.value },
+        })
+      }
+    />
+  );
+}
+
+/**
+ * What this sign says — the control that turns the `custom` plate every placement
+ * mints into any of the shapes that carry a meaning of their own.
+ *
+ * `MarkingKindPicker`'s markup and its decision: the action carries the **whole
+ * tagged `SignKind`**, so the payload a fresh pick starts from lives in
+ * {@link SIGN_PICKER} and no kind needs an action of its own. Picking a kind is a
+ * deliberate click and gets its own undo step; the empty label a fresh `custom`
+ * pick mints stays outside the typing gesture that follows it, which is the
+ * carve-out `coalesceKeyFor` was given in Phase 1 for exactly this control.
+ *
+ * A sign's kind is the *whole* payload, so re-picking the current kind would reset
+ * its field — retyping a label after a stray click on Custom. The active button is
+ * therefore inert rather than merely highlighted.
+ */
+function SignKindPicker({
+  sign,
+  dispatch,
+}: {
+  sign: Sign;
+  dispatch: (action: Action) => void;
+}) {
+  return (
+    <div className="segmented segmented-wrap segmented-labels segmented-kinds">
+      {SIGN_PICKER.map((k) => {
+        const on = sign.kind.type === k.type;
+        return (
+          <button
+            key={k.type}
+            className={`seg${on ? " is-active" : ""}`}
+            disabled={on}
+            onClick={() => dispatch({ type: "setSignKind", id: sign.id, kind: k })}
+          >
+            {SIGN_KINDS[k.type]}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * What a speed roundel says, in km/h — the lane stepper's control, for its reason:
+ * a limit is a number a human steps to, not a string they type, and each click is
+ * a deliberate edit with an undo step of its own.
+ *
+ * Both ends are **disabled rather than clamped**, so the panel says what the sign
+ * can carry. The ceiling is the roundel's geometry rather than a road rule: a
+ * fourth digit would not fit inside the ring (`signRoundel`).
+ */
+function SignKph({
+  id,
+  kph,
+  dispatch,
+}: {
+  id: SignId;
+  kph: number;
+  dispatch: (action: Action) => void;
+}) {
+  const set = (next: number) =>
+    dispatch({ type: "setSignKind", id, kind: { type: "speed_limit", kph: next } });
+  return (
+    <div className="stepper">
+      <button onClick={() => set(kph - KPH.step)} disabled={kph <= KPH.min}>
+        −
+      </button>
+      <span className="stepper-value">{kph}</span>
+      <button onClick={() => set(kph + KPH.step)} disabled={kph >= KPH.max}>
+        +
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Which pictogram a warning triangle stands for — **shown here and deliberately
+ * not drawn** (§2.9, OQ-6). `SignKind::Warning`'s symbol is a free string naming
+ * one (`bend_right`, `pedestrians`, `roundabout`), and drawing them is a catalogue
+ * of artwork rather than a phase; the triangle carries "warning" on its own, which
+ * is §2.7's shape-first rule doing the work.
+ *
+ * An `<input>` rather than a readout, on {@link SignLink}'s reasoning: a field
+ * nothing can set is a panel reporting on hand-edited files only. It inherits
+ * {@link MarkingText}'s two consequences — the key handler ignores keystrokes
+ * aimed at an `INPUT`, and a typed run collapses into one undo step.
+ */
+function SignSymbol({
+  id,
+  symbol,
+  dispatch,
+}: {
+  id: SignId;
+  symbol: string;
+  dispatch: (action: Action) => void;
+}) {
+  return (
+    <input
+      className="text-field"
+      type="text"
+      value={symbol}
+      placeholder="bend_right"
+      spellCheck={false}
+      autoComplete="off"
+      onChange={(e) =>
+        dispatch({
+          type: "setSignKind",
+          id,
+          kind: { type: "warning", symbol: e.target.value },
         })
       }
     />

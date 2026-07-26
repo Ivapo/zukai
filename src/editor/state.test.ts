@@ -1063,8 +1063,7 @@ describe("signs", () => {
    * field. The boundary is the interesting half again — but it falls out
    * differently here: the empty label arrives from `addSign`, a different action,
    * so the placement is outside the run without the carve-out doing anything. The
-   * carve-out is there for Phase 3's Kind picker, which will mint
-   * `custom { label: "" }` through this very action.
+   * one below is where the carve-out earns its keep.
    */
   it("collapses a typed label into one undo step, but not the placement", () => {
     const type = (state: EditorState, label: string) =>
@@ -1083,6 +1082,42 @@ describe("signs", () => {
     // A second removes the sign itself — so the placement and the typing are two
     // steps, not one and not four.
     expect(reducer(once, { type: "undo" }).doc.signs).toEqual([]);
+  });
+
+  /**
+   * **What the empty carve-out was written for** (signs Phase 3). The Kind picker
+   * mints `warning { symbol: "" }` through the *same* action the Symbol field
+   * types with, so without the carve-out the first keystroke would replace the
+   * pick and one undo would jump back past a kind change the user can see.
+   *
+   * A key per field, not per sign: the two text fields belong to different kinds
+   * and switching between them is itself a pick, so the runs stay distinguishable.
+   */
+  it("keeps a picked kind out of the run of typing that follows it", () => {
+    const picked = reducer(signed(), {
+      type: "setSignKind",
+      id: "S1",
+      kind: { type: "warning", symbol: "" },
+    });
+    const typed = ["b", "be", "bend"].reduce(
+      (state, symbol) =>
+        reducer(state, {
+          type: "setSignKind",
+          id: "S1",
+          kind: { type: "warning", symbol },
+        }),
+      picked,
+    );
+
+    expect(typed.doc.signs[0].kind).toEqual({ type: "warning", symbol: "bend" });
+    const once = reducer(typed, { type: "undo" });
+    expect(once.doc.signs[0].kind).toEqual({ type: "warning", symbol: "" });
+    // The pick is its own step, so the second undo lands on the plate the sign
+    // was placed as rather than on nothing at all.
+    expect(reducer(once, { type: "undo" }).doc.signs[0].kind).toEqual({
+      type: "custom",
+      label: "",
+    });
   });
 
   /**

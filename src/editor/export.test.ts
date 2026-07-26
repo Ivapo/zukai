@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Document, LinkStyle, MarkingKind } from "../model/types";
+import { Document, LinkStyle, MarkingKind, SignKind } from "../model/types";
 import {
   EXPORT_PAD,
   diagramInner,
@@ -43,6 +43,33 @@ function signed(label: string): Document {
     ...base,
     signs: [{ id: "S1", kind: { type: "custom", label } }],
     layout: { ...base.layout, signs: { S1: { x: 60, y: 60 } } },
+  };
+}
+
+/** Every kind in the vocabulary, in a row beside {@link road}. */
+const EVERY_KIND: SignKind[] = [
+  { type: "speed_limit", kph: 50 },
+  { type: "stop" },
+  { type: "give_way" },
+  { type: "priority" },
+  { type: "no_entry" },
+  { type: "warning", symbol: "bend_right" },
+  { type: "direction", text: "M4 W" },
+  { type: "custom", label: "TOLL" },
+];
+
+/** {@link road} carrying one sign of every kind. */
+function vocabulary(): Document {
+  const base = road(3);
+  return {
+    ...base,
+    signs: EVERY_KIND.map((kind, i) => ({ id: `S${i + 1}`, kind })),
+    layout: {
+      ...base.layout,
+      signs: Object.fromEntries(
+        EVERY_KIND.map((_, i) => [`S${i + 1}`, { x: 30 * i, y: 60 }]),
+      ),
+    },
   };
 }
 
@@ -754,6 +781,55 @@ describe("signs in an exported file", () => {
    */
   it("needs no more stroke allowance than the road it stands beside", () => {
     expect(strokeAllowance(signed("HEATHROW"))).toBe(strokeAllowance(road(3)));
+  });
+
+  /**
+   * **The whole vocabulary travels, colours and all** (signs spec Phase 3). A sign
+   * is drawn from geometry and painted by a rule, so the export path needs to know
+   * about neither — and this is what says so: every kind's own token in the markup,
+   * every kind's own rule in the stylesheet, and the palette entry all three reds
+   * resolve through, with the file still referring to nothing outside itself.
+   */
+  it("carries every kind, and the sign colour they are painted from", () => {
+    const svg = diagramSvg(vocabulary(), box);
+    const css = embeddedCss(svg);
+
+    for (const kind of EVERY_KIND) {
+      expect(svg).toContain(`<g class="sign sign-${kind.type.replace(/_/g, "-")}"`);
+    }
+    for (const rule of [
+      "--sign-red",
+      ".sign-roundel",
+      ".sign-roundel-ring",
+      ".sign-octagon",
+      ".sign-triangle",
+      ".sign-diamond-border",
+      ".sign-diamond",
+      ".sign-disc",
+      ".sign-bar",
+      ".sign-stop .sign-label",
+    ]) {
+      expect(css).toContain(rule);
+    }
+    // The letters two of them carry, and the one string that is deliberately not
+    // drawn: a warning's symbol names a pictogram no phase draws (OQ-6).
+    expect(svg).toContain(">50</text>");
+    expect(svg).toContain(">STOP</text>");
+    expect(svg).not.toContain("bend_right");
+
+    expectSelfContained(svg);
+    expect(css).not.toMatch(/[<&]/);
+    expect(svg).not.toMatch(CHROME);
+    expect(svg).not.toMatch(/vector-effect/);
+  });
+
+  /**
+   * A symbol is fill and a stroke of at most 3, so half of it stays under the `2`
+   * floor — the same answer the plate got, checked again because Phase 3 is what
+   * put the widest stroke in the sign layer.
+   */
+  it("needs no more allowance for a symbol than for a plate", () => {
+    expect(strokeAllowance(vocabulary())).toBe(strokeAllowance(road(3)));
   });
 });
 

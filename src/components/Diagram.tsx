@@ -21,9 +21,11 @@ import {
   Node,
   NodeId,
   Sign,
+  SignKind,
   Vec2,
 } from "../model/types";
 import {
+  BASELINE_DROP,
   GORE_LENGTH,
   GoreArm,
   JointEnd,
@@ -33,6 +35,7 @@ import {
   MarkingForm,
   ROAD_MARGIN,
   TAPER_LENGTH,
+  TEXT_SIZE,
   boundaryTaken,
   carriageways,
   distance,
@@ -55,8 +58,15 @@ import {
   polylinesPath,
   rayCircleExit,
   roadWidth,
-  SignPlate,
+  SignChrome,
+  signBox,
+  signNoEntry,
+  signOctagon,
   signPlate,
+  signPlateLabel,
+  signPriority,
+  signRoundel,
+  signTriangle,
   taperEdge,
   taperWedges,
 } from "../editor/geometry";
@@ -1119,21 +1129,19 @@ function diamondPoints(s: number): string {
  * are, and unlike a marking, which derives every point from the road it is painted
  * on.
  *
- * **One hit box and one halo for every kind**, whatever the plate becomes. That is
+ * **One hit box and one halo for every kind**, whatever the sign paints. That is
  * the marking layer's rule (its hit target is the anchor's bar for all six kinds)
  * applied here for the same reason: selecting a sign has to feel identical across
- * the vocabulary, so Phase 3 changes only the paint.
+ * the vocabulary. It is {@link signBox} that keeps it true now that six of the
+ * eight kinds are not rectangles — a plate is as wide as its label and two type
+ * sizes tall, a symbol is `SIGN_SIZE` in both directions, and a halo taken from
+ * the wrong one would sit *inside* a roundel.
  *
- * Phase 2 draws the one kind needing no vocabulary — `custom`, a plate carrying its
- * label — and every other kind falls through to the same bare plate meanwhile,
- * which is {@link markingPaint}'s fall-through posture. An **empty** label emits no
- * `<text>` at all, and the plate is what keeps a freshly placed sign visible and
- * selectable: the empty text marking's bar again.
- *
- * The plate's outline takes `non-scaling-stroke` on the canvas, on
- * `.jn-priority`'s precedent rather than the marking layer's: a sign is a *symbol*,
- * and a 1-unit outline that scaled away at low zoom would stop separating a white
- * plate from light paper.
+ * A **light** outline takes `non-scaling-stroke` on the canvas, on `.jn-priority`'s
+ * precedent rather than the marking layer's: a sign is a *symbol*, and a 1-unit
+ * outline that scaled away at low zoom would stop separating a white plate from
+ * light paper. A symbol's own red border is proportion rather than separation, so
+ * it scales with the drawing like the paint it is.
  */
 function SignShape({
   sign,
@@ -1144,8 +1152,7 @@ function SignShape({
   pos: Vec2;
   interaction?: Interaction;
 }) {
-  const label = sign.kind.type === "custom" ? sign.kind.label : "";
-  const plate = signPlate(label);
+  const chrome = signBox(sign.kind);
   const selected = isSelected(interaction?.selection ?? null, "sign", sign.id);
   // `speed_limit` → `speed-limit`, so every kind takes its token from the model
   // rather than from a table that could fall out of step with it.
@@ -1161,49 +1168,154 @@ function SignShape({
         ((e: React.PointerEvent) => interaction.onSignPointerDown(e, sign))
       }
     >
-      {/* Both grown from the plate itself, corners included, so each is the shape
-          it stands for — `.marking-halo`'s butt caps follow the same rule. */}
-      {interaction && <rect className="sign-hit" {...inflate(plate, 3)} />}
+      {/* Both grown from the sign's own box, corners included, so each is the
+          shape it stands for — `.marking-halo`'s butt caps follow the same rule. */}
+      {interaction && <rect className="sign-hit" {...inflate(chrome, 3)} />}
       {selected && (
-        <rect className="sign-halo" {...inflate(plate, 4)} vectorEffect={nse} />
+        <rect className="sign-halo" {...inflate(chrome, 4)} vectorEffect={nse} />
       )}
-      <rect
-        className="sign-plate"
-        x={plate.box.x}
-        y={plate.box.y}
-        width={plate.box.width}
-        height={plate.box.height}
-        rx={plate.radius}
-        vectorEffect={nse}
-      />
-      {label ? (
-        <text
-          className="sign-label"
-          x={plate.baseline.x}
-          y={plate.baseline.y}
-          /* The face and the size are attributes rather than rules in
-             `diagram.css`, for the reason painted road text's are (§2.3). No
-             `transform`: a sign's text is never at an angle (§2.9). */
-          fontFamily={FONT_FAMILY}
-          fontSize={plate.size}
-          textAnchor="middle"
-        >
-          {label}
-        </text>
-      ) : null}
+      {signPaint(sign.kind, nse)}
     </g>
   );
 }
 
-/** The plate's box grown by `pad` on every side, rounding included — the geometry
- *  a sign's hit target and its halo share. */
-function inflate(plate: SignPlate, pad: number) {
-  const { x, y, width, height } = plate.box;
+/**
+ * What one sign actually paints — the shape that carries its meaning, and any
+ * letters on it.
+ *
+ * {@link markingPaint}'s shape, one layer up: the renderer switches on the kind and
+ * the geometry it calls owns no markup. **Exhaustive over `SignKind`**, so a kind
+ * added to the model does not build until it is drawn — unlike the marking switch,
+ * which has a fall-through bar because a hand-edited document can carry a kind
+ * (`hatching`) that is deliberately out of scope. Every sign kind is in scope.
+ *
+ * `direction` shares `custom`'s arm: both are plates, and the only difference —
+ * which words go on one — is Phase 4's.
+ *
+ * **An empty label emits no `<text>` at all**, and the plate is what keeps a
+ * freshly placed sign visible and selectable: the empty text marking's bar again.
+ */
+function signPaint(kind: SignKind, nse: "non-scaling-stroke" | undefined) {
+  switch (kind.type) {
+    case "speed_limit": {
+      const { radius, ring } = signRoundel();
+      return (
+        <>
+          <circle className="sign-roundel" r={radius} />
+          <circle
+            className="sign-roundel-ring"
+            r={ring.radius}
+            strokeWidth={ring.width}
+          />
+          {signText(String(kind.kph))}
+        </>
+      );
+    }
+    case "stop":
+      return (
+        <>
+          <path className="sign-octagon" d={polygonsPath([signOctagon()])} />
+          {signText("STOP")}
+        </>
+      );
+    // The two triangles differ only in which way they point, which is the whole
+    // message: an inverted triangle is "give way" in every road atlas there is.
+    case "give_way":
+      return (
+        <path
+          className="sign-triangle"
+          d={polygonsPath([signTriangle("down")])}
+        />
+      );
+    case "warning":
+      // The symbol names a pictogram and is deliberately **not** drawn: a symbol
+      // library is a catalogue of artwork rather than a phase, so the triangle
+      // carries "warning" on its own and the string lives in the Inspector
+      // (§2.9, OQ-6).
+      return (
+        <path className="sign-triangle" d={polygonsPath([signTriangle("up")])} />
+      );
+    case "priority": {
+      const { border, face } = signPriority();
+      return (
+        <>
+          <path
+            className="sign-diamond-border"
+            d={polygonsPath([border])}
+            vectorEffect={nse}
+          />
+          <path className="sign-diamond" d={polygonsPath([face])} />
+        </>
+      );
+    }
+    case "no_entry": {
+      const { radius, bar } = signNoEntry();
+      return (
+        <>
+          <circle className="sign-disc" r={radius} />
+          <rect className="sign-bar" {...bar} />
+        </>
+      );
+    }
+    case "direction":
+    case "custom": {
+      const label = signPlateLabel(kind) ?? "";
+      const plate = signPlate(label);
+      return (
+        <>
+          <rect
+            className="sign-plate"
+            x={plate.box.x}
+            y={plate.box.y}
+            width={plate.box.width}
+            height={plate.box.height}
+            rx={plate.radius}
+            vectorEffect={nse}
+          />
+          {label ? signText(label) : null}
+        </>
+      );
+    }
+  }
+}
+
+/**
+ * A sign's own words, centred on its position.
+ *
+ * One `<text>`, `text-anchor="middle"` on a point, and **no `transform`**: a sign's
+ * text is never at an angle (§2.9), unlike the one run in the drawing that is.
+ * The face and the size ride as **presentation attributes** rather than as rules in
+ * `diagram.css`, for the reason painted road text's do — that stylesheet travels
+ * inside every exported picture, and most of them embed no typeface (§2.3).
+ *
+ * The vertical centring is {@link BASELINE_DROP}, which is the plate's baseline and
+ * a painted word's alike, so a number in a roundel and a label on a plate sit the
+ * same way in their shapes.
+ */
+function signText(content: string) {
+  return (
+    <text
+      className="sign-label"
+      x={0}
+      y={BASELINE_DROP}
+      fontFamily={FONT_FAMILY}
+      fontSize={TEXT_SIZE}
+      textAnchor="middle"
+    >
+      {content}
+    </text>
+  );
+}
+
+/** A sign's box grown by `pad` on every side, rounding included — the geometry
+ *  its hit target and its halo share. */
+function inflate(chrome: SignChrome, pad: number) {
+  const { x, y, width, height } = chrome.box;
   return {
     x: x - pad,
     y: y - pad,
     width: width + 2 * pad,
     height: height + 2 * pad,
-    rx: plate.radius + pad,
+    rx: chrome.radius + pad,
   };
 }

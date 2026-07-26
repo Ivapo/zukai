@@ -226,10 +226,10 @@ function sameList(a: string[], b: string[]): boolean {
  * stepper, say) are separate edits and each get their own undo step.
  *
  * **Typing is the second gesture, and the only one that is not a drag.** The
- * Inspector's two text fields — a marking's Words and a sign's Label — dispatch a
- * whole `setMarkingKind`/`setSignKind` per keystroke so the paint follows the
- * typing, and without a key here a five-letter word would burn five of the hundred
- * snapshots the stack holds (signs spec Phase 1).
+ * Inspector's text fields — a marking's Words, a sign's Label, and a warning
+ * sign's Symbol — dispatch a whole `setMarkingKind`/`setSignKind` per keystroke so
+ * the paint follows the typing, and without a key here a five-letter word would
+ * burn five of the hundred snapshots the stack holds (signs spec Phase 1).
  *
  * **Empty content is deliberately outside the gesture.** The Kind picker mints a
  * fresh text marking as `content: ""`, and if that shared the run's key the first
@@ -238,10 +238,16 @@ function sameList(a: string[], b: string[]): boolean {
  * than back to an empty one. The cost is that clearing a field back to empty also
  * closes the run, which is the honest reading of deleting a word.
  *
- * The sign label keeps that carve-out even though its own empty seed arrives from
- * {@link addSign} — a different action, so the placement is its own step already.
- * It is there for Phase 3's Kind picker, which will mint `custom { label: "" }`
- * through *this* action and meet Phase 1's hazard exactly.
+ * The sign fields keep that carve-out, and Phase 3's Kind picker is what makes it
+ * load-bearing rather than defensive: picking Custom or Warning mints
+ * `{ label: "" }`/`{ symbol: "" }` through *this* action, so without the carve-out
+ * the first keystroke would swallow the pick and one undo would jump back past it
+ * to whatever the sign was before.
+ *
+ * **A key per field, not per sign.** The two fields belong to different kinds and
+ * can never be typed into in the same breath — switching between them *is* a
+ * pick — so sharing one key would only make the two runs indistinguishable in the
+ * stack for no gain.
  */
 function coalesceKeyFor(action: EditAction): string | null {
   if (action.type === "moveNode") return `moveNode:${action.id}`;
@@ -250,6 +256,8 @@ function coalesceKeyFor(action: EditAction): string | null {
     return action.kind.content === "" ? null : `markingText:${action.id}`;
   if (action.type === "setSignKind" && action.kind.type === "custom")
     return action.kind.label === "" ? null : `signLabel:${action.id}`;
+  if (action.type === "setSignKind" && action.kind.type === "warning")
+    return action.kind.symbol === "" ? null : `signSymbol:${action.id}`;
   return null;
 }
 
