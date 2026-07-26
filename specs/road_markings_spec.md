@@ -1,9 +1,9 @@
 ---
-status: reviewed
+status: implemented (all 4 phases shipped 2026-07-25; reviewed in 3 rounds)
 last_updated: 2026-07-25
 note: Render and place road-surface markings — stop and give-way lines, crossings, lane arrows, lane lines. Paint only; signs and any painted text wait on font embedding.
-implemented: ["Phase 1", "Phase 2", "Phase 3"]
-not_implemented: ["Phase 4"]
+implemented: ["Phase 1", "Phase 2", "Phase 3", "Phase 4"]
+not_implemented: []
 related: [specs/road_rendering_spec.md, specs/ramps_and_tapers_spec.md, specs/diagram_export_spec.md]
 reference: "Road-atlas marking convention — a transverse bar where traffic stops, a triangle line where it gives way, a zebra where people cross, destination arrows in the lane they belong to, and a longitudinal line whose style says whether you may cross it. Not to-scale marking dimensions (that is Assimilator's business, and it has no markings anyway), and not signage, which is textual."
 ---
@@ -479,6 +479,11 @@ discipline to observe and no `cargo` gate beyond the pre-commit hook's.
   `RoadShape`'s divider derivation and reads correctly; overpainting is simpler
   but leaves a dashed line under a solid one, visible at the dash gaps in an
   export. §2.3 and Phase 4 already assume this. (design-call, taken.)
+  **Extended in Phase 4:** the `lane = None` centreline replaces too, on the same
+  rule — on a 2-lane road the lane region's centre *is* boundary `0|1`, so the
+  two Span entries that land there would otherwise behave differently. The rule
+  as shipped is "a lane line takes over whatever derived line sits at its
+  offset", divider and shoulder line alike.
 - **OQ-4** — **Where do the gore's chevrons actually go?** §2.10 establishes they
   are not `Marking`s. They are a small addition to `GoreShape` needing no model
   change — a fan of chevrons along the gore's axis of symmetry. Fold into this
@@ -736,6 +741,45 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
   table row (`Centreline | … | to be decided — OQ-4`) is settled in the same
   pass. Mark ramps **OQ-6 RESOLVED** (neither the `graph` field it rejected nor
   the `LinkView` field it proposed). Update the project-memory roadmap.
+- **Shipped 2026-07-25.** Three decisions the phase settled, none of them pinned
+  by the scope above:
+  - **A centreline replaces the divider it lands on, exactly as a named boundary
+    does.** OQ-3 settled the `lane = i` case; the `lane = None` case was left
+    unstated, and on a 2-lane road — the flagship undivided two-way road — the
+    lane region's centre *is* boundary `0|1`. Two Span entries at the same place
+    behaving differently (one clean, one with dashes showing through) is the
+    failure OQ-3 named, so it is **one rule**: a lane line takes over whatever
+    derived line sits at its offset. That is also why `boundaryTaken` compares
+    within a tolerance rather than by index — a named boundary matches exactly, a
+    centreline arrives as a literal `0` and meets an offset summed from widths.
+  - **`boundaryOffset` is `RoadShape`'s divider expression character for
+    character**, not an equivalent one over `bands[lane]`. The road drops the
+    divider by *comparing the two numbers*, and the two forms agree to all but
+    the last bit — which is the bit that decides. The whole boundary rule
+    (§2.3's `lane ≥ n-1` skip, the centreline, a negative lane) is those four
+    lines, so `laneLine` and `laneLineOffsets` cannot come to disagree about a
+    line that is not drawn.
+  - **A `double` line is the one marking that is not white.** Yellow is the
+    road-atlas signal for opposing traffic, which is the whole message of a
+    two-way centreline; white would read as one more divider drawn twice. The
+    Style control is Phase 2's "`setMarkingKind` carries the whole tagged
+    `MarkingKind`" paying off a third time — a fourth panel control, still no new
+    action.
+
+  Three things worth carrying forward that the spec did not predict:
+  - **The gap and the halo were both decided in the app**, as `MARKING_PITCH` and
+    the arrow's proportions were. `LANE_LINE_GAP` is **4**, not the 3 first
+    written: a gap narrower than the strokes reads as one fat line with a scratch
+    down it. And a *fixed* halo was exactly as wide as a double line's paint,
+    which against yellow reads as no halo at all — so `haloWidth` grows with the
+    spread, the rule `.road-halo`'s `w + 6` already followed.
+  - **`markingForm` is the renderer's one call**, returning `across` or `along`.
+    Without it `Diagram`'s marking layer would branch on the kind and
+    `MarkingShape` would carry two optional props for one object.
+  - **Repainting a marking as a `lane_line` keeps its `lane`, which now means a
+    boundary** — a stop line in lane 1 becomes a line on boundary `1|2`. Inherent
+    to an action that names nothing but the kind; the Span control shows the new
+    reading immediately. Recorded rather than engineered around.
 
 ## 5. Review log
 

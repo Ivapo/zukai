@@ -9,11 +9,14 @@ import {
 import {
   Document,
   Lane,
+  LaneIdx,
   Link,
   LinkAlign,
   LinkId,
+  LineStyle,
   LinkStyle,
   LinkView,
+  Marking,
   NodeId,
   TurnDirection,
   Vec2,
@@ -25,6 +28,7 @@ import {
   GORE_LENGTH,
   GoreArm,
   JointEnd,
+  LANE_LINE_GAP,
   LANE_PX,
   MARKING_PITCH,
   MIN_ROAD_WIDTH,
@@ -37,6 +41,7 @@ import {
   TurnArrow,
   UNITS_PER_METRE,
   alignmentShift,
+  boundaryTaken,
   carriageways,
   classWidthFactor,
   distance,
@@ -44,6 +49,8 @@ import {
   gore,
   gorePair,
   laneBands,
+  laneLine,
+  laneLineOffsets,
   markingArrow,
   markingTeeth,
   markingZebra,
@@ -1495,5 +1502,171 @@ describe("markingArrow", () => {
     for (const p of points(mixed)) {
       expect(Number.isFinite(p.x) && Number.isFinite(p.y)).toBe(true);
     }
+  });
+});
+
+/**
+ * The one longitudinal kind (markings spec Phase 4). Every road below runs **due
+ * east**, so the frame reads straight off the coordinates as it does above: `y`
+ * is the lateral offset across the road, and a line's whole geometry is one `y`.
+ */
+describe("laneLine and laneLineOffsets", () => {
+  /** One straight `lanes`-lane road due east, carrying `markings`. */
+  function road(lanes: number, ...markings: Marking[]): Document {
+    const base = emptyDocument("lined");
+    return {
+      ...base,
+      nodes: [
+        { id: "N1", type: "endpoint" },
+        { id: "N2", type: "endpoint" },
+      ],
+      links: [
+        { id: "L1", from_node: "N1", to_node: "N2", lanes: defaults(lanes), median_gap: DEFAULT_MEDIAN_GAP },
+      ],
+      layout: {
+        ...base.layout,
+        nodes: { N1: { pos: { x: 0, y: 0 } }, N2: { pos: { x: 120, y: 0 } } },
+      },
+      markings,
+    };
+  }
+
+  /** A lane line on `L1`; `lane` absent is the centreline. */
+  function line(lane?: LaneIdx, style: LineStyle = "solid", position = 14): Marking {
+    return {
+      id: "M1",
+      link: "L1",
+      position,
+      ...(lane === undefined ? {} : { lane }),
+      kind: { type: "lane_line", style },
+    };
+  }
+
+  /** What `laneLine` makes of the first marking on `doc`. */
+  function drawn(doc: Document) {
+    return laneLine(doc, doc.markings[0], carriageways(doc));
+  }
+
+  /**
+   * **The assertion the replacement rests on.** `RoadShape` derives divider `i`
+   * as `bands[i+1].offset + bands[i+1].width / 2` and drops it by *comparing the
+   * two numbers*, so an equivalent-but-different expression here would leave a
+   * dashed line under the solid one at every boundary.
+   */
+  it("lands exactly where the divider it replaces was, at every boundary", () => {
+    const bands = laneBands(defaults(4));
+
+    for (const i of [0, 1, 2]) {
+      expect(drawn(road(4, line(i)))!.offset).toBe(
+        bands[i + 1].offset + bands[i + 1].width / 2,
+      );
+    }
+    // Three boundaries for four default lanes, from the nearside outward.
+    expect([0, 1, 2].map((i) => drawn(road(4, line(i)))!.offset)).toEqual([9, 0, -9]);
+  });
+
+  /**
+   * The undivided two-way road (road spec OQ-4). On a 2-lane road the lane
+   * region's centre *is* its one boundary, which is why a centreline replaces a
+   * divider on exactly the same rule a named boundary does.
+   */
+  it("puts a lane-less line on the lane region's centre", () => {
+    expect(drawn(road(4, line(undefined)))!.offset).toBe(0);
+    expect(drawn(road(3, line(undefined)))!.offset).toBe(0);
+
+    const bands = laneBands(defaults(2));
+    expect(bands[1].offset + bands[1].width / 2).toBe(0);
+  });
+
+  it("draws nothing for a lane that names no boundary", () => {
+    // `n` lanes have `n-1` boundaries, so the offside-most lane names none: its
+    // far side is the carriageway edge line, which is not a lane line's to take.
+    expect(drawn(road(3, line(2)))).toBeUndefined();
+    expect(drawn(road(3, line(9)))).toBeUndefined();
+    expect(drawn(road(3, line(-1)))).toBeUndefined();
+    // A 1-lane road has no boundary at all — only a centreline.
+    expect(drawn(road(1, line(0)))).toBeUndefined();
+    expect(drawn(road(1, line(undefined)))).toBeDefined();
+  });
+
+  it("draws nothing for an unknown link, or a kind that is not a lane line", () => {
+    const missing = road(3, { ...line(0), link: "L9" });
+    expect(laneLine(missing, missing.markings[0], carriageways(missing))).toBeUndefined();
+
+    const stop = road(3, { ...line(0), kind: { type: "stop_line" } });
+    expect(drawn(stop)).toBeUndefined();
+  });
+
+  it("paints one stroke for solid and dashed, and two for double", () => {
+    const single = drawn(road(4, line(1, "dashed")))!;
+    expect(single.style).toBe("dashed");
+    expect(single.lines).toEqual([single.spine]);
+
+    const double = drawn(road(4, line(1, "double")))!;
+    expect(double.lines).toHaveLength(2);
+    // Symmetric about the boundary, `LANE_LINE_GAP` apart, with the spine — what
+    // the hit target and halo take — down the middle of the pair.
+    expect(double.lines.map((l) => l[0].y)).toEqual([
+      LANE_LINE_GAP / 2,
+      -LANE_LINE_GAP / 2,
+    ]);
+    expect(double.spine[0].y).toBe(0);
+  });
+
+  /**
+   * `position` is ignored: a lane line paints its boundary for the **whole
+   * link**, which is the reading that costs no model field (§2.3). Nothing reads
+   * the number, so not even a hand-edited `NaN` can reach the geometry.
+   */
+  it("ignores `position` entirely, however it was placed", () => {
+    const near = drawn(road(4, line(1, "solid", 0)));
+
+    expect(drawn(road(4, line(1, "solid", 400)))).toEqual(near);
+    expect(drawn(road(4, line(1, "solid", Number.NaN)))).toEqual(near);
+  });
+
+  /**
+   * Offset from `drawnPolyline` rather than the layout polyline, so a lane line
+   * inherits the carriageway offset and the alignment shift like everything else
+   * drawn on a road — one carriageway's line cannot end up in the median.
+   */
+  it("follows the carriageway its link is drawn on", () => {
+    const base = road(2, line(0));
+    const divided: Document = {
+      ...base,
+      links: [
+        ...base.links,
+        { id: "L2", from_node: "N2", to_node: "N1", lanes: defaults(2), median_gap: DEFAULT_MEDIAN_GAP },
+      ],
+    };
+    const offsets = carriageways(divided);
+
+    expect(offsets.L1).toBeGreaterThan(0);
+    // Boundary 0 of a 2-lane road is the road's own centre, so the whole of this
+    // `y` is the carriageway term.
+    expect(laneLine(divided, divided.markings[0], offsets)!.spine[0].y).toBe(offsets.L1);
+  });
+
+  it("collects the boundaries taken on each link, and only the drawable ones", () => {
+    const doc = road(
+      4,
+      line(0),
+      { ...line(2), id: "M2" },
+      // Names no boundary; unknown link; not a lane line at all.
+      { ...line(3), id: "M3" },
+      { ...line(1), id: "M4", link: "L9" },
+      { ...line(1), id: "M5", kind: { type: "crosswalk" } },
+    );
+
+    expect(laneLineOffsets(doc)).toEqual({ L1: [9, -9] });
+    // The predicate `RoadShape` filters its dividers with.
+    expect(boundaryTaken(laneLineOffsets(doc).L1, 9)).toBe(true);
+    expect(boundaryTaken(laneLineOffsets(doc).L1, 0)).toBe(false);
+    expect(boundaryTaken(undefined, 9)).toBe(false);
+  });
+
+  it("collects nothing from a document with no lane line", () => {
+    expect(laneLineOffsets(road(4))).toEqual({});
+    expect(laneLineOffsets(road(4, { ...line(1), kind: { type: "stop_line" } }))).toEqual({});
   });
 });

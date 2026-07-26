@@ -331,6 +331,10 @@ not. **This is also the whole of what makes a motorway read differently from an
 arterial** — the two classes paint alike, so a motorway with no shoulder lane
 draws like an arterial, by design.
 
+Both rows of the third column are **derived**, and a human can override either:
+a `lane_line` marking painted on a boundary replaces whatever this table put
+there (see "A centreline is painted, never derived" above).
+
 ### The hatch is the one piece of paint that cannot be a CSS rule
 
 Both halves of the obvious implementation are illegal in `diagram.css`, and
@@ -375,20 +379,36 @@ from the UI. Two things about it:
   discarded it. A control whose value an adjacent control destroys is not a
   working feature; the two belong to the same change.
 
-## No centreline (spec OQ-4)
+## A centreline is painted, never derived (spec OQ-4, closed)
 
-An undivided two-way road would carry one in a road atlas. Zukai does not draw
-one, because nothing in the model distinguishes "one link the user thinks of as
-two-way" from "one carriageway of a pair": `Link` carries no direction flag and
-`median_gap` is default-valued identically on every link ever created, so it
-holds no signal. This is a **modelling** gap recorded for the ramps/junction
-spec, not a rendering one — the fix is a field, which this spec ruled out.
+An undivided two-way road carries one in a road atlas, and **nothing in the model
+can tell the renderer that a road is one**: `Link` has no direction flag and
+`median_gap` is default-valued identically on every link ever created, so it holds
+no signal. Deriving a centreline would be a guess, and that much of OQ-4's
+resolution stands.
 
-**That last clause is now known to be wrong, and the fix needs no field at all**:
-an undivided two-way road is a `lane_line { style: double }` with `lane: None`,
-which the `Marking` anchor already expresses (`specs/road_markings_spec.md` §2.3).
-Phase 4 of that spec draws it and replaces this section; until then, no
-centreline is drawn.
+What it got wrong was the remedy — it recorded a **modelling** gap and said the
+fix was a field. The fix needed none. An undivided two-way road is a
+`lane_line { style: double }` marking with no lane, which the `Marking` anchor has
+always expressed: the *human* says the road is two-way by painting the line, which
+is the same "the human chose this glyph" posture the junction glyphs take. Ramps
+OQ-6 proposed a presentation field (`LinkView.centreline`) instead and is closed
+the same way.
+
+Two consequences for this file's subject:
+
+- **`RoadShape` gained one input, `replaced`** — the boundary offsets a lane line
+  has taken over on this link (`laneLineOffsets`, `boundaryTaken`). A boundary in
+  it derives no line at all, because a painted line **replaces** the divider or
+  shoulder line it lands on rather than being drawn over it. Overpainting leaves
+  a dashed line under a solid one, visible at every dash gap.
+- The lane line's own offset comes from `boundaryOffset`, which runs
+  *character-for-character* the expression the divider derivation below uses. The
+  two are compared as numbers, so an equivalent-but-different one would differ in
+  the last bit — and the divider would survive under the line.
+
+The rest of it — the boundary rule, the styles, the paint — is
+`rules/road-markings.md`, "The lane line".
 
 ## Where each piece lives
 

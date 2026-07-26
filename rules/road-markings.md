@@ -6,11 +6,12 @@ places one, how it is selected and drawn, and what removes it. Frontend only —
 nothing here crosses IPC, reaches disk, or moves `SCHEMA_VERSION`. The design
 rationale lives in `specs/road_markings_spec.md`; hand-maintained.
 
-**Four kinds are drawn today** (spec Phases 1–3): `stop_line`, `give_way_line`,
-`crosswalk` and `turn_arrow`. `lane_line` is Phase 4 — already **pickable**, and
-painting a placeholder bar until then (see "What each kind paints").
-`MarkingKind::Hatching` and `Text` are out of scope entirely (the last two
-sections).
+**All five in-scope kinds are drawn** (spec Phases 1–4): `stop_line`,
+`give_way_line`, `crosswalk` and `turn_arrow` sit at a point across the road;
+`lane_line` runs **along** it for the whole link and is the odd one out in
+almost every section below. `MarkingKind::Hatching` and `Text` are out of scope
+entirely (the last two sections) and paint a placeholder bar if a hand-edited
+document carries one.
 
 ## The anchor, and the one place metres become units
 
@@ -34,15 +35,23 @@ placeMarking (Canvas.tsx)   world units → metres   position = along / UNITS_PE
 markingAnchor (geometry.ts) metres → world units   along    = position * UNITS_PER_METRE
 ```
 
-`markingAnchor(doc, marking, offsets)` returns the three numbers **every** kind is
-drawn from — `{ at, dir, span }`: a point on the drawn polyline, the unit
-direction of travel there, and the strip of road it paints across. `span` is one
-`laneBands` entry, or (for a carriageway-wide marking) `{ offset: 0, width }`
-where `width` is **summed from the bands**, not taken as `roadWidth -
-ROAD_MARGIN`: the second form runs the casing lip through a needless float round
-trip. Per-kind point builders (`markingBar`, `markingTeeth`, `markingZebra`,
-`markingArrow`) take the anchor and nothing else, which is what keeps
-`MarkingShape` about drawing.
+`markingForm(doc, marking, offsets)` is the **one call the renderer makes**, and
+it answers the only question with two answers: a marking is drawn either
+`across` the road at a point or `along` it for the whole link. The kind branch
+lives there rather than in `Diagram.tsx` so the marking layer keeps its shape —
+one call, one skip, one element.
+
+`markingAnchor(doc, marking, offsets)` is the `across` arm, and returns the three
+numbers **every point kind** is drawn from — `{ at, dir, span }`: a point on the
+drawn polyline, the unit direction of travel there, and the strip of road it
+paints across. `span` is one `laneBands` entry, or (for a carriageway-wide
+marking) `{ offset: 0, width }` where `width` is **summed from the bands**, not
+taken as `roadWidth - ROAD_MARGIN`: the second form runs the casing lip through a
+needless float round trip. Per-kind point builders (`markingBar`, `markingTeeth`,
+`markingZebra`, `markingArrow`) take the anchor and nothing else, which is what
+keeps `MarkingShape` about drawing.
+
+`laneLine` is the `along` arm and takes no anchor at all — see "The lane line".
 
 **The anchor has exactly one kind-aware line, and it is a `turn_arrow`'s.** An
 arrow has no carriageway-wide meaning, so a lane-less one takes the **nearside**
@@ -92,19 +101,23 @@ projection parameter to `[0, 1]` rather than being a case of its own.
 ## Editing: three controls, all kind-aware
 
 The Inspector's marking panel carries a **Kind picker** (`setMarkingKind`), a
-**Span control** (`setMarkingLane`), and — for a `turn_arrow` only — a
-**Directions multi-select**; `Road` and `Position` stay readouts. The Span control
-is the deliberate route to `lane: undefined` that placement's side door is not.
+**Span control** (`setMarkingLane`), and one payload control per kind that has a
+payload — a **Directions multi-select** for a `turn_arrow`, a **Style
+single-select** for a `lane_line`. `Road` stays a readout, and so does `Position`,
+which reads **"Whole link"** for a lane line: `position` is ignored for one, and a
+distance in metres there would be a lie at the only place the panel could tell the
+truth. The Span control is the deliberate route to `lane: undefined` that
+placement's side door is not.
 
 `setMarkingKind` carries the **whole tagged `MarkingKind`**, not just its `type`,
 so `turn_arrow`'s directions and `lane_line`'s style need no action of their own
 and the *caller* owns the default a fresh pick starts from (`MARKING_PICKER` in
 `Inspector.tsx`). It never names `lane`, which is how a carriageway-wide marking
 stays carriageway-wide across a repaint: spreading an object with no `lane` key
-yields one with no `lane` key. The Directions control is that decision paying off:
-it is a second dispatcher of the same action, sending a whole
-`{ type: "turn_arrow", directions }`, and toggling a direction cannot move the
-marking because the action names nothing else.
+yields one with no `lane` key. **The two payload controls are that decision
+paying off** — each is one more dispatcher of the same action, sending a whole
+`{ type, …payload }`, and neither can move the marking because the action names
+nothing else. Phases 3 and 4 added a control apiece and no action at all.
 
 **Four rules live in the controls, not in the reducer**, because each depends on
 a field the action does not touch:
@@ -128,10 +141,16 @@ index legal or illegal depending on `kind`, which the action does not own.
 
 Two consequences, both stated rather than fixed: repainting a carriageway-wide
 marking as a `turn_arrow` **preserves the absent `lane`**, so no Span entry reads
-as active until one is picked (Phase 3 draws it in the nearside lane meanwhile);
-and a hand-edited `hatching`/`text` marking shows no active kind, and picking any
+as active until one is picked (it draws in the nearside lane meanwhile); and a
+hand-edited `hatching`/`text` marking shows no active kind, and picking any
 offered kind converts it. A marking whose link is missing falls back to a readout
 rather than rendering a control with nothing in it.
+
+A third, and it is the one a user meets: repainting a marking as a `lane_line`
+**keeps its `lane`**, which now names a *boundary* rather than a lane — so a stop
+line in lane 1 becomes a line on boundary `1|2` rather than staying where it
+looked. That is the same "the action names nothing else" rule paying its cost
+rather than a slip, and the Span control shows the new reading immediately.
 
 ## The pointer handlers, which are written and not inherited
 
@@ -186,9 +205,11 @@ of step as Phases 3–4 add kinds.
 | `give_way_line` | `.marking-teeth` | a row of filled triangles, apexes **upstream** |
 | `crosswalk` | `.marking-zebra` | filled stripes **along** the road, `CROSSWALK_DEPTH` deep |
 | `turn_arrow` | `.marking-arrow-stem` + `.marking-arrow-head` | one shaft, one branch per direction — the only **two-element** kind |
+| `lane_line` | `.marking-line` + a style token | the whole link, along a boundary — the only kind not drawn from the anchor |
 | everything else | `.marking-bar` | the bar again — a placeholder, see below |
 
-Three rules hold across all of them:
+Three rules hold across all of them but the lane line, which is longitudinal and
+takes none of them:
 
 - **Every transverse kind is centred on `position`.** A bar has no depth and so is
   trivially centred; a give-way row and a zebra placed where a stop line sits
@@ -246,19 +267,82 @@ with one branch per direction cannot do better, the paint still stays inside the
 band, and no road carries six directions in a lane. Two or three on a full-width
 lane is what it is sized for.
 
-**The `default` arm is load-bearing, not tidiness.** `lane_line` is pickable before
-it has geometry (Phase 4), a `turn_arrow` can be left with no direction it can draw
-by a hand-edited file, and `hatching`/`text` are out of scope but reachable the same
-way. All draw the bar, which keeps a marking **visible and selectable** while its
-own shape is still to come — painting nothing would leave an object on the canvas
-findable only by accident. Its class token already says which kind it is, and
-`Diagram.test.tsx` pins the fallback so Phase 4 has to change it deliberately.
+### The lane line: the one kind that runs along the road
 
-**The hit target and halo are the anchor's transverse bar for every kind**, so
-selection feels identical whatever is painted — and a `stop_line`'s markup is
-byte-for-byte what Phase 1 emitted. For a lane-less turn arrow that bar is lane
-0's, because the anchor is what re-homed it (first section). Phase 4's `lane_line`
-runs *along* the road and is the one kind that will need its own.
+A `lane_line` has a start and an end where every other kind has a point, and
+`Marking` has one `position` and nowhere to put an extent. The cheapest honest
+reading costs nothing: **it paints its boundary for the whole link and `position`
+is ignored.** No new field, and it is what a schematic wants nine times in ten —
+"this line is solid *here*" is a statement about a stretch of road, and in a
+schematic the stretch *is* the link. A line that has to stop partway is a link
+that wants splitting at a waypoint, which the model already supports.
+
+**`lane` names a boundary, not a lane, and the count does not match.** `n` lanes
+have `n-1` boundaries, so `boundaryOffset` is the whole rule in four lines:
+`lane` absent is the lane region's centre (offset `0`); `lane < 0` or
+`lane >= n-1` names nothing and **draws nothing**; otherwise it is
+`bands[lane+1].offset + bands[lane+1].width / 2`. That last expression is
+*character-for-character* `RoadShape`'s own divider derivation, because the road
+drops the divider a line replaces by **comparing the two numbers** — an
+equivalent-but-different expression over `bands[lane]` agrees to all but the last
+bit, which is exactly the bit that decides.
+
+**A lane line replaces the derived line at its offset** (spec OQ-3), divider and
+shoulder line alike. Overpainting is simpler but leaves a dashed line under a
+solid one, showing at every dash gap. Three pieces carry it: `laneLineOffsets(doc)`
+collects what each link's lines have taken, `Diagram` computes it once and hands
+each `RoadShape` its own, and `boundaryTaken` is the comparison. `laneLineOffsets`
+takes **no** `offsets` argument — which boundary a line sits on is a fact about
+the cross-section, not about where the road was dragged.
+
+**The centreline replaces too, on the same one rule.** On a 2-lane road the lane
+region's centre *is* boundary `0|1`, so "Centreline" and "0|1" would otherwise
+behave differently at the same place — one clean, one with dashes showing
+through. That is also why `boundaryTaken` has a tolerance at all: a named
+boundary matches exactly, and a centreline arrives as a literal `0` and meets an
+offset summed from lane widths.
+
+**This is where road spec OQ-4 and ramps OQ-6 actually landed**, and neither
+needed the model field both proposed. An undivided two-way road is a
+`lane_line { style: double }` with `lane` absent. Nothing is inferred: the human
+says the road is two-way by painting the line, the same posture the junction
+glyphs take. Nothing *derives* a centreline, which is what a field would have
+been for.
+
+Three more things about it are decisions rather than detail:
+
+- **The style is a class token** (`marking-line-solid|dashed|double`), so
+  `diagram.css` carries the dashes and the colour and an export inherits both.
+  `double` is drawn as **two strokes** `LANE_LINE_GAP` apart around the boundary,
+  with the `spine` — the single line down the middle — kept for the hit target
+  and halo.
+- **A double line is the one marking that is not white.** Yellow says opposing
+  traffic, which is the whole message of a two-way centreline; white would read
+  as one more lane divider drawn twice. `LANE_LINE_GAP` is **4**, not the 3 first
+  written: a gap narrower than the strokes reads as one fat line with a scratch
+  down it. Decided in the app, as `MARKING_PITCH` and the arrow's proportions
+  were.
+- **Its hit target and halo are its own** — the spine, at 8 units rather than the
+  bar's 12, because a 12-unit strip down the length of a link is a dead zone for
+  every click on the road under it. The **halo grows with the paint**
+  (`haloWidth`), the rule `.road-halo`'s `w + 6` already follows: a double line's
+  paint spans `LANE_LINE_GAP + stroke`, and a fixed halo was exactly as wide as
+  it — against *yellow* paint that reads as no halo at all. Also caught in the
+  app, not by an assertion.
+
+**The `default` arm is load-bearing, not tidiness.** A `turn_arrow` can be left
+with no direction it can draw by a hand-edited file, and `hatching`/`text` are out
+of scope but reachable the same way. Both draw the bar, which keeps a marking
+**visible and selectable** — painting nothing would leave an object on the canvas
+findable only by accident. Its class token already says which kind it is.
+`lane_line` was in this list until Phase 4 drew it, and `Diagram.test.tsx` pinned
+the fallback so that phase had to change it deliberately; it did.
+
+**The hit target and halo are the anchor's transverse bar for every kind that
+sits at a point**, so selection feels identical whatever is painted — and a
+`stop_line`'s markup is byte-for-byte what Phase 1 emitted. For a lane-less turn
+arrow that bar is lane 0's, because the anchor is what re-homed it (first
+section).
 
 **The bar takes no `vector-effect`**, unlike the glyph's `.jn-stopbar` and the
 roads' edge lines. Those are a *symbol* and *hairlines* respectively and want to
@@ -309,12 +393,19 @@ still looks deliberate. Same scar as the lane `kind` this control used to destro
 of this a deleted road leaves markings that are invisible, saved, and permanent —
 a ghost per deleted road that no assertion notices.
 
-**`markingAnchor` skips what the cascades cannot reach**, which is only ever an
-imported or hand-edited document: an unknown `link`, an undrawable polyline, a
-non-finite `position`, or a `lane` past the link's lanes. Each returns
-`undefined` and the renderer emits *nothing*. Indexing `laneBands` out of range
-would otherwise yield `undefined` and then `NaN` coordinates, which SVG renders
-as an invisible-but-corrupt path that no `d=` assertion catches.
+**`markingForm` skips what the cascades cannot reach**, which is only ever an
+imported or hand-edited document. `markingAnchor` skips an unknown `link`, an
+undrawable polyline, a non-finite `position`, or a `lane` past the link's lanes;
+`laneLine` skips the same but for `position`, which it never reads, plus its own
+boundary rule. Each returns `undefined` and the renderer emits *nothing*.
+Indexing `laneBands` out of range would otherwise yield `undefined` and then
+`NaN` coordinates, which SVG renders as an invisible-but-corrupt path that no
+`d=` assertion catches.
+
+A lane line that is skipped **takes no divider with it** either: the road and the
+line agree because `laneLineOffsets` runs the same `boundaryOffset` and finds the
+same nothing. Rubbing a divider off a road for a line that was never drawn is the
+failure that rule prevents.
 
 ## The third `Selection` arm, and why the compiler is no help
 
@@ -363,15 +454,16 @@ links — and belong on `GoreShape`; spec OQ-4.)
 
 | Piece | Where | Tested by |
 |---|---|---|
-| `nearestOnPolyline`, `pointAlongPolyline`, `markingAnchor` | `src/editor/geometry.ts` | `geometry.test.ts` (pure) |
+| `markingForm` — the one call the renderer makes; `nearestOnPolyline`, `pointAlongPolyline`, `markingAnchor` | `src/editor/geometry.ts` | `geometry.test.ts` (pure) |
 | `markingBar`/`markingTeeth`/`markingZebra`/`markingArrow`, `spanCells`, `polygonsPath`/`polylinesPath`, and the build constants | `src/editor/geometry.ts` | `geometry.test.ts` (pure) |
-| `MarkingShape`, `markingPaint`, the marking layer, `Interaction.onMarkingPointerDown` | `src/components/Diagram.tsx` | `Diagram.test.tsx` via `renderToStaticMarkup` |
-| `.marking-bar`, `.marking-teeth`, `.marking-zebra`, `.marking-arrow-stem`, `.marking-arrow-head` — the paint, and the only marking rules that reach an export | `src/styles/diagram.css` | `export.test.ts` |
+| `laneLine`/`boundaryOffset`, and `laneLineOffsets`/`boundaryTaken` — the replacement, which is the only piece the *roads* read | `src/editor/geometry.ts` | `geometry.test.ts` (pure) |
+| `MarkingShape`, `markingPaint`, `haloWidth`, the marking layer, `Interaction.onMarkingPointerDown`; `RoadShape`'s `replaced` prop | `src/components/Diagram.tsx` | `Diagram.test.tsx` via `renderToStaticMarkup` |
+| `.marking-bar`, `.marking-teeth`, `.marking-zebra`, `.marking-arrow-stem`, `.marking-arrow-head`, `.marking-line` and its two style modifiers — the paint, and the only marking rules that reach an export | `src/styles/diagram.css` | `export.test.ts` |
 | `.marking-hit`, `.marking-halo`, the panel-control rules — interaction, so **not** in `diagram.css` | `src/styles.css` | `export.test.ts`'s `CHROME` regex |
 | `addMarking`, `setMarkingKind`, `setMarkingLane`, the `Selection` arm, `keepMarkings` and the three cascades, `unreachable` | `src/editor/state.ts` | `state.test.ts` |
 | The marking tool: `placeMarking`, the two pointer handlers | `src/components/Canvas.tsx` | the `bun run dev` pass — SVG bubbling is what is under test |
 | The toolbar button and `TOOL_KEYS` entry `m` | `src/components/Toolbar.tsx`, `src/App.tsx` | — |
-| The marking panel: `MarkingKindPicker`, `MarkingSpan`, `MarkingDirections`, `MARKING_PICKER`, `TURN_DIRECTIONS` | `src/components/Inspector.tsx` | the `bun run dev` pass |
+| The marking panel: `MarkingKindPicker`, `MarkingSpan`, `MarkingDirections`, `MarkingLineStyle`, `MARKING_PICKER`, `TURN_DIRECTIONS`, `LINE_STYLES` | `src/components/Inspector.tsx` | the `bun run dev` pass |
 
 `strokeAllowance` (`src/editor/export.tsx`) needed **no** change and
 `export.test.ts` confirms it, for every kind: every marking is painted inside the
@@ -379,7 +471,8 @@ road it belongs to, the allowance is already half the widest road, and the bar's
 4-unit stroke is what the `2` floor — half the fattest non-casing stroke in
 `diagram.css` — was already sized for. The teeth and the zebra are *fill* geometry,
 which `getBBox` measures with no allowance at all; the arrow is a fill and a stroke
-narrower than the bar's.
+narrower than the bar's; and a lane line runs the length of the road it is painted
+on, at half the bar's weight.
 
 ## Open, and deliberately
 

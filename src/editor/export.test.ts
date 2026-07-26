@@ -508,6 +508,40 @@ describe("road markings in an exported file", () => {
       }),
     ).toMatch(/class="marking-arrow-stem" d="[^"]+" stroke-width="[\d.]+"/);
   });
+
+  /**
+   * The undivided two-way road — road spec OQ-4, answered with paint rather than
+   * a model field. Its centreline is the one marking that is **not white**, and
+   * the colour travels the way every other treatment does: a class token on the
+   * element and a rule in `diagram.css`, so the file and the canvas cannot come
+   * to disagree about what a double line looks like.
+   */
+  it("carries a two-way double centreline, colour and all", () => {
+    const base = road(2);
+    const twoWay: Document = {
+      ...base,
+      markings: [
+        { id: "M1", link: "L1", position: 14, kind: { type: "lane_line", style: "double" } },
+      ],
+    };
+    const svg = diagramSvg(twoWay, { x: 0, y: 0, width: 120, height: 40 });
+    const css = embeddedCss(svg);
+
+    expect(svg).toContain('<g class="marking marking-lane-line">');
+    expect(svg).toContain('class="marking-line marking-line-double"');
+    expect(css).toContain(".marking-line");
+    expect(css).toContain(".marking-line-double");
+    // The divider it replaced is gone from the drawing too, not merely covered
+    // — the stylesheet still carries the rule, which is why this reads the
+    // markup rather than the whole file.
+    expect(diagramInner(twoWay)).not.toContain("road-divider");
+    expect(css).not.toContain("url(");
+    expect(svg).not.toMatch(/<text[\s>]|<tspan[\s>]|font-family/);
+    expect(svg).not.toMatch(CHROME);
+    // A line runs the length of the road it is painted on, so it needs no more
+    // allowance than the road does.
+    expect(strokeAllowance(twoWay)).toBe(strokeAllowance(base));
+  });
 });
 
 describe("exportFormat", () => {

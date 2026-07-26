@@ -13,6 +13,7 @@ import {
   Lane,
   LaneIdx,
   LaneKind,
+  LineStyle,
   LinkAlign,
   LinkId,
   LinkStyle,
@@ -94,6 +95,16 @@ const TURN_DIRECTIONS: { value: TurnDirection; label: string }[] = [
   { value: "through", label: "Through" },
   { value: "slight_right", label: "Slight right" },
   { value: "right", label: "Right" },
+];
+/**
+ * What a lane line looks like, in weight order. `solid` is what
+ * `MARKING_PICKER` mints, so this control is the only route to the other two — a
+ * `dashed` line and the `double` centreline an undivided two-way road wants.
+ */
+const LINE_STYLES: { value: LineStyle; label: string }[] = [
+  { value: "solid", label: "Solid" },
+  { value: "dashed", label: "Dashed" },
+  { value: "double", label: "Double" },
 ];
 const GLYPHS: { value: JunctionGlyph; label: string }[] = [
   { value: "generic", label: "Plain" },
@@ -190,6 +201,16 @@ export function Inspector({ state, dispatch }: InspectorProps) {
           </Field>
         )}
 
+        {marking.kind.type === "lane_line" && (
+          <Field label="Style">
+            <MarkingLineStyle
+              id={marking.id}
+              style={marking.kind.style}
+              dispatch={dispatch}
+            />
+          </Field>
+        )}
+
         <Field label="Road">
           <div className="readout">{marking.link}</div>
         </Field>
@@ -206,8 +227,15 @@ export function Inspector({ state, dispatch }: InspectorProps) {
           )}
         </Field>
 
+        {/* A lane line paints its boundary for the whole link and `position` is
+            ignored (§2.3), so reporting a distance for one would be a small lie
+            at the only place the panel could tell the truth. */}
         <Field label="Position">
-          <div className="readout">{marking.position.toFixed(1)} m</div>
+          <div className="readout">
+            {marking.kind.type === "lane_line"
+              ? "Whole link"
+              : `${marking.position.toFixed(1)} m`}
+          </div>
         </Field>
 
         <button
@@ -393,6 +421,45 @@ function MarkingDirections({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * What a lane line looks like — the third dispatcher of `setMarkingKind`, and
+ * for the same reason the directions control is the second: the action carries
+ * the **whole tagged `MarkingKind`**, so a payload field needs no action of its
+ * own, and naming nothing else is what keeps a repaint from moving the marking.
+ *
+ * Single-select, unlike the directions beside it: a line has one style, where an
+ * arrow has one shaft and any number of branches.
+ */
+function MarkingLineStyle({
+  id,
+  style,
+  dispatch,
+}: {
+  id: MarkingId;
+  style: LineStyle;
+  dispatch: (action: Action) => void;
+}) {
+  return (
+    <div className="segmented">
+      {LINE_STYLES.map((s) => (
+        <button
+          key={s.value}
+          className={`seg${style === s.value ? " is-active" : ""}`}
+          onClick={() =>
+            dispatch({
+              type: "setMarkingKind",
+              id,
+              kind: { type: "lane_line", style: s.value },
+            })
+          }
+        >
+          {s.label}
+        </button>
+      ))}
     </div>
   );
 }

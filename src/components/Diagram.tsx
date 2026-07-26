@@ -26,10 +26,13 @@ import {
   GORE_LENGTH,
   GoreArm,
   JointEnd,
+  LANE_LINE_GAP,
   MIN_ROAD_WIDTH,
   MarkingAnchor,
+  MarkingForm,
   ROAD_MARGIN,
   TAPER_LENGTH,
+  boundaryTaken,
   carriageways,
   distance,
   drawnPolyline,
@@ -37,10 +40,11 @@ import {
   gore,
   gorePair,
   laneBands,
+  laneLineOffsets,
   lateralShift,
-  markingAnchor,
   markingArrow,
   markingBar,
+  markingForm,
   markingTeeth,
   markingZebra,
   offsetPolyline,
@@ -89,6 +93,10 @@ export function Diagram({
   // draws a wedge butt-caps both its links, or the wide one's round cap bulges
   // outside the freshly painted taper line (§2.4).
   const { wedges, butt } = tapers(doc, offsets);
+  // Which boundaries a human has painted a lane line on. The roads have to know
+  // this too: a lane line *replaces* the divider it lands on rather than being
+  // drawn over it, or the dashes show through the gaps (markings OQ-3).
+  const replaced = laneLineOffsets(doc);
 
   return (
     <g className="diagram">
@@ -104,6 +112,7 @@ export function Diagram({
             style={linkStyle(doc, link.id)}
             points={pts}
             butt={butt.has(link.id)}
+            replaced={replaced[link.id]}
             interaction={interaction}
           />
         );
@@ -119,13 +128,13 @@ export function Diagram({
           `RoadShape`'s group: that group carries `onLinkPointerDown`, and a road
           drawn after its neighbour would paint over the neighbour's markings. */}
       {doc.markings.map((marking) => {
-        const anchor = markingAnchor(doc, marking, offsets);
-        if (!anchor) return null;
+        const form = markingForm(doc, marking, offsets);
+        if (!form) return null;
         return (
           <MarkingShape
             key={marking.id}
             marking={marking}
-            anchor={anchor}
+            form={form}
             interaction={interaction}
           />
         );
@@ -448,10 +457,12 @@ function isSelected(
  * "signals". A document can carry both, and that is not a duplicate: it is a
  * signalised junction whose approach also has a painted bar (§2.7).
  *
- * **The hit target and halo are the anchor's transverse bar for every kind**, so
- * selecting a marking feels the same whatever it paints, and a stop line's markup
- * is exactly what Phase 1 emitted. Phase 4's `lane_line` runs *along* the road
- * rather than across it, and is the one kind that will need its own.
+ * **The hit target and halo are the anchor's transverse bar for every kind that
+ * sits at a point**, so selecting one feels the same whatever it paints, and a
+ * stop line's markup is exactly what Phase 1 emitted. A `lane_line` runs *along*
+ * the road rather than across it and is the one kind with its own: its spine, and
+ * narrower strokes, because a 12-unit hit strip running the length of a link is a
+ * dead zone for every click on the road under it.
  *
  * **No `vector-effect`**, unlike the glyph's bar and the roads' hairlines. Those
  * are symbol and hairline respectively, and want to hold their weight as the
@@ -460,14 +471,14 @@ function isSelected(
  */
 function MarkingShape({
   marking,
-  anchor,
+  form,
   interaction,
 }: {
   marking: Marking;
-  anchor: MarkingAnchor;
+  form: MarkingForm;
   interaction?: Interaction;
 }) {
-  const d = polylinePath(markingBar(anchor));
+  const d = polylinePath(form.along ? form.along.spine : markingBar(form.across));
   const selected = isSelected(
     interaction?.selection ?? null,
     "marking",
@@ -489,24 +500,55 @@ function MarkingShape({
           small thing to hit, and the halo/paint over it select through the
           group's own handler. The halo is narrower, and butt-capped in CSS, so
           it stays inside the lane the marking spans. */}
-      {interaction && <path className="marking-hit" d={d} strokeWidth={12} />}
-      {selected && <path className="marking-halo" d={d} strokeWidth={9} />}
-      {markingPaint(marking, anchor, d)}
+      {interaction && (
+        <path className="marking-hit" d={d} strokeWidth={form.along ? 8 : 12} />
+      )}
+      {selected && (
+        <path className="marking-halo" d={d} strokeWidth={haloWidth(form)} />
+      )}
+      {form.along ? (
+        // The style rides on a class token from the model, as the road class
+        // does, so `diagram.css` carries the dashes and the double line's colour
+        // and an exported file inherits both with no exporter change.
+        <path
+          className={`marking-line marking-line-${form.along.style}`}
+          d={polylinesPath(form.along.lines)}
+        />
+      ) : (
+        markingPaint(marking, form.across, d)
+      )}
     </g>
   );
 }
 
 /**
+ * How wide to stroke a marking's halo — **the paint's own extent plus a
+ * margin**, the rule `.road-halo`'s `w + 6` already follows.
+ *
+ * A transverse kind is drawn inside its 4-unit bar, so one number covers every
+ * one of them. A `double` lane line is the one shape whose paint is wider than
+ * the line it is centred on: its two strokes sit `LANE_LINE_GAP` apart, and a
+ * halo that ignored that would be exactly as wide as the paint and read as no
+ * halo at all — caught in the app, where a yellow halo behind a yellow double
+ * line is invisible.
+ */
+function haloWidth(form: MarkingForm): number {
+  if (!form.along) return 9;
+  return 6 + (form.along.style === "double" ? LANE_LINE_GAP : 0);
+}
+
+/**
  * What one marking actually paints.
  *
+ * Every kind but `lane_line`, which is the one that runs *along* the road and is
+ * drawn by its caller.
+ *
  * **The bar is the fall-through, and that is doing real work rather than tidying
- * up.** `lane_line` is pickable in the Inspector but has no geometry until Phase
- * 4, `hatching`/`text` are out of scope entirely (§2.8, §2.10), and a
- * `turn_arrow` can be left with no direction to draw by a hand-edited document.
- * All of them draw the transverse bar, which keeps a marking **visible and
- * selectable** while its own shape is still to come — painting nothing would
- * leave an object on the canvas that could only be found by accident. Its class
- * token already says which kind it is.
+ * up.** `hatching` and `text` are out of scope entirely (§2.8, §2.10) but a
+ * hand-edited document can carry either, and a `turn_arrow` can be left with no
+ * direction to draw the same way. Both draw the transverse bar, which keeps a
+ * marking **visible and selectable** rather than an object on the canvas that
+ * could only be found by accident. Its class token already says which kind it is.
  *
  * A turn arrow is the one kind that takes **two** elements: its stems are stroked
  * and its heads are filled, and a single filled path would have to close the
@@ -553,12 +595,12 @@ function markingPaint(marking: Marking, anchor: MarkingAnchor, bar: string) {
  * A schematic road: asphalt casing, lane bands, painted edge lines, lane
  * dividers, arrow.
  *
- * **No centreline.** An undivided two-way road would carry one in a road atlas,
- * but nothing in the model distinguishes "one link the user thinks of as
- * two-way" from "one carriageway of a pair" — `Link` carries no direction flag
- * and `median_gap` is default-valued on every link ever created, so it holds no
- * signal. Drawing one would be a guess. Recorded as road spec OQ-4, and a
- * modelling gap for the ramps/junction spec rather than a rendering one.
+ * **No centreline is *derived*.** Nothing in the model distinguishes "one link
+ * the user thinks of as two-way" from "one carriageway of a pair" — `Link`
+ * carries no direction flag and `median_gap` is default-valued on every link ever
+ * created — so drawing one would be a guess (road spec OQ-4). One is *painted*
+ * instead: a `lane_line` marking with no lane, which is the human saying the road
+ * is two-way. `replaced` is where that reaches this function.
  *
  * The road class reaches the paint as a class token rather than a computed
  * attribute, so `diagram.css` carries the colour and line treatment and an
@@ -572,12 +614,15 @@ function RoadShape({
   style,
   points,
   butt,
+  replaced,
   interaction,
 }: {
   link: Link;
   style: LinkStyle;
   points: Vec2[];
   butt?: boolean;
+  /** Boundary offsets a lane line has taken over — see {@link laneLineOffsets}. */
+  replaced?: number[];
   interaction?: Interaction;
 }) {
   const bands = laneBands(link.lanes, style);
@@ -608,13 +653,24 @@ function RoadShape({
   // same direction, cross freely", and a hard shoulder is not one of those. So a
   // boundary touching a shoulder draws solid — the hard-shoulder line of §2.5,
   // and the whole of what distinguishes a motorway from an arterial.
-  const dividers = bands.slice(1).map((b, i) => ({
-    cls:
-      kindOf(i) === "shoulder" || kindOf(i + 1) === "shoulder"
-        ? "road-shoulder-line"
-        : "road-divider",
-    d: polylinePath(offsetPolyline(points, b.offset + b.width / 2)),
-  }));
+  //
+  // Unless a human has painted a lane line on it, in which case theirs
+  // **replaces** this one, derived divider and shoulder line alike: overpainting
+  // leaves a dashed line under a solid one, which shows at the dash gaps and in
+  // an export especially (markings OQ-3).
+  const dividers = bands.slice(1).flatMap((b, i) => {
+    const offset = b.offset + b.width / 2;
+    if (boundaryTaken(replaced, offset)) return [];
+    return [
+      {
+        cls:
+          kindOf(i) === "shoulder" || kindOf(i + 1) === "shoulder"
+            ? "road-shoulder-line"
+            : "road-divider",
+        d: polylinePath(offsetPolyline(points, offset)),
+      },
+    ];
+  });
 
   const dir = endDirection(points);
   const end = points[points.length - 1];

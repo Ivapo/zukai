@@ -4,13 +4,21 @@ import {
   CROSSWALK_DEPTH,
   GIVE_WAY_DEPTH,
   GORE_LENGTH,
+  LANE_LINE_GAP,
   LANE_PX,
   ROAD_MARGIN,
   SCHEMATIC_MEDIAN,
   classWidthFactor,
 } from "../editor/geometry";
 import { Action, EditorState, initialState, reducer } from "../editor/state";
-import { Document, LaneKind, LinkAlign, LinkStyle, Marking } from "../model/types";
+import {
+  Document,
+  LaneKind,
+  LineStyle,
+  LinkAlign,
+  LinkStyle,
+  Marking,
+} from "../model/types";
 import { Diagram, Interaction } from "./Diagram";
 
 /** Every road class the Inspector offers. */
@@ -351,9 +359,14 @@ describe("lane kinds", () => {
   /**
    * OQ-4, resolved: nothing in the model can tell "one link the user thinks of
    * as two-way" from "one carriageway of a pair", so a lone link gets edge lines
-   * and dividers and no centreline invented for it.
+   * and dividers and no centreline **invented** for it.
+   *
+   * Still true after the markings spec's Phase 4, and the distinction is the
+   * whole of that resolution: a centreline is now *paintable* — a `lane_line`
+   * with no lane, which is the human saying the road is two-way — but nothing
+   * derives one from the model, which is what would have needed a field.
    */
-  it("gives a lone road no centreline", () => {
+  it("gives a lone road no centreline it did not ask for", () => {
     const svg = renderToStaticMarkup(<Diagram doc={withKinds()} />);
 
     expect(svg).not.toContain("centre");
@@ -1352,21 +1365,27 @@ describe("road markings", () => {
     });
 
     /**
-     * **The placeholder, pinned so Phase 4 has to change it deliberately.**
-     * `lane_line` is pickable in the Inspector before it has any geometry, and a
-     * `turn_arrow` can be left with no direction to draw by a hand-edited file. A
+     * **The placeholder, and Phase 4 changed it deliberately**: `lane_line` has
+     * geometry of its own now and has left this list. What remains is what the
+     * arm exists for — the two kinds that are out of scope entirely (§2.8,
+     * §2.10) and an arrow a hand-edited file left with no direction to draw. A
      * marking that paints nothing is an object on the canvas that can only be
      * found by accident; its class token already says which kind it is.
      */
-    it("falls back to the bar for a kind that has no geometry yet", () => {
+    it("falls back to the bar for a kind with no geometry of its own", () => {
       for (const kind of [
-        { type: "lane_line", style: "solid" },
+        { type: "hatching" },
+        { type: "text", content: "BUS" },
         { type: "turn_arrow", directions: [] },
       ] as Marking["kind"][]) {
         const svg = renderToStaticMarkup(<Diagram doc={repainted(kind)} />);
 
         expect(svg).toContain(`class="marking-bar" d="M ${ALONG} 4.5 L ${ALONG} 13.5"`);
         expect(svg).not.toMatch(/marking-teeth|marking-zebra|marking-arrow/);
+        // And the fall-through paints *across* the road, so it takes no divider
+        // with it: a kind with no geometry is not a lane line.
+        expect(svg).not.toContain("marking-line");
+        expect(svg.match(/road-divider/g)).toHaveLength(2);
       }
     });
 
@@ -1396,6 +1415,23 @@ describe("road markings", () => {
       }
     });
 
+    it("skips a lane line whose link is gone, leaving no line and no group", () => {
+      const svg = renderToStaticMarkup(
+        <Diagram
+          doc={withMarkings(marked(0), [
+            { id: "M1", link: "L9", lane: 0, position: 14, kind: { type: "lane_line", style: "solid" } },
+          ])}
+        />,
+      );
+
+      expect(svg).not.toContain("marking");
+      expect(svg).not.toMatch(/NaN|undefined|Infinity/);
+      // And the road keeps every divider: a line that is not drawn replaces
+      // nothing, or a missing link would rub a divider off a road it never
+      // reached.
+      expect(svg.match(/road-divider/g)).toHaveLength(2);
+    });
+
     it("skips a give-way line and a crossing on the same terms as a bar", () => {
       for (const kind of [
         { type: "give_way_line" },
@@ -1410,6 +1446,167 @@ describe("road markings", () => {
         expect(svg).not.toContain("marking");
         expect(svg).not.toMatch(/NaN|undefined|Infinity/);
       }
+    });
+  });
+
+  /**
+   * The one kind that runs **along** the road instead of across it: it spans the
+   * whole link, `position` is ignored, and it **replaces** the divider it lands
+   * on rather than being painted over one (§2.3, OQ-3).
+   */
+  describe("the lane line", () => {
+    /**
+     * An `lanes`-lane road due east with one lane line on it, placed and then
+     * repainted through the real actions — so the Phase 2 controls' payloads are
+     * on the path under test, not just the renderer.
+     *
+     * A 4-lane road by default, because that is the road whose dividers are
+     * already pinned at y = 9, 0, −9 above: a line on boundary `1|2` takes the
+     * middle one and the other two have to survive.
+     */
+    function lined(
+      style: LineStyle,
+      lane: number | "centre",
+      lanes = 4,
+    ): Document {
+      return run(
+        initialState(),
+        { type: "addNode", pos: { x: 0, y: 0 } },
+        { type: "addNode", pos: { x: 120, y: 0 } },
+        { type: "startLink", from: "N1" },
+        { type: "completeLink", to: "N2" },
+        { type: "setLinkLanes", id: "L1", count: lanes },
+        { type: "addMarking", link: "L1", position: 14, lane: 0 },
+        { type: "setMarkingKind", id: "M1", kind: { type: "lane_line", style } },
+        {
+          type: "setMarkingLane",
+          id: "M1",
+          lane: lane === "centre" ? undefined : lane,
+        },
+      ).doc;
+    }
+
+    /**
+     * **Drawing both is the failure**, and a count-of-lines assertion catches
+     * only half of it — the line has to land on the offset the divider had, or
+     * the road grows a fourth boundary while keeping all three of its own.
+     */
+    it("replaces the divider on its boundary and leaves the others dashed", () => {
+      const svg = renderToStaticMarkup(<Diagram doc={lined("solid", 1)} />);
+
+      expect(svg).toContain('<g class="marking marking-lane-line">');
+      expect(svg).toContain(
+        '<path class="marking-line marking-line-solid" d="M 0 0 L 120 0"></path>',
+      );
+      // Boundary 1|2 of a 4-lane road is y = 0, so that divider is gone and the
+      // ones at ±9 are not.
+      expect(svg.match(/road-divider/g)).toHaveLength(2);
+      expect(svg).toContain('class="road-divider" d="M 0 9 L 120 9"');
+      expect(svg).toContain('class="road-divider" d="M 0 -9 L 120 -9"');
+      // The edge lines are not boundaries and are never a lane line's to take.
+      expect(svg.match(/road-edge/g)).toHaveLength(2);
+    });
+
+    it("draws a double line as two strokes symmetric about that boundary", () => {
+      const svg = renderToStaticMarkup(<Diagram doc={lined("double", 1)} />);
+
+      expect(svg).toContain(
+        `<path class="marking-line marking-line-double" d="M 0 ${LANE_LINE_GAP / 2} L 120 ${LANE_LINE_GAP / 2} M 0 ${-LANE_LINE_GAP / 2} L 120 ${-LANE_LINE_GAP / 2}"></path>`,
+      );
+      expect(svg.match(/road-divider/g)).toHaveLength(2);
+    });
+
+    it("draws a dashed line as one stroke, styled by its class token", () => {
+      const svg = renderToStaticMarkup(<Diagram doc={lined("dashed", 1)} />);
+
+      // No dasharray in the markup: the token carries it, as the road class
+      // carries colour, so an export inherits it with no exporter change.
+      expect(svg).toContain(
+        '<path class="marking-line marking-line-dashed" d="M 0 0 L 120 0"></path>',
+      );
+      expect(svg).not.toContain("stroke-dasharray");
+    });
+
+    /**
+     * **The undivided two-way road, which is what road spec OQ-4 has been
+     * waiting for** — and it needed no model field: the human says the road is
+     * two-way by painting the line, and `lane: undefined` puts it on the lane
+     * region's centre. On a 2-lane road that centre *is* boundary 0|1, so the
+     * one replacement rule covers a centreline as well as a named boundary; the
+     * failure it rules out is a dashed line showing through the double one at
+     * every dash gap.
+     */
+    it("paints a two-way centreline down the middle, taking the divider with it", () => {
+      const svg = renderToStaticMarkup(<Diagram doc={lined("double", "centre", 2)} />);
+
+      expect(svg).toContain(
+        `class="marking-line marking-line-double" d="M 0 ${LANE_LINE_GAP / 2} L 120 ${LANE_LINE_GAP / 2} M 0 ${-LANE_LINE_GAP / 2} L 120 ${-LANE_LINE_GAP / 2}"`,
+      );
+      expect(svg).not.toContain("road-divider");
+      // Two lanes of 9: the edge lines are untouched at the lane region's rim.
+      expect(svg).toContain('class="road-edge" d="M 0 9 L 120 9"');
+      expect(svg).toContain('class="road-edge" d="M 0 -9 L 120 -9"');
+    });
+
+    /**
+     * **`lane = n-1` names no boundary**, because that lane's far side is the
+     * carriageway edge line — so nothing is drawn at all (§2.3). Phase 2's
+     * controls make it unreachable in the app; this is the hand-edited document
+     * that gets there anyway, and a line silently re-homed to a different
+     * boundary would be worse, because the drawing would still look deliberate.
+     */
+    it("draws nothing at all for a line on the offside-most lane", () => {
+      const svg = renderToStaticMarkup(<Diagram doc={lined("solid", 2, 3)} />);
+
+      expect(svg).not.toContain("marking");
+      expect(svg).not.toMatch(/NaN|undefined|Infinity/);
+      // Both dashed dividers and both edge lines survive it untouched.
+      expect(svg.match(/road-divider/g)).toHaveLength(2);
+      expect(svg).toContain('class="road-divider" d="M 0 4.5 L 120 4.5"');
+      expect(svg).toContain('class="road-divider" d="M 0 -4.5 L 120 -4.5"');
+      expect(svg.match(/road-edge/g)).toHaveLength(2);
+    });
+
+    /**
+     * The one kind with a hit target of its own: it runs along the road, so a
+     * transverse bar would highlight a strip it is not painted on. The hit strip
+     * is narrower than a bar's, too — a 12-unit one down the length of a link is
+     * a dead zone for every click on the road under it.
+     *
+     * **The halo grows with the paint**, which is the rule `.road-halo`'s `w + 6`
+     * already follows: a `double` line's two strokes sit `LANE_LINE_GAP` apart,
+     * and a halo that ignored that would be exactly as wide as the paint — which
+     * against a *yellow* double line reads as no halo at all.
+     */
+    it("takes its own hit target and halo, along the line rather than across it", () => {
+      const selection = { kind: "marking", id: "M1" } as const;
+      const single = renderToStaticMarkup(
+        <Diagram doc={lined("solid", 1)} interaction={{ ...interaction(), selection }} />,
+      );
+      const double = renderToStaticMarkup(
+        <Diagram doc={lined("double", 1)} interaction={{ ...interaction(), selection }} />,
+      );
+
+      expect(single).toContain('<path class="marking-hit" d="M 0 0 L 120 0" stroke-width="8">');
+      expect(single).toContain('<path class="marking-halo" d="M 0 0 L 120 0" stroke-width="6">');
+      expect(double).toContain(
+        `<path class="marking-halo" d="M 0 0 L 120 0" stroke-width="${6 + LANE_LINE_GAP}">`,
+      );
+      expect(single).toContain('class="marking marking-lane-line is-selected"');
+      // An export carries neither, as for every other kind.
+      expect(renderToStaticMarkup(<Diagram doc={lined("double", 1)} />)).not.toMatch(
+        /marking-hit|marking-halo|is-selected/,
+      );
+    });
+
+    /** `position` is ignored: the line is the whole link either way (§2.3). */
+    it("spans the whole link wherever the click that placed it landed", () => {
+      const near = lined("solid", 1);
+      const far = withMarkings(near, [{ ...near.markings[0], position: 400 }]);
+
+      expect(renderToStaticMarkup(<Diagram doc={far} />)).toBe(
+        renderToStaticMarkup(<Diagram doc={near} />),
+      );
     });
   });
 

@@ -543,7 +543,8 @@ unchanged" as the expected outcome rather than the suspicious one.
 - **Not to-scale.** `TAPER_LENGTH`/`GORE_LENGTH` are schematic constants, like
   `SCHEMATIC_MEDIAN`.
 - **Not the undivided-two-way centreline** — road spec OQ-4, re-deferred; see
-  OQ-6 below for where it should actually land and why.
+  OQ-6 below for where it should actually land and why. (It landed in the
+  markings spec, 2026-07-25, as paint rather than as either proposed field.)
 
 ## 3. Open questions
 
@@ -592,6 +593,13 @@ unchanged" as the expected outcome rather than the suspicious one.
   a centreline is a painted line. (answerable-from-code — the analysis above is
   the answer; what is open is only which spec carries it. Does not block any
   phase here.)
+  **RESOLVED 2026-07-25 by `specs/road_markings_spec.md` Phase 4 — and it needed
+  neither field.** Not the `graph` one this OQ rejected, and not the `LinkView`
+  one it proposed: an undivided two-way road is a `lane_line { style: double }`
+  marking with `lane: None`, which the `Marking` anchor has expressed since the
+  first commit. The last sentence above was the load-bearing one — a centreline
+  *is* a painted line, so it is paint a human places rather than a property a
+  road carries. Nothing infers it, which is what a field would have been for.
 - **OQ-7 — left open by decision (Phase 4), for the junction-semantics spec.**
   Phase 4 took the proposal below: this spec's glyph work was the gore, and
   `t_junction` still falls through to the plain pad. Nothing in Phase 4 made it

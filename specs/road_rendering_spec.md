@@ -348,7 +348,7 @@ interior one — but in a real schematic the line *is* the meaning:
 | Edge line | Carriageway edge | solid, already `.road-edge` |
 | Lane divider | Lanes, same direction | dashed, already `.road-divider` |
 | Shoulder line | Hard shoulder boundary | solid, wider gap |
-| Centreline | Undivided two-way (no opposing link) | to be decided — OQ-4 |
+| Centreline | Undivided two-way (no opposing link) | **not derived** — painted, as a `lane_line` marking (OQ-4) |
 
 And `Lane.kind` gets a fill band behind the lane: `shoulder` hatched,
 `bus`/`cycle` tinted, `turn` left plain. Rendering a band per lane is what
@@ -475,6 +475,14 @@ cross-spec obligation is `strokeAllowance` (§2.2).
   know it is one. **Recorded as a modelling gap for the ramps/junction spec:**
   the fix is a model field, which is out of scope here (§2.7, "No schema
   change").
+  **AMENDED 2026-07-25 — the resolution stands, the last clause was wrong.** No
+  centreline is *derived*, for exactly the reasons above, and that is still true.
+  But the fix needed **no model field at all**: an undivided two-way road is a
+  `lane_line { style: double }` marking with `lane: None`, which the `Marking`
+  anchor has expressed since the first commit. The *human* says the road is
+  two-way by painting the line, which is why nothing has to infer it.
+  `specs/road_markings_spec.md` Phase 4 shipped it (2026-07-25) and closes ramps
+  OQ-6 with it; `rules/road-rendering.md`'s section is rewritten accordingly.
 - **OQ-5** — Should `LaneKind::Shoulder` count toward the lane count shown to the
   user in the Inspector (`Lanes` +/-)? A 4-lane motorway with a hard shoulder is
   "4 lanes" to a road engineer, but `lanes.length` would be 5. (design-call;
@@ -665,7 +673,9 @@ Open questions closed by reading the source (per `spec-authoring.md` §4):
 - **OQ-4 — answered, `no centreline`.** Confirmed no model field distinguishes an
   undivided two-way link from one carriageway of a pair; `median_gap` is the
   near-miss but is default-valued identically on every link ever created, so it
-  carries no signal. Recorded as a modelling gap for the ramps spec.
+  carries no signal. Recorded as a modelling gap for the ramps spec. (Amended
+  2026-07-25: still nothing *derived*, but the modelling gap was not one — see §3
+  OQ-4. The markings spec paints it, with no field.)
 - **OQ-2 / OQ-3 — resolved** as above. OQ-2's *content* was already adequate; what
   blocked was its form (an open "proposed:") plus an unflagged sign trap:
   `segmentNormals`' "left-hand normals" is y-up maths convention, but SVG's y

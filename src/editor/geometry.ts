@@ -11,10 +11,12 @@ import {
 import {
   Document,
   Lane,
+  LaneIdx,
   Link,
   LinkAlign,
   LinkId,
   LinkStyle,
+  LineStyle,
   Marking,
   TurnDirection,
   Vec2,
@@ -1276,6 +1278,179 @@ export function markingArrow(
     branches,
     stroke: ARROW_STEM * width,
   };
+}
+
+/**
+ * How far apart a double line's two strokes sit, centre to centre.
+ *
+ * A schematic build constant like {@link CROSSWALK_DEPTH}, and **decided in the
+ * app** as {@link MARKING_PITCH} was: it leaves two units of asphalt between two
+ * 2-unit strokes, so the gap reads as wide as the paint either side of it. A
+ * narrower one draws as a single fat line with a scratch down the middle, which
+ * is the one thing a double line must not look like.
+ */
+export const LANE_LINE_GAP = 4;
+
+/** A lane line: the boundary it takes over, and the strokes that paint it. */
+export interface LaneLine {
+  /** Its lateral offset in the link's drawn frame — the divider it replaces. */
+  offset: number;
+  /** Carried here so the renderer needs no second narrowing of `Marking.kind`. */
+  style: LineStyle;
+  /** The single line its hit target and halo take, whatever the style paints. */
+  spine: Vec2[];
+  /** One polyline for `solid`/`dashed`, two for `double`. */
+  lines: Vec2[][];
+}
+
+/**
+ * Which boundary a lane line's `lane` names, or `undefined` if it names none —
+ * **the whole of the boundary rule** (markings spec §2.3).
+ *
+ * `lane` on a `lane_line` names a *boundary between* lanes rather than a lane,
+ * and `n` lanes have only `n-1` of them: `lane = n-1` — the offside-most lane —
+ * names nothing, because that lane's far side is the carriageway edge line,
+ * which is not a divider and is not a lane line's to take. Rather than re-home it
+ * to a boundary the user did not ask for, nothing is drawn.
+ *
+ * `lane` absent is the lane region's **centre**, which is `0` in this frame:
+ * {@link laneBands} centres the bands on the drawn polyline. That is the
+ * undivided two-way road's centreline (road spec OQ-4, ramps OQ-6).
+ *
+ * The offset is `bands.slice(1)`'s own expression from `RoadShape`, not an
+ * equivalent one over `bands[lane]` — the two agree to the last bit only if they
+ * are the same arithmetic, and the road drops the divider this replaces by
+ * comparing the two numbers.
+ */
+function boundaryOffset(
+  bands: LaneBand[],
+  lane: LaneIdx | undefined,
+): number | undefined {
+  if (lane === undefined) return 0;
+  if (lane < 0 || lane >= bands.length - 1) return undefined;
+  const b = bands[lane + 1];
+  return b.offset + b.width / 2;
+}
+
+/**
+ * A lane line's drawn form, or `undefined` if it cannot be drawn.
+ *
+ * **The one longitudinal kind.** Five of the seven marking kinds sit at a point;
+ * this one is a run, and `Marking` has one `position` and nowhere to put an
+ * extent — so it paints its boundary for the **whole link** and `position` is
+ * ignored (markings spec §2.3). A line that has to start and stop partway is a
+ * link that wants splitting at a waypoint, which the model already supports and
+ * the renderer already draws through.
+ *
+ * Skipped on the same terms {@link markingAnchor} skips a marking: a kind that is
+ * not a `lane_line`, an unknown `link`, a link with no drawable polyline, and a
+ * `lane` naming no boundary (see {@link boundaryOffset}). It is
+ * {@link drawnPolyline} the line is offset from, so it inherits the carriageway
+ * offset and the alignment shift like every other thing drawn on a road.
+ */
+export function laneLine(
+  doc: Document,
+  marking: Marking,
+  offsets: Record<LinkId, number>,
+): LaneLine | undefined {
+  if (marking.kind.type !== "lane_line") return undefined;
+  const link = findLink(doc, marking.link);
+  if (!link) return undefined;
+  const points = drawnPolyline(doc, link, offsets);
+  if (!points || points.length < 2) return undefined;
+
+  const bands = laneBands(link.lanes, linkStyle(doc, link.id));
+  const offset = boundaryOffset(bands, marking.lane);
+  if (offset === undefined) return undefined;
+
+  const { style } = marking.kind;
+  const spine = offsetPolyline(points, offset);
+  const half = LANE_LINE_GAP / 2;
+  return {
+    offset,
+    style,
+    spine,
+    lines:
+      style === "double"
+        ? [
+            offsetPolyline(points, offset + half),
+            offsetPolyline(points, offset - half),
+          ]
+        : [spine],
+  };
+}
+
+/**
+ * The boundaries each link's lane lines have taken over, so the road can stop
+ * deriving a divider there (markings spec OQ-3: a lane line **replaces** the
+ * line it lands on rather than being painted over it).
+ *
+ * **No `offsets` argument, deliberately:** which boundary a line sits on is a
+ * fact about the road's cross-section, not about where the road was dragged, so
+ * this needs neither the carriageway offsets nor a polyline. A link whose
+ * polyline is undrawable is skipped by {@link laneLine} *and* by the renderer, so
+ * the two cannot disagree about a road that is not drawn at all.
+ */
+export function laneLineOffsets(doc: Document): Record<LinkId, number[]> {
+  const taken: Record<LinkId, number[]> = {};
+  for (const m of doc.markings) {
+    if (m.kind.type !== "lane_line") continue;
+    const link = findLink(doc, m.link);
+    if (!link) continue;
+    const offset = boundaryOffset(
+      laneBands(link.lanes, linkStyle(doc, link.id)),
+      m.lane,
+    );
+    if (offset === undefined) continue;
+    (taken[m.link] ??= []).push(offset);
+  }
+  return taken;
+}
+
+/**
+ * Whether a lane line has taken the boundary at `offset` — the predicate
+ * `RoadShape` filters its dividers with.
+ *
+ * A function rather than an exported tolerance, so `SAME_EDGE` stays this
+ * module's own. The comparison is exact for a line that names a boundary index
+ * (both sides run {@link boundaryOffset}'s arithmetic); the slack is for the
+ * centreline, which arrives as a literal `0` and meets a boundary offset summed
+ * from lane widths.
+ */
+export function boundaryTaken(
+  taken: number[] | undefined,
+  offset: number,
+): boolean {
+  return taken?.some((o) => Math.abs(o - offset) < SAME_EDGE) ?? false;
+}
+
+/**
+ * How a marking is drawn: **across** the road at a point, or **along** it for the
+ * whole link. Exactly one arm is present.
+ */
+export type MarkingForm =
+  | { across: MarkingAnchor; along?: never }
+  | { along: LaneLine; across?: never };
+
+/**
+ * Everything the renderer needs to draw one marking, or `undefined` if it cannot
+ * be drawn.
+ *
+ * The kind branch lives here rather than in `Diagram.tsx` so that "how is this
+ * marking drawn" stays with the geometry that answers it, and the marking layer
+ * keeps its shape: one call, one skip, one element.
+ */
+export function markingForm(
+  doc: Document,
+  marking: Marking,
+  offsets: Record<LinkId, number>,
+): MarkingForm | undefined {
+  if (marking.kind.type === "lane_line") {
+    const along = laneLine(doc, marking, offsets);
+    return along && { along };
+  }
+  const across = markingAnchor(doc, marking, offsets);
+  return across && { across };
 }
 
 /**

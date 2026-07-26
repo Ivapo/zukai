@@ -188,6 +188,40 @@
   fill: var(--paint-white);
 }
 
+/* A lane line: the one marking that runs *along* the road rather than across it,
+   for the whole length of the link. It replaces the divider it lands on rather
+   than being drawn over one, which is a rule in `Diagram.tsx` rather than here -
+   CSS cannot suppress an element it is not on.
+
+   Two units wide, the weight `.road-shoulder-line` above already uses for a solid
+   longitudinal line; all three styles take it, so a line does not change weight
+   when it changes meaning. That also leaves `strokeAllowance`'s floor of 2 - half
+   the fattest non-casing stroke in this file, which is the marking bar's 4 -
+   exactly where it was. */
+.marking-line {
+  fill: none;
+  stroke: var(--paint-white);
+  stroke-width: 2;
+}
+
+/* The two modifiers are the same specificity as the rule above, so it is
+   **source order** that lets them win - they follow it, and must keep doing so. */
+
+/* Dashed reads as the divider it replaced, which is the point: it is how a human
+   says "this boundary is ordinary" after painting something else on it. The
+   dasharray is `.road-divider`'s, so the two match. */
+.marking-line-dashed {
+  stroke-dasharray: 7 7;
+}
+
+/* The one marking that is not white. A double line means opposing traffic - it is
+   the undivided two-way road's centreline - and yellow is the road-atlas signal
+   for exactly that, where white would read as one more lane divider drawn twice.
+   The two strokes are `LANE_LINE_GAP` apart, from `editor/geometry.ts`. */
+.marking-line-double {
+  stroke: var(--paint-yellow);
+}
+
 /* ----- road class ----- */
 
 /* Motorway and arterial take the base treatment above; the local pair is the
