@@ -84,7 +84,7 @@ phase from a spec still `status: draft`** — it must pass the review loop
   right-of-way rule, and the turn movements through it (implemented; 4 phases)
 - `specs/network_yaml_spec.md` — import and export Assimilator's `network.yaml`:
   the serde mirror, the two directions and their asymmetry, and the four
-  `#[serde(default)]` fields that fail silently (Phases 1–3 of 4 implemented)
+  `#[serde(default)]` fields that fail silently (implemented; 4 phases)
 
 **`rules/` — current-state reference (the *what is*).** Terse, authoritative maps
 of subsystems, read on demand. Unlike specs, rules describe the code as it is now;
@@ -167,7 +167,12 @@ there's real cross-file knowledge worth extracting, not for every file.
   format over, a command that is a shell around the pure conversion, and the two
   differences that are the whole of Phase 2 (dirty and pathless, so Save cannot
   write a schematic back over Assimilator's file; and never remembered as a
-  recent, because "Open Recent" opens through `load_document`)
+  recent, because "Open Recent" opens through `load_document`) — and how one
+  leaves again: the same table with its Apply row **missing**, the notice shown
+  after the write whose second paragraph appears only for a junction Zukai drew
+  rather than imported, and the run that checks the format claim against the
+  other program rather than against ourselves — against a control, which is what
+  told a stale demo scenario apart from a bad export
 
 Specs are authoritative for *intent and plan*; `rules/`, this file, and the code
 are authoritative for *current state*. When a shipped phase changes what a rule

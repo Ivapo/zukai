@@ -9,17 +9,25 @@ import { fileLabel } from "../model/document";
  * The file commands, wired to the dialog/IPC glue by `App`.
  *
  * The shared command surface, of which {@link FILE_COMMANDS} — the toolbar row —
- * is deliberately a *subset*: `onImport` reads a foreign format and lives in the
- * File menu only, so the five everyday commands keep the toolbar to themselves.
+ * is deliberately a *subset*: the two `…Network` commands read and write a
+ * foreign format and live in the File menu only, so the five everyday commands
+ * keep the toolbar to themselves.
+ *
+ * Note which one `onExport` is. Zukai exports two quite different things, and
+ * the unqualified name belongs to the *picture* — the network pair carries the
+ * format in its name precisely so the pairing cannot be misread.
  */
 export interface FileActions {
   onNew: () => void;
   onOpen: () => void;
   onSave: () => void;
   onSaveAs: () => void;
+  /** Export the drawing as an SVG or PNG picture. */
   onExport: () => void;
   /** Import an Assimilator `network.yaml`; menu-only, no toolbar button. */
-  onImport: () => void;
+  onImportNetwork: () => void;
+  /** Write one back out again; menu-only, beside its twin. */
+  onExportNetwork: () => void;
 }
 
 interface ToolbarProps {

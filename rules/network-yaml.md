@@ -6,16 +6,19 @@ format Zukai reads that Zukai does not own. Nothing here moves `SCHEMA_VERSION`
 Zukai's *own* YAML, a different format with a different owner. The design
 rationale lives in `specs/network_yaml_spec.md`; hand-maintained.
 
-**Build state: Phase 3 of 4.** The format is **read and written**: a serde
-mirror, a version probe, `network_to_document`, the `import_network` command, a
-File ▸ Import network… menu item — and now `document_to_network`,
-`document_to_yaml` and the `export_network` command. What is missing is only the
-way to *reach* the writer: no menu item, no dialog, and no run of an exported
-file through Assimilator's own simulator. `Movement` gained `priority`,
+**Build state: complete (Phase 4 of 4).** The format is read and written and
+both directions are reachable from the File menu. `Movement` gained `priority`,
 `yields_to` and `lane_mapping` in Phase 1; they are **carried, never edited**,
 joining `Junction.signal_plan` and `Movement.from_lanes`/`to_lanes` on the list
 of fields whose presence in `src/model/types.ts` is not evidence that anything
 consumes them.
+
+**And the claim is checked against the other program, not only against us.** An
+exported `cross-4` was run by Assimilator's own CLI on **2026-07-27** and came
+out **identical to the file it was exported from** — same completions, same
+throughput, same average speed, ten-second line for ten-second line. The
+procedure, and the two things that nearly stopped it, are under "How a network
+leaves the editor".
 
 ## Two formats, two owners, and that is why this is not `persist.rs`
 
@@ -285,6 +288,92 @@ differences** — both following from the file belonging to another program:
   schema 2 against Assimilator's 1.
 - No new Tauri permission: `dialog:default` already grants `open`.
 
+## How a network leaves the editor
+
+The same table with one row **missing**, and its absence is the point:
+
+| Step | Where |
+|------|-------|
+| Trigger | File ▸ Export network… (`src/editor/menu.ts`) — menu only, no accelerator, directly below Import network… |
+| Dialog + IPC | `exportNetwork` (`src/editor/files.ts`), defaulting to `network.yaml`, same `.yaml`/`.yml` filter |
+| Command | `export_network` (`src-tauri/src/network/export.rs`), registered in `lib.rs` since Phase 3 |
+| Apply | — |
+
+- **An export is not a document**, inherited unchanged from
+  `rules/diagram-export.md`: `exportNetwork` takes **no `dispatch`**, so it
+  cannot `markSaved`, cannot adopt the path, and cannot reach `rememberRecent`.
+  A document is exactly as dirty after an export as before one. The compiler
+  holds the first half of that; `files.test.ts` holds the second by asserting the
+  **whole IPC call list** is one `export_network` — not merely that the export
+  happened, which a stray `push_recent_file` would also satisfy.
+- **There is no unsaved-changes guard**, and that asymmetry with Import is not an
+  oversight: an export destroys nothing on this side. Import replaces the
+  document, which is what earns `confirmDiscard`.
+- **The default name is `network.yaml` literally**, not the document's — every
+  scenario in Assimilator's demo tree names the file that, and a scenario
+  resolves its network through `project.yaml`. `ensureExtension` (not
+  `withExtension`) adds `.yaml` only to a name with no extension, so a chosen
+  `network.yml` is written as typed.
+- **The notice is shown after the write, not before it** (chosen by the user over
+  a blocking confirmation). Its first paragraph is unconditional — placeholder
+  geometry, and `detectors`/`stops`/simulation-only fields not written (spec
+  OQ-5). Its second appears only when `exportNotice` finds an **authored priority
+  junction**: `unsignalized` + `rule: priority`, with movements, none of them
+  `minor`. That is precisely the junction drawn here rather than imported, which
+  exports as a give-way rule with nothing giving way (OQ-8) — an imported
+  `t_junction` carries a `minor` movement and stays quiet. The notice rides on
+  `notify()`, which **swallows its own error**: a dialog that failed to appear
+  must not turn a write that succeeded into a reported failure.
+- No new Tauri permission: `dialog:default` already grants `save` and `message`.
+
+### The run that proves the format claim
+
+Nothing in this repo can establish that *Assimilator* accepts what Zukai writes;
+`cargo test` only shows the file satisfies `validation.rs`'s seven rules as Zukai
+understands them. `assimilator validate` is a stub and the CLI cannot load a lone
+`network.yaml`, so the check is a scenario swap — which works only because import
+preserves ids verbatim and `cross-4`'s `demand.yaml` addresses nodes by id:
+
+```bash
+cp -r ../assimilator/demo/dist/scenarios/cross-4 <scratch>/exp
+cp <the exported file>                           <scratch>/exp/network.yaml
+# NOT `cargo build --bin assimilator` — see below.
+cd ../assimilator && cargo build -p assimilator-cli --bin assimilator
+./target/debug/assimilator run --config <scratch>/exp --duration 60 \
+  --output <scratch>/exp.db
+```
+
+**Pass is vehicles arriving, not the absence of a parse error** — the validator
+runs after parsing, and a network that loads but strands every vehicle is exactly
+this direction's silent failure.
+
+**Run against a control, not against a memory of what the numbers should be.**
+Copy the scenario *twice*, swap the network into one of them, and run both. On
+2026-07-27 that produced two runs agreeing on every printed figure — 10 completed
+and 20 active at 60 s, 600 veh/h, 5.7 m/s, and the same counts at each ten-second
+line. That is a much stronger result than "vehicles arrived": Assimilator cannot
+tell Zukai's file from its own. The control is also what makes the *next* two
+paragraphs answerable rather than alarming.
+
+Two things nearly stopped this run, neither of them about the format:
+
+- **Two packages in that workspace build a binary called `assimilator`**, and the
+  subcommands are in the other one. `cargo build --bin assimilator` from the root
+  yields a binary whose usage is `assimilator --config <CONFIG>` and which
+  rejects `run` as an unexpected argument. The CLI is `-p assimilator-cli`, and
+  both write to the same `target/debug/assimilator`.
+- **The committed demo scenarios are stale against that CLI.** `cross-4`'s
+  `project.yaml` carries `model_params.mobil.a_bias`, which the current
+  `demand_manager.rs` panics on ("unknown model_params.mobil.a_bias"). This is a
+  *vehicle-class* key: it fires on the pristine scenario too, which is exactly how
+  the control earns its keep. Dropping those two lines from both copies is what
+  let the run proceed; the network file was never implicated.
+
+This proves the format claim and **nothing about the scale** (spec OQ-2): a
+round trip is scale-neutral by construction, since import multiplies by
+`UNITS_PER_METRE` and export divides by it. The simulated network has the
+fixture's original 100 m arms whatever that constant is set to.
+
 ## Where each piece lives
 
 | Piece | File |
@@ -298,7 +387,11 @@ differences** — both following from the file belonging to another program:
 | `document_to_network`, `movement_lanes`, `lateral_offset` | `src-tauri/src/network/export.rs` |
 | `document_to_yaml` (the header stamp) and `export_network` | `src-tauri/src/network/export.rs` |
 | `importNetwork` (dialog + IPC), the `.yaml` filter | `src/editor/files.ts` |
+| `exportNetwork`, `exportNotice`, `authoredPriority`, `notify` | `src/editor/files.ts` |
+| the two `…Network` entries in `FileActions` | `src/components/Toolbar.tsx` |
+| the two menu items, below the separator | `src/editor/menu.ts` |
 | the `importDocument` case and the `install` helper | `src/editor/state.ts` |
+| the glue's tests, with the Tauri runtime mocked | `src/editor/files.test.ts` |
 | `MovementPriority`, `LaneMappingEntry`, the three carried fields | `src-tauri/src/model/graph.rs` |
 | the TypeScript mirror of those | `src/model/types.ts` |
 | the two fixtures + their provenance | `src-tauri/tests/fixtures/network/` |
@@ -324,23 +417,13 @@ binary.
 
 ## Still unbuilt
 
-Everything between the writer and a user. By plan, not by omission:
+The path from a file to a drawing and back is complete; what is left is what the
+spec declined, by plan rather than omission:
 
-- **Export from the app.** The second menu item, the save dialog and the honesty
-  note about what is being dropped are Phase 4. So is the rule an export inherits
-  from `rules/diagram-export.md` — an export is not a document, so it must not set
-  `currentPath` or clear `dirty`.
-- **The only check that proves the format claim.** Nothing in this repo can run
-  Assimilator. `cargo test` shows the emitted file satisfies all seven of
-  `validation.rs`'s rules as Zukai understands them, which is not the same as
-  Assimilator agreeing: that needs an exported `cross-4` dropped into a copy of
-  its own scenario directory and run (`assimilator run --config …`), which works
-  because ids round-trip verbatim and its `demand.yaml` addresses nodes by id.
-  Phase 4, and it needs the human.
 - **Editing any of the carried fields.** No Inspector control for `priority`,
   `yields_to`, `lane_mapping` or signal plans. An authored priority junction
-  therefore exports with every movement `major`, which the export dialog will say
-  out loud rather than hide.
+  therefore exports with every movement `major`, which the export notice says out
+  loud rather than hides.
 - **Opaque round-trip of the dropped blocks.** A file's `detectors` and
   `conflict_pairs` are destroyed by an import→export cycle. Storing them as an
   un-modelled blob in `.zkai` was considered and refused.
