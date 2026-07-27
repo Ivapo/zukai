@@ -85,6 +85,10 @@ phase from a spec still `status: draft`** — it must pass the review loop
 - `specs/network_yaml_spec.md` — import and export Assimilator's `network.yaml`:
   the serde mirror, the two directions and their asymmetry, and the four
   `#[serde(default)]` fields that fail silently (implemented; 4 phases)
+- `specs/signal_plans_spec.md` — the stages a signalized junction cycles
+  through: the derived cycle time that makes an invalid plan unrepresentable,
+  the three-role stage, and the two cascades that are live bugs today
+  (**reviewed, not started**; 4 phases)
 
 **`rules/` — current-state reference (the *what is*).** Terse, authoritative maps
 of subsystems, read on demand. Unlike specs, rules describe the code as it is now;
