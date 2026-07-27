@@ -6,18 +6,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Zukai is a schematic road network editor — it draws roundabouts, junctions, and motorway segments (onramps/offramps, lane counts, road markings, signage) as clean diagrams that are not necessarily to scale, the way a metro map represents a transit network rather than a surveyed one. Tauri 2 app: Rust backend, React + TypeScript frontend, Bun as the package manager.
 
+**What it is for, and the test every feature has to pass.** Zukai exists to produce **readable figures for a paper**. A feature earns its place if it makes the drawn network clearer, or makes drawing it faster. That is the whole scope, and it is deliberately narrower than "a road network editor" — a distinction that has already cost this project real work, twice (see below).
+
+So, before planning anything, ask: **which phase of this produces the picture?** A phase whose output is a panel, a table, or a file no reader ever sees is a phase to argue for explicitly, not to assume.
+
 ## Relationship to Assimilator
 
-Zukai is developed fully independently from `../assimilator` (a separate, partly-private repo under active development) — no shared Cargo workspace, no shared build, no code dependency in either direction. The only coupling is the `network.yaml` file format Assimilator uses for its to-scale, geometry-precise road networks:
+Zukai is developed fully independently from `../assimilator` (a separate, partly-private repo under active development) — no shared Cargo workspace, no shared build, no code dependency in either direction. The coupling is **one-way**: Zukai reads the `network.yaml` file format Assimilator uses for its to-scale, geometry-precise road networks.
 
-- **Import** (Assimilator → Zukai): read a `network.yaml`'s topology (nodes, links, lanes, junctions, movements) and discard its literal polyline/coordinate geometry — a schematic intentionally distorts real geometry for clarity rather than reusing it.
-- **Export** (Zukai → Assimilator): the harder direction, since Assimilator needs real metric geometry a schematic doesn't have by design. Export synthesizes placeholder geometry (default spacing, straight links) from Zukai's topology — useful for testing a junction's lane config or signal plan in isolation, not a substitute for surveyed geometry.
+- **Import** (Assimilator → Zukai), and *only* import: read a `network.yaml`'s topology — nodes, links, lanes, junctions, and which turns a junction permits — and discard everything else, starting with its literal polyline/coordinate geometry. A schematic intentionally distorts real geometry for clarity rather than reusing it. Import earns its keep by getting a real network onto the canvas quickly, to be schematised by hand.
+- **Import reads only what the schematic draws.** A movement is the two links it joins and the kind of turn it is; the file's lane detail (`from_lanes`, `to_lanes`, `lane_mapping`) and right-of-way detail (`priority`, `yields_to`) are dropped on the way in. If a field is not drawn, it is not carried.
+- **Zukai does not write `network.yaml`, and this is a decision rather than a gap.** An export shipped and was reverted (`979a60d`). It synthesized placeholder geometry — which is not a substitute for surveyed geometry, as its own documentation conceded — so its only use was simulating one junction in isolation. A network you want to simulate is authored in Assimilator, where the geometry is real. **Do not rebuild it**, and do not add a model field whose only justification is surviving a round trip.
 - Zukai owns its own small `serde` structs for the `network.yaml` shape rather than depending on Assimilator's `crates/config`/`crates/network` Rust types, which are still actively changing. The coupling point is the documented, `schema_version`-keyed file format, not Assimilator's internal code.
 - Zukai represents **parts** of networks (a single interchange, one roundabout), not full networks. This mirrors how Assimilator's own example scenarios already work (small, hand-placed-coordinate configs), and Assimilator's `endpoint` node type already models dangling link ends for exactly this kind of fragment.
 
+**The two things this narrowing has already cut**, recorded so they are not re-derived: the `network.yaml` **export** (above), and **signal plans** past Phase 1 — a fixed-time plan is a table, its only drawable form is a stage diagram, and a stage diagram is not the figure this project is for.
+
 ## Key Design Decisions
 
-- **Two-layer schema**: a semantic layer (nodes, links, lanes-per-link, junction/movement/signal data — conceptually a subset of Assimilator's model, plus schematic-only extras like paint markings and sign types) and a presentation layer (glyph type, canvas position, connector bend points) that never round-trips through Assimilator.
+- **Two-layer schema**: a semantic layer (nodes, links, lanes-per-link, junction/movement/signal data — conceptually a subset of Assimilator's model, plus schematic-only extras like paint markings and sign types) and a presentation layer (glyph type, canvas position, connector bend points). The split is about what each layer *means*, not about a round trip: both are Zukai's own and neither leaves for Assimilator.
 - **Rendering: SVG, not Canvas/WebGL.** Unlike Assimilator's frontend (thousands of moving vehicles, needs Canvas/WebGL), Zukai draws a bounded number of draggable symbols and needs easy hit-testing/hover/selection — SVG's DOM-based interactivity fits a diagram editor better, and the scale that would justify Canvas doesn't apply to network fragments.
 - **Layout is semi-automatic, not auto-layout.** Importing a network auto-populates parametrized glyphs (roundabout-N-arms, junction-with-N-lanes, motorway-segment-with-ramp) from lane/movement data, but a human positions and connects them on canvas. Fully automatic schematization (clean orthogonal/octilinear layout from arbitrary topology) is out of scope — it's a hard, open-ended algorithm problem, and manual placement leans on the human aesthetic judgment that makes schematics like metro maps legible.
 
@@ -163,23 +170,21 @@ there's real cross-file knowledge worth extracting, not for every file.
   `phases: []`; the seed that is an all-red frame because a plausible plan would
   lie; the guard on `control` that departs from `setJunctionRule` because a stray
   rule is inert and a stray plan is validated; and why nothing is clamped
-- `rules/network-yaml.md` — the format Zukai reads but does not own: two formats
-  with two owners and why the module is not `persist.rs`, the `schema_version`
-  header that is real *and* not a struct field (read above serde, so the probe
-  takes an `Option` and an absent one must be accepted), the mirror rule —
-  optionality follows Assimilator's source, not Zukai's, which cuts both ways
-  (`type:` may be omitted, `from_lanes:` may not: `[]` parses, nothing does not),
-  the four enums reused rather than redeclared and the one test that keeps that
-  honest, the scale and the y that is stated as a compass bearing because a
-  mirrored network is self-consistently wrong, what import discards versus the one
-  thing it *demotes* (`point` seeds the layout, or the page renders blank), the
-  defaults seeded rather than derived, and the four `#[serde(default)]` fields
-  that fail quietly — a promoted minor movement, a junction stuck at red, a
-  re-wired lane mapping — and how a network reaches the editor: Open's path one
-  format over, a command that is a shell around the pure conversion, and the two
-  differences that are the whole of Phase 2 (dirty and pathless, so Save cannot
-  write a schematic back over Assimilator's file; and never remembered as a
-  recent, because "Open Recent" opens through `load_document`)
+- `rules/network-yaml.md` — the format Zukai reads but does not own **and does
+  not write**: two formats with two owners and why the module is not
+  `persist.rs`, the `schema_version` header that is real *and* not a struct field
+  (read above serde, so the probe takes an `Option` and an absent one must be
+  accepted), the four enums reused rather than redeclared and the one test that
+  keeps that honest, the scale and the y that is stated as a compass bearing
+  because a mirrored network is self-consistently wrong, what import discards —
+  the geometry, and now the lane and right-of-way detail as well, on the rule
+  that a field nothing draws is a field nothing carries — versus the one thing it
+  *demotes* (`point` seeds the layout, or the page renders blank), the defaults
+  seeded rather than derived, and how a network reaches the editor: Open's path
+  one format over, a command that is a shell around the pure conversion, and the
+  two differences that are the whole of Phase 2 (dirty and pathless, so Save
+  cannot write a schematic back over Assimilator's file; and never remembered as
+  a recent, because "Open Recent" opens through `load_document`)
 
 Specs are authoritative for *intent and plan*; `rules/`, this file, and the code
 are authoritative for *current state*. When a shipped phase changes what a rule

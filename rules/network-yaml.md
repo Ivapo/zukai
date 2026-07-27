@@ -6,14 +6,27 @@ format Zukai reads that Zukai does not own. Nothing here moves `SCHEMA_VERSION`
 Zukai's *own* YAML, a different format with a different owner. The design
 rationale lives in `specs/network_yaml_spec.md`; hand-maintained.
 
-**Build state: Phase 2 of 4.** The format is **read**, and a real file now
-reaches the editor: a serde mirror, a version probe, `network_to_document`, the
-`import_network` command and a File ▸ Import network… menu item. **No writer** —
-nothing in Zukai can produce a `network.yaml` yet. `Movement` gained `priority`,
-`yields_to` and `lane_mapping` in Phase 1; they are **carried, never edited**,
-joining `Junction.signal_plan` and `Movement.from_lanes`/`to_lanes` on the list
-of fields whose presence in `src/model/types.ts` is not evidence that anything
-consumes them.
+**Build state: read-only, and permanently so.** The format is **read**, and a
+real file reaches the editor: a serde mirror, a version probe,
+`network_to_document`, the `import_network` command and a File ▸ Import network…
+menu item.
+
+**There is no writer, and there will not be one.** A `document_to_network` and an
+Export network… item shipped as the spec's Phases 3–4 and were **reverted**
+(`979a60d`). They synthesized placeholder geometry, which is not a substitute for
+surveyed geometry, so the only thing they bought was simulating one junction in
+isolation — and Zukai exists to print figures, not to feed a simulator. A network
+worth simulating is authored in Assimilator, where the geometry is real. Do not
+rebuild it.
+
+**What that decision changed here, and it is the main thing to know:** the mirror
+no longer has to be *faithful*, only *permissive*. A field is mirrored if the
+schematic draws something from it, and dropped otherwise — where before, every
+field an imported file carried had to survive so a round trip could reproduce it.
+`Movement` lost all five of its round-trip fields (`from_lanes`, `to_lanes`,
+`priority`, `yields_to`, `lane_mapping`) with the export, on both sides of the
+mirror. `Junction.signal_plan` is the one carried field left, and only because
+the Inspector shows it.
 
 ## Two formats, two owners, and that is why this is not `persist.rs`
 
@@ -49,37 +62,40 @@ Three consequences, all in `network/mod.rs`:
   from `crates/config/src/version.rs` at commit `d79c32d` on **2026-07-26**. It is
   the one number here that can rot silently, so the date travels with it.
 
-## Optionality follows Assimilator's source, not Zukai's model
+## A mirror field has to earn its place by being drawn
 
-The mirror rule, and the failure it prevents: a mirror copied field-for-field from
+Read-only makes the rule short: **mirror a field if the schematic draws something
+from it; drop it otherwise.** A dropped field costs nothing on the read side —
+nothing derives `deny_unknown_fields`, so serde ignores the key — and a field
+carried but never drawn is a claim the model cannot back.
+
+`NetworkMovement` is where that bites. It reads `id`, `from_link`, `to_link` and
+`type`, and drops `from_lanes`, `to_lanes`, `lane_mapping`, `priority` and
+`yields_to`. All five *were* mirrored, and the reason is worth keeping because it
+is the trap the whole read-only turn removes: while Zukai wrote the format,
+`MovementConfig.from_lanes` carrying no `serde(default)` meant an absent key
+failed the *whole file*, so the mirror had to declare it bare and the writer had
+to always emit it — `[]` parses, nothing does not. A rule with a test each side.
+None of it applies now, and the test that pinned it
+(`a_movement_without_from_lanes_fails_to_parse`) has been replaced by its
+inverse, `the_lane_and_priority_keys_are_ignored_either_way`.
+
+**One direction of the old mirror rule survives**, because it is about accepting
+files rather than reproducing them: a mirror copied field-for-field from
 `graph.rs` would **reject legal files**. `MovementConfig.movement_type` is
 `#[serde(default, rename = "type")]` in Assimilator while Zukai's `Movement.kind`
 has no default, so a movement omitting `type:` parses there and would have failed
 here. Neither fixture catches it — both write `type:` on every movement — so
-`a_movement_without_a_type_reads_as_through` exists instead.
-
-The rule cuts the other way too, and that is the sharper half.
-`MovementConfig.from_lanes` carries **no** `serde(default)`: an absent key is
-`missing field `from_lanes`` and the *whole file* fails. So `NetworkMovement`
-declares it bare — no default, no `skip_serializing_if` — and
-`a_movement_without_from_lanes_fails_to_parse` is what catches someone helpfully
-adding one. Writing the mirror faithfully is what will make the writer's
-always-write rule hold for free.
-
-**`[]` parses; nothing does not.** That distinction is the single most expensive
-thing in this spec. Assimilator's own editor really does write `from_lanes: []`
-for a u-turn — `cross-4` has four — so an empty list is correct *data*; what is
-fatal is `skip_serializing_if`, which omits the key rather than writing `[]`.
-`graph.rs`'s doc-comment now says so. Its attribute stays, because `.zkai` has no
-reason to carry empty lists; the writer overrides it.
+`a_movement_without_a_type_reads_as_through` exists instead. **Optionality on a
+field we keep still follows Assimilator's source, not Zukai's model.**
 
 ## The enums are shared, and one test is what keeps that honest
 
 `NodeKind`, `JunctionControl`, `UnsignalizedRule` and `MovementKind` are **Zukai's
 own, reused rather than redeclared** — every variant already produces
 Assimilator's exact wire spelling, checked value by value. So the importer has no
-match arms at all, and `MovementPriority`/`LaneMappingEntry` are shared the same
-way.
+match arms at all. (`MovementPriority` and `LaneMappingEntry` were shared the same
+way and are gone with the fields that used them.)
 
 That reuse is a coupling, so it is pinned:
 `the_shared_enums_spell_what_assimilator_spells` asserts each spelling against a
@@ -142,24 +158,31 @@ is the intended outcome.
   yields the wrapped serde error; inventing a friendly message for a parse failure
   would be guessing.
 
-## The four fields that fail quietly
+## The four fields that failed quietly, and why they no longer can
 
-This format's characteristic bug is a `#[serde(default)]` field that parses
-cleanly and changes what the network *means*. Review found four, three of them
-after the draft was written:
+This format's characteristic bug **was** a `#[serde(default)]` field that parses
+cleanly and changes what the network *means* on the way back out. Review found
+four:
 
-| Field | What dropping it does | No parse error because |
+| Field | What dropping it did | No parse error because |
 |---|---|---|
 | `from_lanes`/`to_lanes` | file becomes unparseable *on write* | the key is omitted, not emptied |
-| `priority`/`yields_to` | a minor movement is **promoted to major** — a give-way junction where nothing gives way | both default, `priority` to `Major` |
+| `priority`/`yields_to` | a minor movement **promoted to major** — a give-way junction where nothing gives way | both default, `priority` to `Major` |
 | `signal_plan` | a `control: signal` junction arrives with no timing and sits at red | serde-optional, semantically required |
 | `lane_mapping` | a **crossed** mapping (`0→1, 1→0`) comes back re-wired | Assimilator regenerates the positional identity, so only a crossed one diverges |
 
-A field is **carried** if dropping it would silently change meaning for a file
-Zukai round-trips; **dropped** if Assimilator recomputes it from data Zukai does
-supply, or if it is simulation instrumentation. Neither bucket implies an editor.
-A field in *neither* bucket is a bug, not an omission — spec §2.3.3 enumerates all
-62 against source.
+**Every entry in that table describes a *write*.** With no writer, none of them
+can happen: a field Zukai drops is simply a field the schematic does not draw, and
+the file it came from is untouched on disk. Three of the four are now dropped on
+purpose, and `signal_plan` is kept only because the Inspector shows it.
+
+Keep the table anyway. It is the reason the export is not coming back — it
+documents how much fidelity a round trip demands, and how little of it a picture
+needs.
+
+The bucket rule that replaces it is one line: **mirror what is drawn.** A field
+carried but never drawn is the shape the old rule had, and it is what put five
+dead fields on `Movement` for two specs.
 
 ## How a network reaches the editor
 
@@ -203,20 +226,20 @@ differences** — both following from the file belonging to another program:
 | `import_network`, the command around it | `src-tauri/src/network/import.rs` |
 | `importNetwork` (dialog + IPC), the `.yaml` filter | `src/editor/files.ts` |
 | the `importDocument` case and the `install` helper | `src/editor/state.ts` |
-| `MovementPriority`, `LaneMappingEntry`, the three carried fields | `src-tauri/src/model/graph.rs` |
-| the TypeScript mirror of those | `src/model/types.ts` |
+| `Movement` (four fields: two links, an id, a turn kind) | `src-tauri/src/model/graph.rs` |
+| the TypeScript mirror of it | `src/model/types.ts` |
 | the two fixtures + their provenance | `src-tauri/tests/fixtures/network/` |
 
 `import.rs` holds both the pure conversion and the I/O shell, and the module doc
 draws the line: `network_to_document` takes a parsed `NetworkFile` and touches no
-filesystem, so every test above reaches it with a `&str`. Phase 3's writer takes
-the same shape.
+filesystem, so every test above reaches it with a `&str`.
 
-`mod network;` in `lib.rs` is **private again** as of this phase. Phase 1 needed
-`pub` only because nothing in the binary called into it, which left every item
-unreachable from the crate root and failed
-`cargo clippy --all-targets -- -D warnings` on `dead_code`; `import_network` is
-now that caller.
+`mod network;` in `lib.rs` is **private**. Phase 1 needed `pub` only because
+nothing in the binary called into it, which left every item unreachable from the
+crate root and failed `cargo clippy --all-targets -- -D warnings` on `dead_code`;
+`import_network` is that caller. Worth knowing before deleting anything else
+here: **a registered Tauri command is what keeps `dead_code` quiet**, so removing
+the last caller of a module breaks the lint rather than merely leaving dead code.
 
 The fixtures are the **first checked-in test data in the repo**. They are loaded
 with `include_str!` from the inline `#[cfg(test)]` modules, so no
@@ -224,24 +247,25 @@ with `include_str!` from the inline `#[cfg(test)]` modules, so no
 no top-level `.rs` is invisible to cargo, and the bytes stay out of the release
 binary.
 
-## Still unbuilt
+## Cut, not unbuilt
 
-Everything after "read". By plan, not by omission:
+Everything after "read", and **by decision rather than by plan** — the spec's
+Phases 3 and 4 shipped and were reverted. Do not treat any of this as a to-do:
 
-- **The writer.** `document_to_network` and `export_network` are Phase 3 — where
-  geometry must be *synthesized* from node positions and `bends` (never from
-  `drawnPolyline`, which has the carriageway offset and the alignment already
-  baked in, and Assimilator applies both itself), `schema_version: 1` gets stamped
-  as the first line, and the always-write rule for `from_lanes`/`to_lanes`/
-  `green_movements` finally has code depending on it.
-- **Export from the app.** The second menu item, the save dialog and the honesty
-  note about what is being dropped are Phase 4 — as is the only check that proves
-  the format claim: running an exported `cross-4` through Assimilator's own
-  simulator.
-- **Editing any of the carried fields.** No Inspector control for `priority`,
-  `yields_to`, `lane_mapping` or signal plans. An authored priority junction
-  therefore exports with every movement `major`, which the export dialog will say
-  out loud rather than hide.
+- **The writer**, `document_to_network` / `export_network`, and the File ▸ Export
+  network… item that drove it. Reverted in `979a60d`; see the build-state note at
+  the top for why.
+- **The proof run that went with it** — an exported `cross-4` driven through
+  Assimilator's own simulator, which passed and matched Assimilator's own network
+  figure for figure. It is worth knowing that it *worked*: the export was cut for
+  being outside this project's purpose, not for being broken.
+- **The scale problem it exposed is still open**, and belongs to import alone.
+  `UNITS_PER_METRE` makes `t_junction`'s 500 m arm 1285 units long against a
+  9-unit lane; checking the two fixtures against each other shows **no fixed
+  constant serves both**, so fit-to-extent is the only live answer — and it needs
+  the factor stored per document. That is the one piece of this area a figure
+  actually wants, since a network nobody can drag into shape is a network nobody
+  can draw.
 - **Opaque round-trip of the dropped blocks.** A file's `detectors` and
   `conflict_pairs` are destroyed by an import→export cycle. Storing them as an
   un-modelled blob in `.zkai` was considered and refused.
