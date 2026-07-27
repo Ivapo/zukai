@@ -506,6 +506,25 @@ blocks §2.8 drops (OQ-5) and, for a junction drawn here rather than imported,
   default rather than by proof, and it is one constant wide in the one function
   §2.7 says owns the scale. Whoever first exports an authored network and runs it
   is the one who can close this. (design-call; decided-by-default, deferred.)
+
+  **Evidence from Phase 2, and it is about the *import* half.** The first look at
+  a real imported network (`t_junction` through the app, 2026-07-26) says the
+  drawing is unusable as a schematic: a 500 m arm is **1285 canvas units against a
+  9-unit lane**, ~143 lane-widths of road. §2.6 predicted this — "true to life and
+  *wrong for a schematic*" — and answered it with "a human drags them into a
+  legible diagram", which is a lot of dragging. Two things follow. First, the fix
+  is cheap where it looks expensive: **the constant cancels**, so import ÷ K and
+  export × K are inverses for any K, and Phase 3's round-trip gate is indifferent
+  to which one is chosen. Second, and this is the fork Phase 3 should settle
+  rather than inherit:
+  - **a smaller fixed constant** — one number, no round-trip cost, but a 5 km
+    motorway is still unusable while a 50 m slip road becomes a dot;
+  - **fit-to-extent at import** — scale so the network's bounding box lands in a
+    legible frame. Not a metric claim at all, which is the honest thing about it,
+    but import and export stop being inverses unless the factor is **stored per
+    document**, which is a `SCHEMA_VERSION` bump and a new `layout` field;
+  - **non-uniform spacing** — schematization proper, and a named non-goal
+    (`CLAUDE.md`, §2.6).
 - **OQ-3** — **Id collisions on import.** Assimilator ids are free-form
   (`L_W_J`, `M_major_thru`), and Zukai's `nextId` parses a **numeric** suffix
   (`document.ts:129-138`), so after importing a file of non-numeric ids the next
