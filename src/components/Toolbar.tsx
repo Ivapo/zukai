@@ -5,13 +5,21 @@ import { clampZoom } from "../editor/geometry";
 import { Action, EditorState, Tool } from "../editor/state";
 import { fileLabel } from "../model/document";
 
-/** The file commands, wired to the dialog/IPC glue by `App`. */
+/**
+ * The file commands, wired to the dialog/IPC glue by `App`.
+ *
+ * The shared command surface, of which {@link FILE_COMMANDS} — the toolbar row —
+ * is deliberately a *subset*: `onImport` reads a foreign format and lives in the
+ * File menu only, so the five everyday commands keep the toolbar to themselves.
+ */
 export interface FileActions {
   onNew: () => void;
   onOpen: () => void;
   onSave: () => void;
   onSaveAs: () => void;
   onExport: () => void;
+  /** Import an Assimilator `network.yaml`; menu-only, no toolbar button. */
+  onImport: () => void;
 }
 
 interface ToolbarProps {
@@ -34,6 +42,7 @@ const MAC =
 const MOD = MAC ? "⌘" : "Ctrl+";
 const SHIFT_MOD = MAC ? "⇧⌘" : "Ctrl+Shift+";
 
+/** The toolbar's file buttons: the everyday five, each with an accelerator. */
 const FILE_COMMANDS: { label: string; hint: string; key: keyof FileActions }[] =
   [
     { label: "New", hint: `${MOD}N`, key: "onNew" },

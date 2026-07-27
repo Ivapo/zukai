@@ -41,6 +41,28 @@ describe("persistence actions", () => {
     expect(next.view).toEqual({ tx: 0, ty: 0, k: 1 });
   });
 
+  it("importDocument installs the network dirty and pathless", () => {
+    const raw: RawDocument = {
+      schema_version: 1,
+      metadata: { name: "Editor Network" },
+    };
+    const open = { ...initialState(), currentPath: "/p/foo.zkai" };
+
+    const next = reducer(open, { type: "importDocument", doc: raw });
+
+    // The two that differ from `loadDocument`, and the reason the action exists:
+    // a `network.yaml` is not a save target, so Save must ask for a `.zkai`.
+    expect(next.dirty).toBe(true);
+    expect(next.currentPath).toBeNull();
+    // Everything else it inherits: normalized, and reset around the boundary.
+    expect(next.doc.metadata.name).toBe("Editor Network");
+    expect(next.doc.nodes).toEqual([]);
+    expect(next.doc.layout).toEqual({ nodes: {}, links: {}, junctions: {}, signs: {} });
+    expect(next.selection).toBeNull();
+    expect(next.linkFrom).toBeNull();
+    expect(next.view).toEqual({ tx: 0, ty: 0, k: 1 });
+  });
+
   it("newDocument replaces the doc and clears path + dirty", () => {
     const dirty = { ...initialState(), dirty: true, currentPath: "/p/foo.zkai" };
 
@@ -437,7 +459,7 @@ describe("undo / redo", () => {
     expect(reducer(undone, { type: "undo" })).toBe(undone);
   });
 
-  it("loadDocument and newDocument reset history", () => {
+  it("every whole-document install resets history", () => {
     const edited = run(
       initialState(),
       { type: "addNode", pos: { x: 0, y: 0 } },
@@ -460,6 +482,13 @@ describe("undo / redo", () => {
     expect(fresh.past).toEqual([]);
     expect(fresh.future).toEqual([]);
     expect(fresh.coalesceKey).toBeNull();
+
+    // An import is a file boundary too — so the work it replaces is protected by
+    // the unsaved-changes prompt in `files.ts`, not by an undo.
+    const imported = reducer(edited, { type: "importDocument", doc: raw });
+    expect(imported.past).toEqual([]);
+    expect(imported.future).toEqual([]);
+    expect(imported.coalesceKey).toBeNull();
   });
 
   it("markSaved leaves the history stacks alone", () => {

@@ -5,6 +5,7 @@ import { Inspector } from "./components/Inspector";
 import { FileActions, Toolbar } from "./components/Toolbar";
 import {
   exportDiagram,
+  importNetwork,
   installCloseGuard,
   newDocument,
   openDocument,
@@ -44,6 +45,8 @@ function App() {
       onSaveAs: () => void saveDocumentAs(stateRef.current, dispatch),
       // No `dispatch`: writing a picture changes nothing about the document.
       onExport: () => void exportDiagram(stateRef.current),
+      // Menu-only, so no case in the keydown handler below.
+      onImport: () => void importNetwork(stateRef.current, dispatch),
     }),
     [],
   );

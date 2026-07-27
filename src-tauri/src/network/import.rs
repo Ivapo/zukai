@@ -12,14 +12,34 @@
 //! legible diagram — semi-automatic, which is the project's stated posture
 //! towards layout, not a step short of auto-layout.
 //!
-//! Everything here is pure: no filesystem, no IPC. See
+//! The conversion is pure: [`network_to_document`] touches no filesystem and no
+//! IPC, and everything a test needs to exercise it is a `&str`.
+//! [`import_network`] is the thin shell around it — read the file, probe the
+//! version, convert — and is the only thing here the app can reach. See
 //! `specs/network_yaml_spec.md` §2.5–§2.6.
+
+use std::fs;
 
 use crate::model::graph::{Junction, Lane, Link, Movement, Node, NodeKind, Phase, SignalPlan};
 use crate::model::layout::{JunctionView, LinkAlign, LinkStyle, LinkView, NodeView};
 use crate::model::Document;
 
-use super::{metres_to_canvas, NetworkFile, NetworkJunction, NetworkLink, NetworkMovement};
+use super::{
+    metres_to_canvas, parse_network, NetworkFile, NetworkJunction, NetworkLink, NetworkMovement,
+};
+
+/// Read a `network.yaml` from disk and convert it to a Zukai [`Document`].
+///
+/// The command surface for the whole module: [`crate::persist::load_document`]'s
+/// shape, one format over. What the *caller* does with the result is where the
+/// two part company — an imported document is **dirty and pathless**, because
+/// this is not a `.zkai` and Save must not write back over the file it came
+/// from. That rule lives in the reducer (`importDocument`), not here.
+#[tauri::command]
+pub fn import_network(path: String) -> Result<Document, String> {
+    let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    network_to_document(parse_network(&text)?)
+}
 
 /// Turn a parsed [`NetworkFile`] into a Zukai [`Document`].
 ///
@@ -159,6 +179,8 @@ fn import_movement(movement: NetworkMovement) -> Movement {
 
 #[cfg(test)]
 mod tests {
+    use tempfile::tempdir;
+
     use super::*;
     use crate::model::graph::{
         JunctionControl, LaneMappingEntry, MovementKind, MovementPriority, UnsignalizedRule,
@@ -420,5 +442,44 @@ mod tests {
 
         assert_eq!(doc, back);
         assert_eq!(back.schema_version, crate::model::SCHEMA_VERSION);
+    }
+
+    /// The command is a *shell*, not a second implementation: read the file and
+    /// hand it to the same two functions the tests above call directly.
+    #[test]
+    fn the_command_reads_a_file_into_the_same_document() {
+        let dir = tempdir().expect("temp dir");
+        let path = dir.path().join("network.yaml");
+        fs::write(&path, T_JUNCTION).expect("write");
+
+        let doc = import_network(path.to_str().expect("utf-8 path").to_string()).expect("import");
+
+        assert_eq!(doc, import(T_JUNCTION));
+    }
+
+    #[test]
+    fn a_missing_file_is_an_error_rather_than_a_panic() {
+        let dir = tempdir().expect("temp dir");
+        let path = dir.path().join("nowhere.yaml");
+
+        import_network(path.to_str().expect("utf-8 path").to_string())
+            .expect_err("a missing file must be reported");
+    }
+
+    /// Pointing Import at a `.zkai` is the obvious user error, and the dialog's
+    /// extension filter is what prevents it (spec §2.5). This pins the fallback:
+    /// it **fails** rather than importing something half-formed. The message it
+    /// happens to get is the version probe's — `.zkai` is at schema 2 and
+    /// Assimilator's format is at 1 — which is odd phrasing for the case but not
+    /// worth a content sniffer to improve.
+    #[test]
+    fn a_zkai_document_is_not_a_network() {
+        let dir = tempdir().expect("temp dir");
+        let path = dir.path().join("schematic.zkai");
+        let zkai = serde_yaml::to_string(&Document::new("A schematic")).expect("serialize");
+        fs::write(&path, zkai).expect("write");
+
+        import_network(path.to_str().expect("utf-8 path").to_string())
+            .expect_err("a .zkai is not a network.yaml");
     }
 }

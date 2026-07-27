@@ -152,6 +152,10 @@ export type EditAction =
 /** Whole-document lifecycle actions; they manage `dirty`/`currentPath` explicitly. */
 export type PersistAction =
   | { type: "loadDocument"; doc: RawDocument; path: string }
+  // No `path`, and that is the whole difference from `loadDocument`: a
+  // `network.yaml` is not a `.zkai`, so the import arrives **dirty and pathless**
+  // and Save asks for a new file rather than writing back over Assimilator's.
+  | { type: "importDocument"; doc: RawDocument }
   | { type: "newDocument" }
   | { type: "markSaved"; path: string }
   | { type: "setRecents"; recents: string[] };
@@ -174,35 +178,18 @@ export type Action = EditAction | PersistAction | HistoryAction;
  */
 export function reducer(state: EditorState, action: Action): EditorState {
   switch (action.type) {
-    // Installing a whole document resets history: there is nothing to undo
-    // across a file boundary.
     case "loadDocument":
-      return {
-        ...state,
-        doc: normalizeDocument(action.doc),
-        currentPath: action.path,
-        dirty: false,
-        selection: null,
-        linkFrom: null,
-        view: IDENTITY_VIEW,
-        past: [],
-        future: [],
-        coalesceKey: null,
-      };
+      return install(state, normalizeDocument(action.doc), action.path, false);
+
+    // Dirty from the first frame, and with no path to save back to: the file it
+    // came from belongs to another program and another format. Everything else —
+    // the history reset included — it inherits from `loadDocument`, because an
+    // import is a file boundary like any other.
+    case "importDocument":
+      return install(state, normalizeDocument(action.doc), null, true);
 
     case "newDocument":
-      return {
-        ...state,
-        doc: emptyDocument("Untitled"),
-        currentPath: null,
-        dirty: false,
-        selection: null,
-        linkFrom: null,
-        view: IDENTITY_VIEW,
-        past: [],
-        future: [],
-        coalesceKey: null,
-      };
+      return install(state, emptyDocument("Untitled"), null, false);
 
     // `markSaved`/`setRecents` say nothing about document content, so they leave
     // all three history fields — `coalesceKey` included — untouched.
@@ -242,6 +229,36 @@ export function reducer(state: EditorState, action: Action): EditorState {
       return recordHistory(state, next, coalesceKeyFor(action));
     }
   }
+}
+
+/**
+ * Install a whole document, the one shape all three of New / Open / Import take:
+ * everything about the *old* document goes, because none of it means anything
+ * against the new one. History included — there is nothing to undo across a file
+ * boundary (`rules/history.md`), and it is the unsaved-changes guard in
+ * `files.ts`, not the undo stack, that protects the work being replaced.
+ *
+ * Only `currentPath` and `dirty` differ between the three, so they are the
+ * arguments; each caller says which above.
+ */
+function install(
+  state: EditorState,
+  doc: Document,
+  currentPath: string | null,
+  dirty: boolean,
+): EditorState {
+  return {
+    ...state,
+    doc,
+    currentPath,
+    dirty,
+    selection: null,
+    linkFrom: null,
+    view: IDENTITY_VIEW,
+    past: [],
+    future: [],
+    coalesceKey: null,
+  };
 }
 
 /** Element-wise equality of two path lists. */

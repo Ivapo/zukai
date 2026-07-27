@@ -100,10 +100,18 @@ async function build(opts: MenuOptions): Promise<boolean> {
   }
 }
 
-/** The Zukai file commands, in menu order. */
+/**
+ * The Zukai file commands, in menu order.
+ *
+ * The last item is separated from the rest on purpose: New through Export… all
+ * act on Zukai's own document, while Import network… reads *another program's*
+ * format. It carries no accelerator — the chords belong to the everyday
+ * commands, and one fewer chord is one fewer thing for `App`'s keydown handler
+ * to keep in sync with this list.
+ */
 async function fileCommands(
   opts: MenuOptions,
-): Promise<Array<MenuItem | Submenu>> {
+): Promise<Array<MenuItem | Submenu | PredefinedMenuItem>> {
   const { files } = opts;
   return [
     await MenuItem.new({
@@ -136,6 +144,12 @@ async function fileCommands(
       text: "Export…",
       accelerator: "CmdOrCtrl+E",
       action: () => files.onExport(),
+    }),
+    await PredefinedMenuItem.new({ item: "Separator" }),
+    await MenuItem.new({
+      id: "zukai-import-network",
+      text: "Import network…",
+      action: () => files.onImport(),
     }),
   ];
 }

@@ -1,9 +1,9 @@
 ---
 status: reviewed
 last_updated: 2026-07-26
-note: Phase 1 of 4 shipped 2026-07-26 (the format, read). Import and export Assimilator's `network.yaml` — the one coupling the two projects were ever meant to have, and the first thing Zukai has built that another program reads.
-implemented: ["Phase 1"]
-not_implemented: ["Phase 2", "Phase 3", "Phase 4"]
+note: Phases 1–2 of 4 shipped 2026-07-26 (the format read, and reaching the app). Import and export Assimilator's `network.yaml` — the one coupling the two projects were ever meant to have, and the first thing Zukai has built that another program reads.
+implemented: ["Phase 1", "Phase 2"]
+not_implemented: ["Phase 3", "Phase 4"]
 related: [specs/save_load_spec.md, specs/junction_semantics_spec.md, specs/ramps_and_tapers_spec.md, specs/diagram_export_spec.md]
 reference: "Assimilator's `crates/config/src/network.rs` — `NetworkConfig` and its `NodeConfig`/`LinkConfig`/`LaneConfig`/`JunctionConfig`/`MovementConfig`/`SignalPlanConfig`/`PhaseConfig` — plus `crates/config/src/version.rs` (the `schema_version` header, §2.1, `CURRENT_SCHEMA_VERSION = 1`), `crates/network/src/validation.rs` (the seven rules an export must satisfy, §2.4) and `crates/cli/src/{main,runner}.rs` (what the CLI can actually load, Phase 4). All read at `../assimilator` on 2026-07-26. Explicitly *not* in scope from it: `detectors`, `stops`, `crossings`, `rerouters`, and the simulation-only per-junction fields (`conflict_pairs`, `gap_acceptance`, `collision_avoidance`, `conflict_model`, `b_amber`, `enforce_entry_guards`), which `graph.rs:11-15` already records as deliberately omitted."
 ---
@@ -690,6 +690,37 @@ plan and the rest things the phase found:
     prompts for a **new** `.zkai` path rather than writing the YAML back.
 - **Docs touched:** the Phase 1 rule file; `rules/persistence.md`, whose
   toolbar→dialog→IPC→reducer map gains a third entry point.
+
+**As built (2026-07-26).** Gate met: `cargo fmt --check`, `cargo clippy
+--all-targets -- -D warnings`, 46 `cargo test` (+3), `bun run build` and 360
+vitest (+1), all green; the `bun run tauri dev` pass is the user's. Four notes,
+the first two being decisions the spec left to the plan:
+
+- **Menu only — no toolbar button and no accelerator** (chosen by the user).
+  `FileActions` gains `onImport` and `FILE_COMMANDS` deliberately does not, so
+  the toolbar keeps the five everyday commands and the interface stays the one
+  shared surface. The item sits below a separator, since New→Export… all act on
+  Zukai's own document and this one reads another program's; Phase 4's Export
+  network… joins it in that block. No accelerator also means no case in
+  `App.tsx`'s keydown handler — the one place a menu item and a chord have to be
+  kept in sync.
+- **The command lives beside the pure conversion**, per §2.7's table, and
+  `import.rs`'s module doc draws the line rather than losing it: nine lines of
+  read-then-convert, so every existing test still reaches
+  `network_to_document` with a `&str`. Phase 3's writer takes the same shape.
+- **`pub mod network;` narrowed back to `mod network;`.** Phase 1 predicted this
+  ("worth knowing before Phase 2 tries to narrow it back") and it held —
+  `import_network` is the caller from the crate root that `dead_code` wanted, and
+  clippy stays green.
+- **Three arms, one install.** `loadDocument`, `importDocument` and `newDocument`
+  differ in exactly two fields, so the seven-field file-boundary reset became one
+  `install(state, doc, currentPath, dirty)` helper rather than a third copy. The
+  history reset was never this phase's choice to make — `loadDocument` already
+  cleared both stacks — and the extended test now pins all three at once.
+- One thing worth knowing before Phase 4: handing Import a `.zkai` fails with the
+  **version probe's** message, `.zkai` being at schema 2 against Assimilator's 1.
+  Odd phrasing for that case, and left alone — the extension filter is the guard,
+  and a content sniffer to improve one wrong-file message is not worth it (§2.5).
 
 ### Phase 3 — The format, written  (depends on Phase 2)
 

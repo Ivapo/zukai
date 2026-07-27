@@ -1,10 +1,10 @@
 mod export;
 pub mod model;
-// `pub` like `model`, and for a reason worth naming: until the import command
-// lands, nothing in the binary calls into `network`, so a private `mod` would
-// leave every item unreachable from the crate root and fail
-// `cargo clippy --all-targets -- -D warnings` on `dead_code`.
-pub mod network;
+// Private again as of the import command: Phase 1 needed `pub` only because
+// nothing in the binary called into `network`, which left every item unreachable
+// from the crate root and failed `cargo clippy --all-targets -- -D warnings` on
+// `dead_code`. `import_network` is now that caller.
+mod network;
 mod persist;
 mod recent;
 
@@ -23,6 +23,7 @@ pub fn run() {
             greet,
             persist::save_document,
             persist::load_document,
+            network::import::import_network,
             export::write_text_file,
             export::write_binary_file,
             recent::recent_files,

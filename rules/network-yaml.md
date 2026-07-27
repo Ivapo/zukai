@@ -1,19 +1,19 @@
 # `network.yaml`
 
 Assimilator's file format — the one thing the two projects share, and the only
-format Zukai reads that Zukai does not own. **Rust only**; nothing here crosses
-IPC, reaches a menu, or moves `SCHEMA_VERSION` (still **2**). Not to be confused
-with `rules/persistence.md`, which is `.zkai` — Zukai's *own* YAML, a different
-format with a different owner. The design rationale lives in
-`specs/network_yaml_spec.md`; hand-maintained.
+format Zukai reads that Zukai does not own. Nothing here moves `SCHEMA_VERSION`
+(still **2**). Not to be confused with `rules/persistence.md`, which is `.zkai` —
+Zukai's *own* YAML, a different format with a different owner. The design
+rationale lives in `specs/network_yaml_spec.md`; hand-maintained.
 
-**Build state: Phase 1 of 4.** The format is **read**, and nothing else. There is
-a serde mirror, a version probe and `network_to_document`, all reachable only
-from `cargo test` — **no Tauri command, no dialog, no menu item, no writer**.
-`Movement` gained `priority`, `yields_to` and `lane_mapping` in this phase; they
-are **carried, never edited**, joining `Junction.signal_plan` and
-`Movement.from_lanes`/`to_lanes` on the list of fields whose presence in
-`src/model/types.ts` is not evidence that anything consumes them.
+**Build state: Phase 2 of 4.** The format is **read**, and a real file now
+reaches the editor: a serde mirror, a version probe, `network_to_document`, the
+`import_network` command and a File ▸ Import network… menu item. **No writer** —
+nothing in Zukai can produce a `network.yaml` yet. `Movement` gained `priority`,
+`yields_to` and `lane_mapping` in Phase 1; they are **carried, never edited**,
+joining `Junction.signal_plan` and `Movement.from_lanes`/`to_lanes` on the list
+of fields whose presence in `src/model/types.ts` is not evidence that anything
+consumes them.
 
 ## Two formats, two owners, and that is why this is not `persist.rs`
 
@@ -161,6 +161,37 @@ supply, or if it is simulation instrumentation. Neither bucket implies an editor
 A field in *neither* bucket is a bug, not an omission — spec §2.3.3 enumerates all
 62 against source.
 
+## How a network reaches the editor
+
+The Open path of `rules/persistence.md`, one format over, with **two deliberate
+differences** — both following from the file belonging to another program:
+
+| Step | Where |
+|------|-------|
+| Trigger | File ▸ Import network… (`src/editor/menu.ts`) — **menu only**: no toolbar button, no accelerator |
+| Dialog + IPC | `importNetwork` (`src/editor/files.ts`), `.yaml`/`.yml` filter, same unsaved-changes guard as Open |
+| Command | `import_network` (`src-tauri/src/network/import.rs`), registered in `lib.rs` |
+| Apply | the `importDocument` reducer case (`src/editor/state.ts`) |
+
+- **The document arrives dirty and pathless.** `importDocument` sets
+  `dirty: true` and `currentPath: null`, so Save falls through to the Save As
+  picker rather than writing a schematic back over Assimilator's network. This is
+  the only thing in the phase that is not plumbing, and
+  `importDocument installs the network dirty and pathless` (`state.test.ts`) is
+  what holds it.
+- **The path is not remembered.** "Open Recent" opens through `load_document`,
+  which reads `.zkai`, so a `network.yaml` in that list could only ever fail —
+  the same reasoning that keeps an exported `.svg` out of it.
+- Everything else it *inherits*, history reset included: an import is a file
+  boundary, so `past`/`future` clear, and the work being replaced is protected by
+  the unsaved-changes prompt rather than by an undo (`rules/history.md`).
+- The **extension filter is the only guard** against pointing Import at a `.zkai`
+  (or Open at a `network.yaml`) — neither reader sniffs content. The fallback is
+  an error, not a half-formed document: `a_zkai_document_is_not_a_network` pins
+  it, and the message it happens to get is the version probe's, `.zkai` being at
+  schema 2 against Assimilator's 1.
+- No new Tauri permission: `dialog:default` already grants `open`.
+
 ## Where each piece lives
 
 | Piece | File |
@@ -169,14 +200,23 @@ A field in *neither* bucket is a bug, not an omission — spec §2.3.3 enumerate
 | `ASSIMILATOR_SCHEMA_VERSION`, `UNITS_PER_METRE` | `src-tauri/src/network/mod.rs` |
 | `VersionProbe`, `parse_network`, `metres_to_canvas` | `src-tauri/src/network/mod.rs` |
 | `network_to_document` and its three helpers | `src-tauri/src/network/import.rs` |
+| `import_network`, the command around it | `src-tauri/src/network/import.rs` |
+| `importNetwork` (dialog + IPC), the `.yaml` filter | `src/editor/files.ts` |
+| the `importDocument` case and the `install` helper | `src/editor/state.ts` |
 | `MovementPriority`, `LaneMappingEntry`, the three carried fields | `src-tauri/src/model/graph.rs` |
 | the TypeScript mirror of those | `src/model/types.ts` |
 | the two fixtures + their provenance | `src-tauri/tests/fixtures/network/` |
 
-`pub mod network;` in `lib.rs` is `pub` for a reason worth keeping: until the
-import command lands, nothing in the binary calls into it, so a private `mod`
-would leave every item unreachable from the crate root and fail
-`cargo clippy --all-targets -- -D warnings` on `dead_code`.
+`import.rs` holds both the pure conversion and the I/O shell, and the module doc
+draws the line: `network_to_document` takes a parsed `NetworkFile` and touches no
+filesystem, so every test above reaches it with a `&str`. Phase 3's writer takes
+the same shape.
+
+`mod network;` in `lib.rs` is **private again** as of this phase. Phase 1 needed
+`pub` only because nothing in the binary called into it, which left every item
+unreachable from the crate root and failed
+`cargo clippy --all-targets -- -D warnings` on `dead_code`; `import_network` is
+now that caller.
 
 The fixtures are the **first checked-in test data in the repo**. They are loaded
 with `include_str!` from the inline `#[cfg(test)]` modules, so no
@@ -194,10 +234,10 @@ Everything after "read". By plan, not by omission:
   baked in, and Assimilator applies both itself), `schema_version: 1` gets stamped
   as the first line, and the always-write rule for `from_lanes`/`to_lanes`/
   `green_movements` finally has code depending on it.
-- **The app.** The Tauri command, the dialog filter, the close guard and the two
-  menu items are Phases 2 and 4. An imported document must arrive **dirty and
-  pathless** — it is not a `.zkai`, and Save must not overwrite the YAML it came
-  from.
+- **Export from the app.** The second menu item, the save dialog and the honesty
+  note about what is being dropped are Phase 4 — as is the only check that proves
+  the format claim: running an exported `cross-4` through Assimilator's own
+  simulator.
 - **Editing any of the carried fields.** No Inspector control for `priority`,
   `yields_to`, `lane_mapping` or signal plans. An authored priority junction
   therefore exports with every movement `major`, which the export dialog will say

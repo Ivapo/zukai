@@ -35,6 +35,15 @@ type Dispatch = (action: Action) => void;
 
 const FILTERS = [{ name: "Zukai schematic", extensions: [ZKAI_EXTENSION] }];
 
+/**
+ * Assimilator's format, and the reason Open and Import can share a dialog
+ * without sharing a filter: pointing one at the other's file is the obvious user
+ * error, and the extension is what heads it off — neither reader sniffs content.
+ */
+const NETWORK_FILTERS = [
+  { name: "Assimilator network", extensions: ["yaml", "yml"] },
+];
+
 /** Image formats the export dialog offers; the chosen extension picks between them. */
 const EXPORT_FILTERS = [
   { name: "SVG image", extensions: ["svg"] },
@@ -70,6 +79,38 @@ export async function openDocument(
     await load(path, dispatch);
   } catch (err) {
     await report("Couldn't open the file", err);
+  }
+}
+
+/**
+ * Pick an Assimilator `network.yaml` and import it as the current document,
+ * guarding unsaved changes exactly as Open does.
+ *
+ * Two things differ from {@link openDocument}, and both follow from the file
+ * belonging to another program. The document arrives **dirty and pathless** (the
+ * `importDocument` action), so Save asks for a `.zkai` rather than writing a
+ * schematic back over Assimilator's network. And the path is **not remembered**:
+ * "Open Recent" opens through `load_document`, which reads `.zkai`, so a
+ * `network.yaml` in that list would be an entry that can only ever fail.
+ */
+export async function importNetwork(
+  state: EditorState,
+  dispatch: Dispatch,
+): Promise<void> {
+  try {
+    if (!(await confirmDiscard(state))) return;
+    const path = await open({
+      title: "Import network",
+      multiple: false,
+      directory: false,
+      filters: NETWORK_FILTERS,
+    });
+    if (path === null) return;
+    // Raw, like `load`: the reducer is the one place that normalizes.
+    const doc = await invoke<RawDocument>("import_network", { path });
+    dispatch({ type: "importDocument", doc });
+  } catch (err) {
+    await report("Couldn't import the network", err);
   }
 }
 
