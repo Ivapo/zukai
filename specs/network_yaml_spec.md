@@ -1,14 +1,49 @@
 ---
-status: reviewed
-last_updated: 2026-07-26
-note: Phases 1–2 of 4 shipped 2026-07-26 (the format read, and reaching the app). Import and export Assimilator's `network.yaml` — the one coupling the two projects were ever meant to have, and the first thing Zukai has built that another program reads.
+status: closed
+last_updated: 2026-07-27
+note: "Phases 1–2 shipped 2026-07-26 (the format read, and reaching the app). **Phases 3–4 shipped and were reverted 2026-07-27** — Zukai does not write `network.yaml`. Read §0 before planning anything from this file: the export half is cut by decision and the design below still argues for it."
 implemented: ["Phase 1", "Phase 2"]
-not_implemented: ["Phase 3", "Phase 4"]
+cut: ["Phase 3", "Phase 4"]
+not_implemented: []
 related: [specs/save_load_spec.md, specs/junction_semantics_spec.md, specs/ramps_and_tapers_spec.md, specs/diagram_export_spec.md]
 reference: "Assimilator's `crates/config/src/network.rs` — `NetworkConfig` and its `NodeConfig`/`LinkConfig`/`LaneConfig`/`JunctionConfig`/`MovementConfig`/`SignalPlanConfig`/`PhaseConfig` — plus `crates/config/src/version.rs` (the `schema_version` header, §2.1, `CURRENT_SCHEMA_VERSION = 1`), `crates/network/src/validation.rs` (the seven rules an export must satisfy, §2.4) and `crates/cli/src/{main,runner}.rs` (what the CLI can actually load, Phase 4). All read at `../assimilator` on 2026-07-26. Explicitly *not* in scope from it: `detectors`, `stops`, `crossings`, `rerouters`, and the simulation-only per-junction fields (`conflict_pairs`, `gap_acceptance`, `collision_avoidance`, `conflict_model`, `b_amber`, `enforce_entry_guards`), which `graph.rs:11-15` already records as deliberately omitted."
 ---
 
 # `network.yaml` Spec
+
+## 0. Closing note — the export half is cut (2026-07-27)
+
+**Read this before taking anything below as a plan.** Phases 1–2 (import) shipped
+and stand. Phases 3–4 (export) shipped, worked, and were **reverted** in
+`979a60d`. The design from §2.4 onward argues for a writer that no longer exists
+and must not be rebuilt; it is kept as the record of what was tried.
+
+**Why it was cut.** Zukai exists to produce readable figures for a paper
+(`CLAUDE.md`, Project Overview). The export synthesized *placeholder* geometry —
+this spec's own §1 concedes it is "not a substitute for surveyed geometry" — so
+the only thing it bought was simulating one junction in isolation. A network
+worth simulating is authored in Assimilator, where the geometry is real. Nothing
+about a `network.yaml` Zukai wrote ever reached a figure.
+
+**It was not cut for being broken.** Phase 4's proof run passed, and harder than
+its own criterion: the exported `cross-4` and Assimilator's own gave *identical*
+results, matching at every ten-second line. The two traps in repeating it are
+recorded in Phase 4 and stay useful for anyone driving that CLI —
+`cargo build -p assimilator-cli --bin assimilator`, and run a **control** copy of
+the scenario, which is what tells a stale demo scenario apart from a bad file.
+
+**What the cut changed in the surviving half**, and it is the part worth
+carrying forward: the mirror no longer has to be *faithful*, only *permissive*.
+§2.3's carry-vs-drop rule is replaced by one line — **mirror what is drawn** —
+and `Movement`'s five round-trip fields (`from_lanes`, `to_lanes`, `priority`,
+`yields_to`, `lane_mapping`) went with the writer. §2.3.3's table of fields that
+fail quietly is kept in `rules/network-yaml.md`, because every entry in it
+describes a *write*, and that is the clearest argument against rebuilding this.
+
+**What is still open, and belongs to import alone:** OQ-2's scale. No fixed
+`UNITS_PER_METRE` serves both fixtures, so fit-to-extent is the only live answer
+and it needs the factor stored per document. That one *does* serve a figure — a
+network nobody can drag into shape is a network nobody can draw.
 
 ## 1. Goal
 

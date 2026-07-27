@@ -9,20 +9,24 @@ nothing here crosses IPC on new terms, reaches disk in a new shape, or moves
 `specs/junction_semantics_spec.md` and `specs/signal_plans_spec.md`;
 hand-maintained.
 
-**Build state: junction semantics is complete** (all four phases) and **signal
-plans is at Phase 1 of 4**. `control`, `rule` and `movements` are written, read,
-**drawn**, and derivable in one click; `signal_plan` is written and read — the
-panel shows the cycle, the offset and every stage's three times — but **which
-movements run in a stage is Phase 2**, so `Phase.green_movements` and
-`Phase.permitted_movements` are still carried rather than edited, and nothing
-draws a plan yet (Phase 3).
+**Build state: both specs are closed.** Junction semantics shipped all four
+phases — `control`, `rule` and `movements` are written, read, **drawn**, and
+derivable in one click. Signal plans shipped **Phase 1 and stopped there**: the
+panel shows a plan's cycle, offset and every stage's three times, and that is all
+it will ever do. Phases 2–4 are cut, not pending, so nothing assigns a movement to
+a stage and **nothing draws a plan** — a fixed-time plan is a table, and this
+project prints network figures (`specs/signal_plans_spec.md` §0).
 
-What remains a field nothing reads: `Movement`'s `from_lanes`/`to_lanes` and the
-three the `network.yaml` reader added beside them,
-`priority`/`yields_to`/`lane_mapping`. Do not treat their presence in
-`src/model/types.ts` as evidence anything consumes them. All five are *carried*
-rather than dead: the importer writes them and the writer reads them back
-(`rules/network-yaml.md`). Nothing in this subsystem does either.
+Two consequences to hold on to:
+
+- **`Phase.green_movements` and `Phase.permitted_movements` are carried, never
+  edited.** They arrive on an *imported* plan and survive because
+  `setPhaseTiming` never names them. Their presence in `src/model/types.ts` is
+  not evidence anything consumes them.
+- **A `Movement` is now four fields** — an id, two links and a turn kind. The
+  five it once carried for the sake of a `network.yaml` round trip
+  (`from_lanes`, `to_lanes`, `priority`, `yields_to`, `lane_mapping`) are gone
+  from both mirrors along with the writer that wanted them.
 
 ## The three parts of a junction, and which layer owns each
 
@@ -566,29 +570,29 @@ stay separate: deriving a lane's turn arrow from the movements that use it is a
 named non-goal, because a painted arrow is a human's decoration rather than a
 derivation.
 
-## Still unbuilt
+## Cut, and one known defect
 
-The junction-semantics spec is closed and what it cut is below. The signal-plans
-spec is **open at Phase 2**, so the first three entries are scheduled work rather
-than decisions.
+Both specs here are **closed**. Nothing below is scheduled work.
 
-- **Which movements run in a stage** — the protected/permitted/off tri-state, and
-  `setPhaseMovement` (signal plans Phase 2). Until it lands, a stage authored here
-  carries no movement ids, and `green_movements`/`permitted_movements` survive
-  only because `setPhaseTiming` never names them.
-- **Two cascades are still live bugs.** `deleteMovement` and `dropMovements` purge
-  a movement from `j.movements` and **not** from any stage that names it, so an
-  imported plan can be left with a dangling id — which Assimilator rejects
-  outright. Phase 1 does not make it worse (a plan it can author names nothing),
-  and Phase 2's shared `purgeMovements` is the fix. This is the **fourth** answer
-  the cascade table above will need.
-- **Nothing draws a plan** (Phase 3), and nothing derives one (Phase 4).
-- **`Movement.from_lanes`/`to_lanes` stay empty**, and a lane-pair matrix at a
-  4-arm junction is still a large editor for something the schematic does not
-  show. But the old gloss — "Assimilator accepts that" — needs one correction,
-  because it is true of the *data* and false of an *absent key*: Assimilator's own
-  editor writes `from_lanes: []` for a u-turn, while
-  `MovementConfig.from_lanes` carries no `serde(default)`, so a movement that
-  omits the key fails the whole file's parse. **`[]` is legal, absent is not.**
-  Leaving them empty here is fine; the writer is what must emit `[]` rather than
-  nothing. See `rules/network-yaml.md`.
+- **Which movements run in a stage** — the protected/permitted/off tri-state —
+  is **cut** (signal plans Phases 2–4). A plan is a table; its only drawable form
+  is a stage diagram, which is not the figure this project prints. So a stage
+  authored here carries no movement ids at all, and
+  `green_movements`/`permitted_movements` survive on an *imported* plan only
+  because `setPhaseTiming` never names them. Nothing draws a plan, and nothing
+  derives one.
+- **Two cascades leave stale phase references, and this is a known defect rather
+  than a to-do.** `deleteMovement` and `dropMovements` purge a movement from
+  `j.movements` and **not** from any stage that names it, so an imported plan can
+  be left with a movement id nothing resolves. **Nothing Zukai does can act on
+  it**: the `network.yaml` writer that would have emitted a dangling id is gone
+  (`rules/network-yaml.md`), and a stale id sitting in a `.zkai` is inert — no
+  reader looks it up. The fix, if this ever matters again, is a shared
+  `purgeMovements` with `dropMovements`' pre-check shape, and it would be the
+  **fourth** answer the cascade table above has needed.
+- **`Movement` carries no lane detail at all** — `from_lanes`, `to_lanes`,
+  `priority`, `yields_to` and `lane_mapping` are gone from both mirrors. They
+  existed so an imported network could be written back out unchanged; with no
+  writer there is no round trip, and a lane-pair matrix at a 4-arm junction was
+  always a large editor for something the schematic does not show. Import drops
+  them (`rules/network-yaml.md`).

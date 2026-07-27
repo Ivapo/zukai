@@ -1,14 +1,58 @@
 ---
-status: reviewed
+status: closed
 last_updated: 2026-07-27
-note: Fixed-time signal plans — the stages a signalized junction cycles through, which movements run in each, and how long. The field `SignalPlan` has occupied in both mirrors since the first commit with nothing reading it.
+note: "Fixed-time signal plans. **Phase 1 shipped; Phases 2–4 cut 2026-07-27** — a plan is a table, its only drawable form is a stage diagram, and this project prints network figures. Read §0 before planning anything from this file."
 implemented: ["Phase 1"]
-not_implemented: ["Phase 2", "Phase 3", "Phase 4"]
+cut: ["Phase 2", "Phase 3", "Phase 4"]
+not_implemented: []
 related: [specs/junction_semantics_spec.md, specs/network_yaml_spec.md, specs/road_markings_spec.md]
 reference: "Assimilator's `crates/config/src/network.rs` — `SignalPlanConfig` (`:1380-1393`) and `PhaseConfig` (`:1395-1421`) — plus `crates/network/src/validation.rs`, whose rule 4 (`:14`, computed at `:425-436`, tolerance `CYCLE_TIME_TOLERANCE = 0.01` at `:30`) and dangling-movement check (`:437-457`, `UnknownGreenMovement`) are the two things an editor here can break. Read at `../assimilator` on 2026-07-27. Explicitly *not* in scope from it: actuated and adaptive control, `detectors`, the per-junction `b_amber`/`enforce_entry_guards` simulation fields, and corridor coordination beyond carrying `offset`."
 ---
 
 # Signal Plans Spec
+
+## 0. Closing note — Phases 2–4 are cut (2026-07-27)
+
+**Read this before taking anything below as a plan.** Phase 1 shipped and stands.
+Phases 2, 3 and 4 are **cut by decision**, and the design below still argues for
+them; it is kept as the record of a well-reviewed spec that was aimed at the
+wrong target.
+
+**The question that ended it**, asked by the user and correct: *what use are the
+signal phases when they are not shown in a figure?* Zukai exists to produce
+readable figures for a paper. Trace this spec against that:
+
+- **Phases 1–2 are a panel**, a table of stage timings. Nothing printed.
+- **Phase 3 is the only drawing — and §2.5 excludes it from every export on
+  purpose.** `previewPhase` rides on `Interaction`, `diagramSvg(doc, bounds)`
+  takes no `Interaction`, and `interaction` absent *is* export mode. Its own exit
+  gate asserts "an export drops the preview". So the one drawable part of this
+  feature **cannot reach a figure**, by design. That was recorded as the spec's
+  best structural idea, and it is the same fact read the other way round.
+- **Phase 4 fills the table faster.**
+
+**The alternative that was considered and rejected**: re-scope Phase 3 to a
+**stage diagram** — small multiples, one miniature junction per stage, exported
+as one figure. That *is* the conventional form and it *would* print. The user
+declined it: the goal is drawing road networks that fit in a figure, not
+publishing signal phasing. Recorded here so it is not proposed a second time.
+
+**Phase 1 stands on its own** and is not left behind: it fixed a live bug where
+`setJunctionControl`'s unsignalized branch kept a `signal_plan` that should not
+exist. The panel it added is small and harmless.
+
+**The two bugs Phase 2 was going to fix are still live**, and are now recorded in
+`rules/junctions.md` as known defects rather than scheduled work: `deleteMovement`
+and `dropMovements` purge a movement from `j.movements` and not from any stage
+naming it. **Nothing Zukai does can act on them** — the export that would have
+written a dangling id is gone, and a stale id in a `.zkai` is inert. If import
+ever grows a partner that writes, this is the first thing to fix.
+
+**The lesson, generalised**, and it is in `CLAUDE.md` now: before planning a
+spec's phases, ask **which phase produces the picture**. A phase whose output is
+a panel, a table, or a file no reader ever sees needs an argument, not an
+assumption. Three review rounds and six blocking findings on this spec all
+concerned whether the design was *correct*; none asked whether it was *wanted*.
 
 ## 1. Goal
 
