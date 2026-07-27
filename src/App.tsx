@@ -5,7 +5,6 @@ import { Inspector } from "./components/Inspector";
 import { FileActions, Toolbar } from "./components/Toolbar";
 import {
   exportDiagram,
-  exportNetwork,
   importNetwork,
   installCloseGuard,
   newDocument,
@@ -46,11 +45,8 @@ function App() {
       onSaveAs: () => void saveDocumentAs(stateRef.current, dispatch),
       // No `dispatch`: writing a picture changes nothing about the document.
       onExport: () => void exportDiagram(stateRef.current),
-      // Menu-only, so neither gets a case in the keydown handler below.
-      onImportNetwork: () => void importNetwork(stateRef.current, dispatch),
-      // No `dispatch` either, and for the same reason: an export is not a
-      // document, whichever format it is written in.
-      onExportNetwork: () => void exportNetwork(stateRef.current),
+      // Menu-only, so no case in the keydown handler below.
+      onImport: () => void importNetwork(stateRef.current, dispatch),
     }),
     [],
   );

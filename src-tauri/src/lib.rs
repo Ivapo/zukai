@@ -24,7 +24,6 @@ pub fn run() {
             persist::save_document,
             persist::load_document,
             network::import::import_network,
-            network::export::export_network,
             export::write_text_file,
             export::write_binary_file,
             recent::recent_files,

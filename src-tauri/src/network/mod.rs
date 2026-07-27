@@ -16,14 +16,6 @@
 //! `#[serde(default, rename = "type")]` there while [`Movement::kind`] has no
 //! default, so a movement omitting `type:` must still parse here.
 //!
-//! The rule governs `default` — what a *reader* must accept. `skip_serializing_if`
-//! is a separate, write-side choice, and the two are set independently. Every
-//! `Option` here skips when absent, because Assimilator's own files simply carry no
-//! such key and a `rule: null` on a signalized junction reads as a bug. What must
-//! never gain one is a **bare** field — [`NetworkMovement::from_lanes`] and its
-//! neighbours, where an omitted key is not terseness but a parse error for the whole
-//! file. See their own docs.
-//!
 //! What is *not* mirrored is mirrored nowhere by accident: `detectors`, `stops`,
 //! `crossings` and `rerouters` are simulation instrumentation a schematic has
 //! nowhere to draw, and nothing here derives `deny_unknown_fields`, so they pass
@@ -46,7 +38,6 @@ use crate::model::graph::{
 use crate::model::ids::{LaneIdx, LinkId, MovementId, NodeId, PhaseId};
 use crate::model::layout::Vec2;
 
-pub mod export;
 pub mod import;
 
 /// The `schema_version` this build of Zukai can read.
@@ -73,7 +64,7 @@ pub const UNITS_PER_METRE: f64 = 9.0 / 3.5;
 /// Mirrors Assimilator's `NetworkConfig` (`network.rs:333-356`). `metadata`,
 /// `nodes` and `links` are required there and here; `junctions` defaults. The
 /// four dropped top-level blocks are named in this module's docs.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NetworkFile {
     /// Network-level metadata.
     pub metadata: NetworkMetadata,
@@ -87,12 +78,12 @@ pub struct NetworkFile {
 }
 
 /// Mirrors `NetworkMetadata` (`network.rs:667-689`).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NetworkMetadata {
     /// Human-readable network name.
     pub name: String,
     /// Optional author.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub author: Option<String>,
     /// Coordinate system; must be `metric`, which is also its default — so an
     /// *absent* key already reads as metric and must never be rejected.
@@ -103,7 +94,7 @@ pub struct NetworkMetadata {
     #[serde(default)]
     pub z_enabled: bool,
     /// Map projection origin as `[longitude, latitude]`. Zukai has no projection.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub map_origin: Option<[f64; 2]>,
 }
 
@@ -116,7 +107,7 @@ pub struct NetworkMetadata {
 /// two-struct `from`/`into` trick to keep ergonomic `x`/`y` fields in memory;
 /// this mirror has no `y:` key to be coerced and so needs no trick. Carry the
 /// reason, not the pattern.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NetworkNode {
     /// Stable id, preserved verbatim through import and export.
     pub id: NodeId,
@@ -135,7 +126,7 @@ pub struct NetworkNode {
 /// `anchors` and `curve_control_points` are Assimilator's spline form and are
 /// deliberately absent: a curve Zukai cannot draw is a curve Zukai should not
 /// claim to carry (spec §2.8).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NetworkLink {
     /// Stable id.
     pub id: LinkId,
@@ -166,7 +157,7 @@ pub struct NetworkLink {
 /// is real: a file prohibiting a lane change comes back permitting it. Accepted
 /// rather than hidden, because Zukai has no lane-change concept to attach them
 /// to (spec §2.3.3).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NetworkLane {
     /// 0-based lane index.
     pub id: LaneIdx,
@@ -187,14 +178,14 @@ pub struct NetworkLane {
 /// `crossings` are all `#[serde(default)]` there, so omitting them is legal.
 /// `crate::model::graph` has recorded them as deliberately omitted since the
 /// first commit.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NetworkJunction {
     /// The junction node this controls.
     pub node_id: NodeId,
     /// Signalized or unsignalized.
     pub control: JunctionControl,
     /// Right-of-way rule; only meaningful when unsignalized.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub rule: Option<UnsignalizedRule>,
     /// Permitted turn movements.
     #[serde(default)]
@@ -202,7 +193,7 @@ pub struct NetworkJunction {
     /// Fixed-time plan. **Serde-optional but semantically required** when
     /// `control` is `signal`: omitting it parses cleanly and leaves every
     /// approach reading red at runtime (spec §2.3.2).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub signal_plan: Option<NetworkSignalPlan>,
 }
 
@@ -211,7 +202,7 @@ pub struct NetworkJunction {
 /// The one struct where the mirror rule earns its keep. `turn_speed` and
 /// `control_points` are dropped: both are tuned against real geometry, and
 /// Zukai's radii are schematic fictions.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NetworkMovement {
     /// Stable id, unique within the junction.
     pub id: MovementId,
@@ -242,7 +233,7 @@ pub struct NetworkMovement {
 }
 
 /// Mirrors `SignalPlanConfig` (`network.rs:1380-1393`).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NetworkSignalPlan {
     /// Total cycle length, seconds. Phase times must sum to this within 0.01 s,
     /// which Assimilator validates at startup.
@@ -258,7 +249,7 @@ pub struct NetworkSignalPlan {
 ///
 /// Note which fields are bare: `green_movements`, `amber_time` and
 /// `all_red_time` are all required there. Only `permitted_movements` defaults.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NetworkPhase {
     /// Stable id.
     pub id: PhaseId,
@@ -321,23 +312,9 @@ pub fn parse_network(text: &str) -> Result<NetworkFile, String> {
 /// is self-consistent, silently wrong, and passes any test written from the same
 /// premise — hence the tests name compass bearings rather than signs.
 ///
-/// The export direction is [`canvas_to_metres`].
+/// The export direction is the exact inverse and lands with the writer.
 pub fn metres_to_canvas(point: [f64; 2]) -> Vec2 {
     Vec2::new(point[0] * UNITS_PER_METRE, -point[1] * UNITS_PER_METRE)
-}
-
-/// Zukai's canvas frame → Assimilator's metric frame: the exact inverse of
-/// [`metres_to_canvas`].
-///
-/// It lives here rather than in [`export`] so the two directions sit in one place
-/// and cannot drift — the scale and the handedness are a single decision, and a
-/// writer that re-derived either would be free to disagree with the reader.
-///
-/// A round trip is exact to within a rounding step, not to the bit: `x * K / K` is
-/// two operations, each free to round once. Tests that compare a coordinate across
-/// a round trip name a tolerance rather than hoping for `==`.
-pub fn canvas_to_metres(pos: Vec2) -> [f64; 2] {
-    [pos.x / UNITS_PER_METRE, -pos.y / UNITS_PER_METRE]
 }
 
 fn default_coordinate_system() -> String {

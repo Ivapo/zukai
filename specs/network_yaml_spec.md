@@ -1,9 +1,9 @@
 ---
-status: implemented
-last_updated: 2026-07-27
-note: All 4 phases shipped (1–3 on 2026-07-26, Phase 4 on 2026-07-27). Import and export Assimilator's `network.yaml` — the one coupling the two projects were ever meant to have, and the first thing Zukai has built that another program reads. Phase 4 closed it by *being* read: an exported `cross-4` ran under Assimilator's own CLI and produced results identical to the file it came from.
-implemented: ["Phase 1", "Phase 2", "Phase 3", "Phase 4"]
-not_implemented: []
+status: reviewed
+last_updated: 2026-07-26
+note: Phases 1–2 of 4 shipped 2026-07-26 (the format read, and reaching the app). Import and export Assimilator's `network.yaml` — the one coupling the two projects were ever meant to have, and the first thing Zukai has built that another program reads.
+implemented: ["Phase 1", "Phase 2"]
+not_implemented: ["Phase 3", "Phase 4"]
 related: [specs/save_load_spec.md, specs/junction_semantics_spec.md, specs/ramps_and_tapers_spec.md, specs/diagram_export_spec.md]
 reference: "Assimilator's `crates/config/src/network.rs` — `NetworkConfig` and its `NodeConfig`/`LinkConfig`/`LaneConfig`/`JunctionConfig`/`MovementConfig`/`SignalPlanConfig`/`PhaseConfig` — plus `crates/config/src/version.rs` (the `schema_version` header, §2.1, `CURRENT_SCHEMA_VERSION = 1`), `crates/network/src/validation.rs` (the seven rules an export must satisfy, §2.4) and `crates/cli/src/{main,runner}.rs` (what the CLI can actually load, Phase 4). All read at `../assimilator` on 2026-07-26. Explicitly *not* in scope from it: `detectors`, `stops`, `crossings`, `rerouters`, and the simulation-only per-junction fields (`conflict_pairs`, `gap_acceptance`, `collision_avoidance`, `conflict_model`, `b_amber`, `enforce_entry_guards`), which `graph.rs:11-15` already records as deliberately omitted."
 ---
@@ -525,19 +525,6 @@ blocks §2.8 drops (OQ-5) and, for a junction drawn here rather than imported,
     document**, which is a `SCHEMA_VERSION` bump and a new `layout` field;
   - **non-uniform spacing** — schematization proper, and a named non-goal
     (`CLAUDE.md`, §2.6).
-
-  **Settled in Phase 3, and the first branch is now *disproven* rather than
-  doubted.** The "50 m slip road becomes a dot" objection above was written as a
-  hypothetical; the two committed fixtures make it concrete, which is the evidence
-  this OQ had been missing. At today's 2.571 u/m, `t_junction`'s 500 m arm is 1285
-  units against a 9-unit lane — 143 lane-widths, unusable — but `cross-4`'s 100 m
-  arms are 257 units, ≈28 lane-widths, which is a perfectly legible schematic. Pick a
-  constant small enough to fix `t_junction` (~0.2 u/m) and `cross-4`'s arms become 20
-  units, **shorter than its own 21-unit-wide road**. One number cannot serve both,
-  and no third fixture is needed to see it. So: **`UNITS_PER_METRE` kept**, the fixed
-  constant closed, and **fit-to-extent is the only live branch** — for a spec that
-  can afford the schema bump, not this one. Still untested by any gate here, for the
-  reason above: a round trip is scale-neutral by construction.
 - **OQ-3** — **Id collisions on import.** Assimilator ids are free-form
   (`L_W_J`, `M_major_thru`), and Zukai's `nextId` parses a **numeric** suffix
   (`document.ts:129-138`), so after importing a file of non-numeric ids the next
@@ -558,12 +545,7 @@ blocks §2.8 drops (OQ-5) and, for a junction drawn here rather than imported,
   them verbatim in the `Document` (a `serde_yaml::Value` blob, never rendered,
   never edited) would make a round trip lossless. Against: it puts un-modelled
   foreign data in `.zkai`, which every other spec has refused. Proposed: **no** —
-  and say so in the export dialog, rather than silently. (design-call; **RESOLVED
-  as proposed in Phase 4**: no blob, and the export notice's first paragraph is
-  where it is said out loud. It lands *after* the write rather than as a
-  confirmation before it — the user's call, and the reason is that there is no
-  decision to take: the drop is unconditional, so a modal asking permission for it
-  would be theatre.)
+  and say so in the export dialog, rather than silently. (design-call.)
 - **OQ-6** — **RESOLVED (round 1): the `PhaseConfig` trap is live, not future.**
   The draft assumed no `SignalPlan` was reachable because nothing in Zukai mints
   one. `cross-4` mints one — it is `control: signal` with a `signal_plan`, and
@@ -579,13 +561,7 @@ blocks §2.8 drops (OQ-5) and, for a junction drawn here rather than imported,
   demand file references node ids. Phase 4's gate now names the real procedure
   (import `cross-4`, export, swap the result into a copy of its own scenario
   directory, `assimilator run`), which works precisely because import preserves ids
-  verbatim (OQ-3). Still needs the human to run it. (**PERFORMED 2026-07-27**, and
-  the procedure needed two corrections nobody could have written in advance: the
-  CLI is `-p assimilator-cli`, not the root package's same-named binary, and the
-  demo scenarios are stale against it in a way that panics on the *pristine* file
-  too. The fix for the second is a **control run** — copy the scenario twice, swap
-  the network into one — which turned the result from "it ran" into "Assimilator
-  cannot tell the two files apart".)
+  verbatim (OQ-3). Still needs the human to run it.
 - **OQ-8** — **`priority`/`yields_to` for a junction Zukai *drew*.** §2.3.1 carries
   both fields through a round trip, but an authored priority junction exports with
   every movement `major`, i.e. a give-way rule with nothing giving way. Deriving
@@ -593,11 +569,7 @@ blocks §2.8 drops (OQ-5) and, for a junction drawn here rather than imported,
   guess dressed as a fact (§2.6's standing argument). The real fix is an Inspector
   control — a per-movement major/minor toggle, which is small — but it is a junction
   semantics feature rather than a file-format one, so it wants that spec, not this
-  one. (design-call; **still deferred after Phase 4**, and now genuinely stated
-  rather than promised: `exportNotice`'s second paragraph fires on exactly this
-  case — `rule: priority`, movements present, none `minor` — so the warning
-  appears when it is true and stays silent on an imported junction that really
-  does have someone yielding.)
+  one. (design-call; deferred, and stated in the export dialog meanwhile.)
 
 ## 4. Implementation phases
 
@@ -821,54 +793,6 @@ the first two being decisions the spec left to the plan:
     south.
 - **Docs touched:** the Phase 1 rule file.
 
-**As built (2026-07-26).** Gate met: `cargo fmt --check`, `cargo clippy
---all-targets -- -D warnings`, 64 `cargo test` (+18), plus `bun run build` and 360
-vitest, all green. Six notes, the first two being the forks the spec handed to the
-plan and the rest things the phase found:
-
-- **OQ-2 is settled by disproof, not by choice** (decided by the user). Keeping
-  `UNITS_PER_METRE` was the recommendation, but the argument for it is new: checking
-  the two fixtures *against each other* shows **no fixed constant serves both**. At
-  2.571 u/m `t_junction`'s 500 m arm is 1285 units (143 lane-widths, unusable) while
-  `cross-4`'s 100 m arms are 257 (≈28, perfectly legible); at a constant small enough
-  to fix the first, `cross-4`'s arms fall to 20 units — **shorter than its own
-  21-unit-wide road**. The "smaller fixed constant" branch is therefore dead rather
-  than merely doubted, which leaves fit-to-extent (a factor stored per document, so
-  the two directions stay inverses) as the only live answer, and that is a
-  `SCHEMA_VERSION` bump for a later spec.
-- **`lateral_offset` is derived from `align`, in metres** (chosen by the user). §2.4
-  said the two "map" without saying how literally. The signs already agree — a
-  positive `lateral_offset` and a positive canvas shift both mean *right of travel* —
-  so it is a three-line match on `Σ lane widths / 2`. What it deliberately does *not*
-  use is `alignmentShift`'s canvas value, which folds in `ROAD_MARGIN` and the class
-  width factor; exporting those would dress a rendering artefact as a surveyed offset.
-- **The command shipped in this phase, not Phase 4, and clippy is why.** An
-  unregistered `#[tauri::command]` in the private `mod network` is unreachable from
-  the crate root and fails `-D warnings` on `dead_code` — Phase 1 hit this exactly.
-  One line in `generate_handler!`; Phase 4 is now purely frontend.
-- **The gate was mutation-tested, and one test was found not to bite.**
-  `an_authored_document_writes_every_required_key` is the assertion this whole
-  section exists for, and against a deliberately broken mirror (a
-  `skip_serializing_if` on `from_lanes`) it **passed** — because every movement in
-  the hand-built document was a `through` or a `left`, which §2.3 case 3 fills, so
-  the skip never had an empty list to swallow. Adding a **u-turn** is what made it a
-  real check: 3 tests caught the mutation before, 7 after. Un-negating the export's
-  y fails 5. Both mutations are recorded in the rule file, because "all green on the
-  first run" is not evidence about a format.
-- **The write-side attributes are set independently of the mirror rule**, and the
-  module doc now says so. Optionality follows Assimilator (a *reader* concern);
-  `skip_serializing_if` is a separate choice, and the two are opposite here: every
-  `Option` in the mirror gained one, so the emitted key set matches the fixtures'
-  exactly (`rule:` on `t_junction` and not on `cross-4`, no `author: null`), while
-  every **bare** field must never gain one. Conflating them is precisely how
-  `from_lanes` breaks.
-- **A drop §2.3.3's 62-field audit missed:** `lateral_offset` is *mirrored* on read
-  but never carried into the `Document`, so a file with `lateral_offset: 2.0` comes
-  back at whatever `align` derives — 0, for anything imported. Same silent shape as
-  node `z`, found only because this phase had to decide what to *write* there.
-  Recorded in the rule file's drop list beside `z` rather than fixed: the honest fix
-  is a metres→`align` inference that is lossy in the other direction.
-
 ### Phase 4 — Export from the app, and the proof it works  (depends on Phase 3)
 
 - **Scope:** the last of the glue, and the only verification that actually matters.
@@ -917,58 +841,6 @@ plan and the rest things the phase found:
     because the obvious reading — "we ran it, so the scale is fine" — is wrong.
 - **Docs touched:** the rule file; `rules/persistence.md`; the project-memory
   roadmap; mark this spec `implemented`.
-
-**As built (2026-07-27).** Gate met: `cargo fmt --check`, `cargo clippy
---all-targets -- -D warnings`, 64 `cargo test` (**unchanged** — the only phase in
-this spec with no Rust in it), `bun run build`, and 370 vitest (+10). The
-Assimilator run is done and is reported below. The `bun run tauri dev` pass was
-run by the user the same day and **passed at every step with no findings** —
-menu placement and the absent accelerators, an imported `t_junction` positioned
-rather than blank, the dialog defaulting to `network.yaml`, the notice appearing
-once *without* its conditional paragraph, the dirty dot and the Save As picker
-surviving the export, `schema_version: 1` first in the file with `S` still at
-`[500, -300]`, and the second paragraph appearing for a junction drawn by hand.
-Six notes, the first three being the forks the spec handed to the plan and the
-rest things the phase found:
-
-- **The notice is shown after the write** (chosen by the user), not as a
-  confirmation before the dialog and not as dialog-title prose. One paragraph
-  unconditional (OQ-5), and a second only when `exportNotice` finds an *authored*
-  priority junction — `unsignalized` + `rule: priority`, with movements, none
-  `minor` (OQ-8). That test is what keeps the sentence honest: an imported
-  `t_junction` has a `minor` movement and stays quiet, so the warning appears
-  exactly when it is true.
-- **The gate's `state.test.ts` clause was not performable, and moving it made it
-  stronger** (chosen by the user). Export dispatches nothing, so the reducer
-  never sees it and no reducer test can observe "leaves `dirty` untouched". The
-  new **`src/editor/files.test.ts`** — the repo's first test of the glue layer,
-  with the three Tauri modules mocked — asserts the **whole IPC call list** is one
-  `export_network`. That is the half a missing parameter cannot express: a stray
-  `push_recent_file` would satisfy "the export happened" and still break the rule.
-- **`FileActions.onImport` became `onImportNetwork`** (chosen by the user), so the
-  foreign-format pair reads together and `onExport` stays unambiguously the
-  picture. Zukai now exports two quite different things and the unqualified name
-  belongs to the older one.
-- **Both new assertions were mutation-tested**, on Phase 3's rule that green on
-  the first run is not evidence. Adding a `push_recent_file` call to
-  `exportNetwork` fails 2; swapping `ensureExtension` for `withExtension` fails 1
-  (`network.yml` would be rewritten to `network.yaml`, quietly renaming the file
-  the user typed).
-- **The proof ran, and it beat its own pass criterion.** The criterion was
-  "vehicles arrive". What happened is that the exported `cross-4` and Assimilator's
-  own produced **identical results** — 10 completed / 20 active at 60 s, 600 veh/h,
-  5.7 m/s, matching at every ten-second line. Running a **control** was not in the
-  plan and turned out to be the whole reason the result is interpretable (below).
-- **Two obstacles, neither about the format, and the control is what said so.**
-  First, that workspace has **two packages building a binary named
-  `assimilator`**; `cargo build --bin assimilator` yields the root one, which
-  rejects `run` outright. The CLI is `-p assimilator-cli`. Second, the committed
-  demo scenarios are **stale against the current CLI**: `cross-4`'s `project.yaml`
-  carries `model_params.mobil.a_bias` and `demand_manager.rs` panics on it — for
-  the *pristine* scenario as much as for ours. Without a control that panic reads
-  as "Zukai wrote a bad file"; with one it reads as what it is, a vehicle-class
-  key in a file this spec never touches. Both are recorded in the rule file, since
-  the next person to repeat this run will hit them again.
 
 ## 5. Review log
 

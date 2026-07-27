@@ -1,8 +1,7 @@
 /**
- * The New / Open / Save / Save As / Export commands, plus the two that read and
- * write Assimilator's `network.yaml`: native file dialogs, the IPC calls to the
- * Rust commands behind them, the recent-files list, and the window's
- * unsaved-changes guard.
+ * The New / Open / Save / Save As / Export commands: native file dialogs plus
+ * the IPC calls to the Rust persistence commands, the recent-files list, and the
+ * window's unsaved-changes guard.
  *
  * With `menu.ts` this is one of only two modules that touch the Tauri runtime,
  * deliberately kept out of the reducer so the *apply* logic
@@ -23,7 +22,6 @@ import {
   withExtension,
   ZKAI_EXTENSION,
 } from "../model/document";
-import { Document, Junction } from "../model/types";
 import {
   diagramSvg,
   exportFormat,
@@ -38,18 +36,12 @@ type Dispatch = (action: Action) => void;
 const FILTERS = [{ name: "Zukai schematic", extensions: [ZKAI_EXTENSION] }];
 
 /**
- * The one a network export is *written* under. Both spellings are read — the
- * filter below takes either — but a file has to be written under one of them.
- */
-const NETWORK_EXTENSION = "yaml";
-
-/**
  * Assimilator's format, and the reason Open and Import can share a dialog
  * without sharing a filter: pointing one at the other's file is the obvious user
  * error, and the extension is what heads it off — neither reader sniffs content.
  */
 const NETWORK_FILTERS = [
-  { name: "Assimilator network", extensions: [NETWORK_EXTENSION, "yml"] },
+  { name: "Assimilator network", extensions: ["yaml", "yml"] },
 ];
 
 /** Image formats the export dialog offers; the chosen extension picks between them. */
@@ -216,84 +208,6 @@ export async function exportDiagram(state: EditorState): Promise<void> {
   }
 }
 
-/**
- * Write the document out as an Assimilator `network.yaml`: its topology, with
- * the metric geometry a schematic does not have synthesized for it in Rust
- * (`rules/network-yaml.md`).
- *
- * **An export is not a document**, and this one inherits that rule from
- * {@link exportDiagram} unchanged: it takes no `dispatch`, so it cannot mark the
- * document saved, cannot adopt the path as the one being edited, and cannot push
- * it onto a recent list that opens `.zkai` files through `load_document`. A
- * document is exactly as dirty after an export as it was before one.
- *
- * It is *not* {@link importNetwork}'s mirror image, which is the whole subject
- * of {@link exportNotice}.
- */
-export async function exportNetwork(state: EditorState): Promise<void> {
-  try {
-    const chosen = await save({
-      title: "Export network",
-      // Not the document's name, unlike every other dialog here: Assimilator
-      // resolves a scenario's network through its `project.yaml`, and every
-      // scenario in its demo tree names the file `network.yaml`.
-      defaultPath: `network.${NETWORK_EXTENSION}`,
-      filters: NETWORK_FILTERS,
-    });
-    if (chosen === null) return;
-
-    await invoke("export_network", {
-      path: ensureExtension(chosen, NETWORK_EXTENSION),
-      doc: state.doc,
-    });
-    await notify("Network exported", exportNotice(state.doc));
-  } catch (err) {
-    await report("Couldn't export the network", err);
-  }
-}
-
-/**
- * What the written file does not carry, said out loud rather than left to be
- * discovered by the person who runs it.
- *
- * Two losses. The first is unconditional (spec OQ-5): `detectors`, `stops`,
- * `crossings`, `rerouters` and every simulation-only junction field are dropped,
- * because a schematic has nowhere to draw one — so an imported file's blocks do
- * not survive the round trip, and the geometry that replaces its polylines is a
- * placeholder rather than a survey.
- *
- * The second is conditional, because it depends on where the junction came from
- * (OQ-8). `priority`/`yields_to` are carried through an import but never
- * *authored* — nothing in the schematic model says which arm is the major road —
- * so a priority junction drawn here exports with every movement `major`, which
- * is a give-way rule with nothing giving way. "Has movements and not one of them
- * is minor" is the test: an imported priority junction has one, and earns no
- * sentence.
- */
-export function exportNotice(doc: Document): string {
-  const notes = [
-    "Topology and placeholder geometry only. Detectors, stops and simulation-only fields were not written.",
-  ];
-  if (doc.junctions.some(authoredPriority)) {
-    notes.push(
-      "A priority junction here was drawn rather than imported, so every movement is exported as major — nothing will yield.",
-    );
-  }
-  return notes.join("\n\n");
-}
-
-/** A give-way junction with movements, none of which yields. See {@link exportNotice}. */
-function authoredPriority(junction: Junction): boolean {
-  // Absent is the one representation for an empty list: Rust elides the key.
-  const movements = junction.movements ?? [];
-  return (
-    junction.control === "unsignalized" &&
-    junction.rule === "priority" &&
-    movements.length > 0 &&
-    !movements.some((m) => m.priority === "minor")
-  );
-}
-
 /** Read a document through the Rust command and install it as the current one. */
 async function load(path: string, dispatch: Dispatch): Promise<void> {
   // Handed to the reducer raw: the command's JSON omits empty collections
@@ -392,21 +306,6 @@ async function confirmDiscard(state: EditorState): Promise<boolean> {
     okLabel: "Discard",
     cancelLabel: "Cancel",
   });
-}
-
-/**
- * Tell the user something that is not a failure.
- *
- * Swallows its own error on `rememberRecent`'s precedent, and for the same
- * reason: a notice that could not be shown must never turn a command that
- * *succeeded* into a reported failure.
- */
-async function notify(title: string, text: string): Promise<void> {
-  try {
-    await message(text, { title, kind: "info" });
-  } catch (err) {
-    console.error(`[zukai] Couldn't show "${title}": ${detail(err)}`);
-  }
 }
 
 /** Surface a failed command to the user, always leaving a console trail. */

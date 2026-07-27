@@ -60,16 +60,12 @@ in Rust (`std::fs` + `serde_yaml`) so the on-disk shape has one owner. No
   pathless**, so Save asks for a `.zkai` instead of overwriting Assimilator's
   YAML — and calls no `rememberRecent`, because "Open Recent" opens through
   `load_document` and could never read the file back.
-- **Export is a sibling of `write()`, not a caller** — and there are two of them.
-  `exportDiagram` (`rules/diagram-export.md`) writes a picture and `exportNetwork`
-  (`rules/network-yaml.md`) writes Assimilator's YAML; neither writes a
-  *document*. So: no `rememberRecent` — the recent list opens `.zkai` files — no
-  `markSaved`, and no change to `dirty`/`currentPath`, which is why **neither
-  takes a `dispatch`**. Each writes through its own command
-  (`src-tauri/src/export.rs`, `src-tauri/src/network/export.rs`), so nothing in
-  the save path needs to know about either. `files.test.ts` holds the rule for
-  `exportNetwork` by asserting its whole IPC call list, which is the part a
-  missing parameter cannot express.
+- **Export is a sibling of `write()`, not a caller.** `exportDiagram` (`files.ts`,
+  `rules/diagram-export.md`) writes a picture, not a document: no `rememberRecent`
+  — the recent list opens `.zkai` files — no `markSaved`, and no change to
+  `dirty`/`currentPath`, which is why it takes no `dispatch`. It writes through
+  its own command (`src-tauri/src/export.rs`), so nothing in the save path needs
+  to know about it.
 
 ## Menu and recents
 
