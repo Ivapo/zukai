@@ -739,11 +739,25 @@ body {
 /* A label and one stepper - the shape all four of a plan's numbers take, since
    three steppers across need about 300px and the panel has 248. The label is
    fixed-width so a stage's three line their buttons up, the way `.movement-pair`
-   is fixed so the dropdowns beside it do. */
+   is fixed so the dropdowns beside it do.
+
+   Pushed apart rather than packed left: the row is a name and a control, which is
+   `.inspector-head`'s and `.plan-head`'s arrangement, and packing left leaves 55px
+   of nothing to the right of every `+` while `Remove plan` above it is hard right. */
 .plan-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
+}
+
+/* The offset is the one row that is not inside a stage, so it alone has to pay
+   the card's inset by hand - otherwise its stepper sits 9px right of the three
+   below it, and four instances of one control stand in two columns. Only the
+   right, because the labels staggering by the card's own padding is what reads as
+   the stages being *inside* something. */
+.plan-row--bare {
+  padding-right: 9px;
 }
 
 .plan-row-label {
@@ -756,9 +770,11 @@ body {
 }
 
 /* "120 s" is the widest value a row can hold, and every row has to reserve it or
-   the three steppers of a stage step out of line as their numbers change. */
+   the three steppers of a stage step out of line as their numbers change. Five
+   monospace characters at 16px is a shade over 49, so 44 was one digit short and
+   the green row's `+` jumped right of the amber row's at three digits. */
 .plan-row .stepper-value {
-  min-width: 44px;
+  min-width: 50px;
 }
 
 .plan-stages {

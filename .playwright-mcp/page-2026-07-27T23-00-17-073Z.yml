@@ -1,0 +1,37 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - text: Zukai
+        - generic [ref=e7]: schematic
+      - generic [ref=e8]: Untitled
+      - generic [ref=e9]:
+        - button "New" [ref=e10] [cursor=pointer]
+        - button "Open…" [ref=e11] [cursor=pointer]
+        - button "Save" [ref=e12] [cursor=pointer]
+        - button "Save As…" [ref=e13] [cursor=pointer]
+        - button "Export…" [ref=e14] [cursor=pointer]
+    - generic [ref=e15]:
+      - generic [ref=e16]:
+        - button "Undo" [disabled] [ref=e17]
+        - button "Redo" [disabled] [ref=e21]
+      - radiogroup "Drawing tool" [ref=e25]:
+        - radio "Select" [ref=e26] [cursor=pointer]
+        - radio "Node" [checked] [active] [ref=e30] [cursor=pointer]
+        - radio "Link" [ref=e34] [cursor=pointer]
+        - radio "Marking" [ref=e40] [cursor=pointer]
+        - radio "Sign" [ref=e44] [cursor=pointer]
+    - generic [ref=e48]:
+      - button "−" [ref=e49] [cursor=pointer]
+      - generic [ref=e50]: 100%
+      - button "+" [ref=e51] [cursor=pointer]
+  - complementary [ref=e55]:
+    - generic [ref=e56]:
+      - paragraph [ref=e57]: Nothing selected
+      - list [ref=e58]:
+        - listitem [ref=e59]: Node tool — click to drop a road point.
+        - listitem [ref=e60]: Link tool — click one node, then another, to lay a road.
+        - listitem [ref=e61]: Marking tool — click a lane to paint a stop line on it.
+        - listitem [ref=e62]: Sign tool — click anywhere to stand a sign beside the road.
+        - listitem [ref=e63]: Select tool — drag nodes, pick a road, edit it here.
+      - paragraph [ref=e64]: Scroll to zoom · drag empty space to pan · Delete removes the selection.

@@ -1470,6 +1470,7 @@ function SignalPlanFields({
         label="Offset"
         value={plan.offset}
         bounds={PLAN_OFFSET}
+        bare
         onSet={(offset) => dispatch({ type: "setPlanOffset", id: node, offset })}
       />
 
@@ -1572,20 +1573,26 @@ function PhaseRow({
  *
  * It takes a setter rather than building the action, because a timing stepper
  * cannot dispatch alone: only {@link PhaseRow} holds the other two values.
+ *
+ * `bare` marks the one instance that is **not** inside a stage card and so has to
+ * pay that card's inset itself, or four copies of one control stand in two
+ * columns.
  */
 function SecondsStepper({
   label,
   value,
   bounds,
+  bare,
   onSet,
 }: {
   label: string;
   value: number;
   bounds: { min: number; max: number; step: number };
+  bare?: boolean;
   onSet: (next: number) => void;
 }) {
   return (
-    <div className="plan-row">
+    <div className={`plan-row${bare ? " plan-row--bare" : ""}`}>
       <span className="plan-row-label">{label}</span>
       <div className="stepper">
         <button
