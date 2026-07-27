@@ -104,8 +104,8 @@ pub struct Metadata {
 mod tests {
     use super::decoration::{Marking, MarkingKind, Sign, SignKind, TurnDirection};
     use super::graph::{
-        Junction, JunctionControl, Lane, Link, Movement, MovementKind, Node, NodeKind, Phase,
-        SignalPlan,
+        Junction, JunctionControl, Lane, LaneMappingEntry, Link, Movement, MovementKind,
+        MovementPriority, Node, NodeKind, Phase, SignalPlan,
     };
     use super::layout::{
         JunctionGlyph, JunctionView, Layout, LinkAlign, LinkStyle, LinkView, NodeView, Vec2,
@@ -167,6 +167,13 @@ mod tests {
                 from_lanes: vec![0],
                 to_lanes: vec![0],
                 kind: MovementKind::Through,
+                // Minor rather than major so the round-trip test actually
+                // exercises the three carried fields: a major movement writes
+                // no `priority` key at all (see `a_major_movement_writes_no_
+                // priority_key`), so a `Major` here would assert nothing.
+                priority: MovementPriority::Minor,
+                yields_to: vec!["M_L2_L1".into()],
+                lane_mapping: vec![LaneMappingEntry { from: 0, to: 0 }],
             }],
             signal_plan: Some(SignalPlan {
                 cycle_time: 60.0,
@@ -251,6 +258,62 @@ mod tests {
         let yaml = serde_yaml::to_string(&doc).expect("serialize");
         let back: Document = serde_yaml::from_str(&yaml).expect("deserialize");
         assert_eq!(doc, back);
+    }
+
+    /// The whole point of [`MovementPriority::is_major`]: every movement Zukai
+    /// has ever created is major, so adding the field must leave those documents
+    /// saving byte-for-byte as before — which is why it needs no
+    /// [`SCHEMA_VERSION`] bump. `LinkAlign::is_centre`'s test, one field later.
+    #[test]
+    fn a_major_movement_writes_no_priority_key() {
+        let movement = Movement {
+            id: "M_L1_L2".into(),
+            from_link: "L1".into(),
+            to_link: "L2".into(),
+            from_lanes: vec![],
+            to_lanes: vec![],
+            kind: MovementKind::Through,
+            priority: MovementPriority::Major,
+            yields_to: vec![],
+            lane_mapping: vec![],
+        };
+
+        let yaml = serde_yaml::to_string(&movement).expect("serialize");
+
+        assert!(
+            !yaml.contains("priority"),
+            "unexpected priority in {yaml:?}"
+        );
+        assert!(
+            !yaml.contains("yields_to"),
+            "unexpected yields_to in {yaml:?}"
+        );
+        assert!(
+            !yaml.contains("lane_mapping"),
+            "unexpected lane_mapping in {yaml:?}"
+        );
+        // ...and a minor one does write it, in Assimilator's own spelling.
+        let minor = Movement {
+            priority: MovementPriority::Minor,
+            ..movement
+        };
+        assert!(serde_yaml::to_string(&minor)
+            .expect("serialize")
+            .contains("priority: minor"));
+    }
+
+    /// A `.zkai` written before these fields existed still loads, with the
+    /// documented defaults — the other half of "a new optional field costs no
+    /// version bump".
+    #[test]
+    fn a_movement_without_the_new_fields_loads_as_major() {
+        let yaml = "id: M_L1_L2\nfrom_link: L1\nto_link: L2\ntype: through\n";
+
+        let movement: Movement = serde_yaml::from_str(yaml).expect("deserialize");
+
+        assert_eq!(movement.priority, MovementPriority::Major);
+        assert!(movement.yields_to.is_empty());
+        assert!(movement.lane_mapping.is_empty());
     }
 
     #[test]

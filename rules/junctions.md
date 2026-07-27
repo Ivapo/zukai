@@ -11,8 +11,12 @@ nothing here crosses IPC on new terms, reaches disk in a new shape, or moves
 **Build state: the spec is complete** (all four phases). `control`, `rule` and
 `movements` are written, read, **drawn**, and derivable in one click.
 `Junction.signal_plan` is still what it has always been — **a field nothing
-reads** — and so are `Movement`'s `from_lanes`/`to_lanes`. Do not treat their
-presence in `src/model/types.ts` as evidence anything consumes them.
+reads** — and so are `Movement`'s `from_lanes`/`to_lanes` and the three the
+`network.yaml` reader added beside them, `priority`/`yields_to`/`lane_mapping`.
+Do not treat their presence in `src/model/types.ts` as evidence anything consumes
+them. All six are *carried* rather than dead: the importer writes them and a
+future writer reads them back (`rules/network-yaml.md`). Nothing in this
+subsystem does either.
 
 ## The three parts of a junction, and which layer owns each
 
@@ -438,7 +442,12 @@ The spec is closed; what follows was cut from it by decision, not left undone.
 - **Signal plans are cut entirely** and deferred to a follow-up spec: a fixed-time
   plan is a table, not a picture, and the one drawable part (which movements share a
   stage) needed movements to exist first.
-- **`Movement.from_lanes`/`to_lanes` stay empty.** Assimilator accepts that
-  ("empty for a movement with no lane detail"), and a lane-pair matrix at a 4-arm
-  junction is a large editor for something the schematic does not show. Likely
-  wanted by the export spec rather than by this one.
+- **`Movement.from_lanes`/`to_lanes` stay empty**, and a lane-pair matrix at a
+  4-arm junction is still a large editor for something the schematic does not
+  show. But the old gloss — "Assimilator accepts that" — needs one correction,
+  because it is true of the *data* and false of an *absent key*: Assimilator's own
+  editor writes `from_lanes: []` for a u-turn, while
+  `MovementConfig.from_lanes` carries no `serde(default)`, so a movement that
+  omits the key fails the whole file's parse. **`[]` is legal, absent is not.**
+  Leaving them empty here is fine; the writer is what must emit `[]` rather than
+  nothing. See `rules/network-yaml.md`.

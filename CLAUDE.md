@@ -82,6 +82,9 @@ phase from a spec still `status: draft`** — it must pass the review loop
   painted road text, and roadside signs (implemented; 4 phases)
 - `specs/junction_semantics_spec.md` — what a junction *means*: control,
   right-of-way rule, and the turn movements through it (implemented; 4 phases)
+- `specs/network_yaml_spec.md` — import and export Assimilator's `network.yaml`:
+  the serde mirror, the two directions and their asymmetry, and the four
+  `#[serde(default)]` fields that fail silently (Phase 1 of 4 implemented)
 
 **`rules/` — current-state reference (the *what is*).** Terse, authoritative maps
 of subsystems, read on demand. Unlike specs, rules describe the code as it is now;
@@ -148,6 +151,19 @@ there's real cross-file knowledge worth extracting, not for every file.
   merge that is the third thing the id-*is*-the-pair rule pays for, why the
   remainder is exported rather than inlined (the button must be dead exactly when
   the action would be), and the one panel row shown when spent rather than hidden
+- `rules/network-yaml.md` — the format Zukai reads but does not own: two formats
+  with two owners and why the module is not `persist.rs`, the `schema_version`
+  header that is real *and* not a struct field (read above serde, so the probe
+  takes an `Option` and an absent one must be accepted), the mirror rule —
+  optionality follows Assimilator's source, not Zukai's, which cuts both ways
+  (`type:` may be omitted, `from_lanes:` may not: `[]` parses, nothing does not),
+  the four enums reused rather than redeclared and the one test that keeps that
+  honest, the scale and the y that is stated as a compass bearing because a
+  mirrored network is self-consistently wrong, what import discards versus the one
+  thing it *demotes* (`point` seeds the layout, or the page renders blank), the
+  defaults seeded rather than derived, and the four `#[serde(default)]` fields
+  that fail quietly — a promoted minor movement, a junction stuck at red, a
+  re-wired lane mapping
 
 Specs are authoritative for *intent and plan*; `rules/`, this file, and the code
 are authoritative for *current state*. When a shipped phase changes what a rule

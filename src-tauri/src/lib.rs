@@ -1,5 +1,10 @@
 mod export;
 pub mod model;
+// `pub` like `model`, and for a reason worth naming: until the import command
+// lands, nothing in the binary calls into `network`, so a private `mod` would
+// leave every item unreachable from the crate root and fail
+// `cargo clippy --all-targets -- -D warnings` on `dead_code`.
+pub mod network;
 mod persist;
 mod recent;
 

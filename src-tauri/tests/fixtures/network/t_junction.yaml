@@ -1,0 +1,108 @@
+metadata:
+  name: Editor Network
+  coordinate_system: metric
+  z_enabled: false
+nodes:
+  - id: W
+    point: [0, 0]
+    type: endpoint
+  - id: J
+    point: [500, -0.0]
+    type: junction
+  - id: E
+    point: [1000, 0]
+    type: endpoint
+  - id: S
+    point: [500, -300]
+    type: endpoint
+links:
+  - id: L_W_J
+    from_node: W
+    to_node: J
+    geometry:
+      - - 0
+        - 0
+      - - 500
+        - -0.0
+    lanes:
+      - id: 0
+        width: 3.5
+        speed_limit: 16.67
+        allowed_classes: []
+  - id: L_J_E
+    from_node: J
+    to_node: E
+    geometry:
+      - - 500
+        - -0.0
+      - - 1000
+        - 0
+    lanes:
+      - id: 0
+        width: 3.5
+        speed_limit: 16.67
+        allowed_classes: []
+  - id: L_S_J
+    from_node: S
+    to_node: J
+    geometry:
+      - - 500
+        - -300
+      - - 500
+        - -0.0
+    lanes:
+      - id: 0
+        width: 3.5
+        speed_limit: 13.89
+        allowed_classes: []
+junctions:
+  - node_id: J
+    control: unsignalized
+    rule: priority
+    movements:
+      - id: M_major_thru
+        from_link: L_W_J
+        to_link: L_J_E
+        from_lanes:
+          - 0
+        to_lanes:
+          - 0
+        type: through
+        lane_mapping:
+          - from: 0
+            to: 0
+        priority: major
+      - id: M_minor_left
+        from_link: L_S_J
+        to_link: L_J_E
+        from_lanes:
+          - 0
+        to_lanes:
+          - 0
+        type: right
+        lane_mapping:
+          - from: 0
+            to: 0
+        priority: minor
+        yields_to:
+          - M_major_thru
+    conflict_pairs:
+      - - M_major_thru
+        - M_minor_left
+    geometry:
+      setback: 4
+    gap_acceptance:
+      critical_gap: 4.5
+      follow_up_time: 2.5
+
+detectors:
+  - id: D_minor
+    link_id: L_S_J
+    position: 250
+    lanes: [0]
+    aggregation_interval: 60
+  - id: D_major_downstream
+    link_id: L_J_E
+    position: 200
+    lanes: [0]
+    aggregation_interval: 60

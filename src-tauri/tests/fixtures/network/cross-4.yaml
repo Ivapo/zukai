@@ -1,0 +1,565 @@
+metadata:
+  name: Editor Network
+  coordinate_system: metric
+  z_enabled: false
+nodes:
+  - id: N1
+    point: [0, 0]
+    type: endpoint
+  - id: N2
+    point: [200, 0]
+    type: endpoint
+  - id: N3
+    point: [100, -100]
+    type: endpoint
+  - id: N4
+    point: [100, 100]
+    type: endpoint
+  - id: N5
+    point: [100, 0]
+    type: junction
+links:
+  - id: L1
+    from_node: N1
+    to_node: N5
+    geometry:
+      - - 0
+        - 0
+      - - 100
+        - 0
+    lanes:
+      - id: 0
+        width: 3.5
+        speed_limit: 13.88888888888889
+        allowed_classes: []
+      - id: 1
+        width: 3.5
+        speed_limit: 13.88888888888889
+        allowed_classes: []
+    median_gap: 0.5
+  - id: L2
+    from_node: N5
+    to_node: N1
+    geometry:
+      - - 100
+        - 0
+      - - 0
+        - 0
+    lanes:
+      - id: 0
+        width: 3.5
+        speed_limit: 13.88888888888889
+        allowed_classes: []
+      - id: 1
+        width: 3.5
+        speed_limit: 13.88888888888889
+        allowed_classes: []
+    median_gap: 0.5
+  - id: L3
+    from_node: N5
+    to_node: N2
+    geometry:
+      - - 100
+        - 0
+      - - 200
+        - 0
+    lanes:
+      - id: 0
+        width: 3.5
+        speed_limit: 13.88888888888889
+        allowed_classes: []
+      - id: 1
+        width: 3.5
+        speed_limit: 13.88888888888889
+        allowed_classes: []
+    median_gap: 0.5
+  - id: L4
+    from_node: N2
+    to_node: N5
+    geometry:
+      - - 200
+        - 0
+      - - 100
+        - 0
+    lanes:
+      - id: 0
+        width: 3.5
+        speed_limit: 13.88888888888889
+        allowed_classes: []
+      - id: 1
+        width: 3.5
+        speed_limit: 13.88888888888889
+        allowed_classes: []
+    median_gap: 0.5
+  - id: L5
+    from_node: N3
+    to_node: N5
+    geometry:
+      - - 100
+        - -100
+      - - 100
+        - 0
+    lanes:
+      - id: 0
+        width: 3.5
+        speed_limit: 13.88888888888889
+        allowed_classes: []
+      - id: 1
+        width: 3.5
+        speed_limit: 13.88888888888889
+        allowed_classes: []
+    median_gap: 0.5
+  - id: L6
+    from_node: N5
+    to_node: N3
+    geometry:
+      - - 100
+        - 0
+      - - 100
+        - -100
+    lanes:
+      - id: 0
+        width: 3.5
+        speed_limit: 13.88888888888889
+        allowed_classes: []
+      - id: 1
+        width: 3.5
+        speed_limit: 13.88888888888889
+        allowed_classes: []
+    median_gap: 0.5
+  - id: L7
+    from_node: N5
+    to_node: N4
+    geometry:
+      - - 100
+        - 0
+      - - 100
+        - 100
+    lanes:
+      - id: 0
+        width: 3.5
+        speed_limit: 13.88888888888889
+        allowed_classes: []
+      - id: 1
+        width: 3.5
+        speed_limit: 13.88888888888889
+        allowed_classes: []
+    median_gap: 0.5
+  - id: L8
+    from_node: N4
+    to_node: N5
+    geometry:
+      - - 100
+        - 100
+      - - 100
+        - 0
+    lanes:
+      - id: 0
+        width: 3.5
+        speed_limit: 13.88888888888889
+        allowed_classes: []
+      - id: 1
+        width: 3.5
+        speed_limit: 13.88888888888889
+        allowed_classes: []
+    median_gap: 0.5
+junctions:
+  - node_id: N5
+    control: signal
+    movements:
+      - id: M_L1_L2
+        from_link: L1
+        to_link: L2
+        from_lanes: []
+        to_lanes: []
+        type: u-turn
+      - id: M_L1_L3
+        from_link: L1
+        to_link: L3
+        from_lanes:
+          - 0
+          - 1
+        to_lanes:
+          - 0
+          - 1
+        type: through
+        lane_mapping:
+          - from: 1
+            to: 1
+          - from: 0
+            to: 0
+      - id: M_L1_L6
+        from_link: L1
+        to_link: L6
+        from_lanes:
+          - 1
+        to_lanes:
+          - 1
+        type: right
+        lane_mapping:
+          - from: 1
+            to: 1
+      - id: M_L1_L7
+        from_link: L1
+        to_link: L7
+        from_lanes:
+          - 0
+        to_lanes:
+          - 0
+        type: left
+        lane_mapping:
+          - from: 0
+            to: 0
+      - id: M_L4_L2
+        from_link: L4
+        to_link: L2
+        from_lanes:
+          - 0
+          - 1
+        to_lanes:
+          - 0
+          - 1
+        type: through
+        lane_mapping:
+          - from: 0
+            to: 0
+          - from: 1
+            to: 1
+      - id: M_L4_L3
+        from_link: L4
+        to_link: L3
+        from_lanes: []
+        to_lanes: []
+        type: u-turn
+      - id: M_L4_L6
+        from_link: L4
+        to_link: L6
+        from_lanes:
+          - 0
+        to_lanes:
+          - 0
+        type: left
+        lane_mapping:
+          - from: 0
+            to: 0
+      - id: M_L4_L7
+        from_link: L4
+        to_link: L7
+        from_lanes:
+          - 1
+        to_lanes:
+          - 1
+        type: right
+        lane_mapping:
+          - from: 1
+            to: 1
+      - id: M_L5_L2
+        from_link: L5
+        to_link: L2
+        from_lanes:
+          - 0
+        to_lanes:
+          - 0
+        type: left
+        lane_mapping:
+          - from: 0
+            to: 0
+      - id: M_L5_L3
+        from_link: L5
+        to_link: L3
+        from_lanes:
+          - 1
+        to_lanes:
+          - 1
+        type: right
+        lane_mapping:
+          - from: 1
+            to: 1
+      - id: M_L5_L6
+        from_link: L5
+        to_link: L6
+        from_lanes: []
+        to_lanes: []
+        type: u-turn
+      - id: M_L5_L7
+        from_link: L5
+        to_link: L7
+        from_lanes:
+          - 0
+          - 1
+        to_lanes:
+          - 0
+          - 1
+        type: through
+        lane_mapping:
+          - from: 0
+            to: 0
+          - from: 1
+            to: 1
+      - id: M_L8_L2
+        from_link: L8
+        to_link: L2
+        from_lanes:
+          - 1
+        to_lanes:
+          - 1
+        type: right
+        lane_mapping:
+          - from: 1
+            to: 1
+      - id: M_L8_L3
+        from_link: L8
+        to_link: L3
+        from_lanes:
+          - 0
+        to_lanes:
+          - 0
+        type: left
+        lane_mapping:
+          - from: 0
+            to: 0
+      - id: M_L8_L6
+        from_link: L8
+        to_link: L6
+        from_lanes:
+          - 0
+          - 1
+        to_lanes:
+          - 0
+          - 1
+        type: through
+        lane_mapping:
+          - from: 0
+            to: 0
+          - from: 1
+            to: 1
+      - id: M_L8_L7
+        from_link: L8
+        to_link: L7
+        from_lanes: []
+        to_lanes: []
+        type: u-turn
+    conflict_pairs:
+      - - M_L1_L2
+        - M_L4_L2
+      - - M_L1_L2
+        - M_L4_L3
+      - - M_L1_L2
+        - M_L4_L6
+      - - M_L1_L2
+        - M_L4_L7
+      - - M_L1_L2
+        - M_L5_L2
+      - - M_L1_L2
+        - M_L5_L3
+      - - M_L1_L2
+        - M_L5_L6
+      - - M_L1_L2
+        - M_L5_L7
+      - - M_L1_L2
+        - M_L8_L2
+      - - M_L1_L2
+        - M_L8_L3
+      - - M_L1_L2
+        - M_L8_L6
+      - - M_L1_L2
+        - M_L8_L7
+      - - M_L1_L3
+        - M_L4_L3
+      - - M_L1_L3
+        - M_L4_L6
+      - - M_L1_L3
+        - M_L4_L7
+      - - M_L1_L3
+        - M_L5_L2
+      - - M_L1_L3
+        - M_L5_L3
+      - - M_L1_L3
+        - M_L5_L6
+      - - M_L1_L3
+        - M_L5_L7
+      - - M_L1_L3
+        - M_L8_L2
+      - - M_L1_L3
+        - M_L8_L3
+      - - M_L1_L3
+        - M_L8_L6
+      - - M_L1_L3
+        - M_L8_L7
+      - - M_L1_L6
+        - M_L4_L2
+      - - M_L1_L6
+        - M_L4_L3
+      - - M_L1_L6
+        - M_L4_L6
+      - - M_L1_L6
+        - M_L4_L7
+      - - M_L1_L6
+        - M_L5_L2
+      - - M_L1_L6
+        - M_L5_L3
+      - - M_L1_L6
+        - M_L5_L6
+      - - M_L1_L6
+        - M_L5_L7
+      - - M_L1_L6
+        - M_L8_L2
+      - - M_L1_L6
+        - M_L8_L3
+      - - M_L1_L6
+        - M_L8_L6
+      - - M_L1_L6
+        - M_L8_L7
+      - - M_L1_L7
+        - M_L4_L2
+      - - M_L1_L7
+        - M_L4_L3
+      - - M_L1_L7
+        - M_L4_L6
+      - - M_L1_L7
+        - M_L4_L7
+      - - M_L1_L7
+        - M_L5_L2
+      - - M_L1_L7
+        - M_L5_L3
+      - - M_L1_L7
+        - M_L5_L6
+      - - M_L1_L7
+        - M_L5_L7
+      - - M_L1_L7
+        - M_L8_L2
+      - - M_L1_L7
+        - M_L8_L3
+      - - M_L1_L7
+        - M_L8_L6
+      - - M_L1_L7
+        - M_L8_L7
+      - - M_L4_L2
+        - M_L5_L2
+      - - M_L4_L2
+        - M_L5_L3
+      - - M_L4_L2
+        - M_L5_L6
+      - - M_L4_L2
+        - M_L5_L7
+      - - M_L4_L2
+        - M_L8_L2
+      - - M_L4_L2
+        - M_L8_L3
+      - - M_L4_L2
+        - M_L8_L6
+      - - M_L4_L2
+        - M_L8_L7
+      - - M_L4_L3
+        - M_L5_L2
+      - - M_L4_L3
+        - M_L5_L3
+      - - M_L4_L3
+        - M_L5_L6
+      - - M_L4_L3
+        - M_L5_L7
+      - - M_L4_L3
+        - M_L8_L2
+      - - M_L4_L3
+        - M_L8_L3
+      - - M_L4_L3
+        - M_L8_L6
+      - - M_L4_L3
+        - M_L8_L7
+      - - M_L4_L6
+        - M_L5_L2
+      - - M_L4_L6
+        - M_L5_L3
+      - - M_L4_L6
+        - M_L5_L6
+      - - M_L4_L6
+        - M_L5_L7
+      - - M_L4_L6
+        - M_L8_L2
+      - - M_L4_L6
+        - M_L8_L3
+      - - M_L4_L6
+        - M_L8_L6
+      - - M_L4_L6
+        - M_L8_L7
+      - - M_L4_L7
+        - M_L5_L2
+      - - M_L4_L7
+        - M_L5_L3
+      - - M_L4_L7
+        - M_L5_L6
+      - - M_L4_L7
+        - M_L5_L7
+      - - M_L4_L7
+        - M_L8_L2
+      - - M_L4_L7
+        - M_L8_L3
+      - - M_L4_L7
+        - M_L8_L6
+      - - M_L4_L7
+        - M_L8_L7
+      - - M_L5_L2
+        - M_L8_L2
+      - - M_L5_L2
+        - M_L8_L3
+      - - M_L5_L2
+        - M_L8_L6
+      - - M_L5_L2
+        - M_L8_L7
+      - - M_L5_L3
+        - M_L8_L2
+      - - M_L5_L3
+        - M_L8_L3
+      - - M_L5_L3
+        - M_L8_L6
+      - - M_L5_L3
+        - M_L8_L7
+      - - M_L5_L6
+        - M_L8_L2
+      - - M_L5_L6
+        - M_L8_L3
+      - - M_L5_L6
+        - M_L8_L6
+      - - M_L5_L6
+        - M_L8_L7
+      - - M_L5_L7
+        - M_L8_L2
+      - - M_L5_L7
+        - M_L8_L3
+      - - M_L5_L7
+        - M_L8_L7
+    signal_plan:
+      cycle_time: 60
+      offset: 0
+      phases:
+        - id: P1
+          duration: 25
+          green_movements:
+            - M_L5_L3
+            - M_L5_L7
+            - M_L8_L2
+            - M_L8_L6
+          permitted_movements:
+            - M_L5_L2
+            - M_L5_L6
+            - M_L8_L3
+            - M_L8_L7
+          amber_time: 3
+          all_red_time: 2
+        - id: P2
+          duration: 25
+          green_movements:
+            - M_L1_L3
+            - M_L1_L6
+            - M_L4_L2
+            - M_L4_L7
+          permitted_movements:
+            - M_L1_L2
+            - M_L1_L7
+            - M_L4_L3
+            - M_L4_L6
+          amber_time: 3
+          all_red_time: 2
+    geometry:
+      setback: 5
+    b_amber: 4.5
