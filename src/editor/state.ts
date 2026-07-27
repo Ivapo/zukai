@@ -31,9 +31,12 @@ import {
   MovementKind,
   NodeId,
   NodeKind,
+  Phase,
+  PhaseId,
   Sign,
   SignId,
   SignKind,
+  SignalPlan,
   UnsignalizedRule,
   Vec2,
 } from "../model/types";
@@ -103,6 +106,23 @@ export function initialState(): EditorState {
   };
 }
 
+/**
+ * The three numbers a stage is timed by — {@link EditAction}'s `setPhaseTiming`
+ * payload, carried whole so the panel owns the two values a stepper did not move
+ * rather than the reducer merging them (`setMarkingKind`'s precedent).
+ *
+ * An object rather than three positional arguments because `amber_time` and
+ * `all_red_time` are both plausible small integers: transposed, they type-check,
+ * run, and mean something else.
+ *
+ * Not in `types.ts`: it is a slice of `Phase` for one action's sake, not a record
+ * the Rust mirror has.
+ */
+export type PhaseTiming = Pick<
+  Phase,
+  "duration" | "amber_time" | "all_red_time"
+>;
+
 /** Every edit to the document or view the UI can request. */
 export type EditAction =
   | { type: "setTool"; tool: Tool }
@@ -130,6 +150,28 @@ export type EditAction =
   // The only one carrying nothing but the junction: it mints every turn that
   // junction can legally carry, less the u-turns, in a single undo step.
   | { type: "deriveMovements"; id: NodeId }
+  // The plan actions take the **junction node** as `id` and the stage as a second
+  // field where they name one — the movement actions' shape, because a `Phase`
+  // lives inside a `Junction` the way a `Movement` does, and neither gets a
+  // `Selection` arm.
+  //
+  // `createSignalPlan` is the one action in this file that **reads a sibling
+  // field**: it returns the state by identity unless `control` is `signal`. That
+  // is the opposite of `setJunctionRule`'s posture six arms up, and the reason is
+  // in the other program rather than in this one — a stray `rule` is inert, while
+  // Assimilator validates any plan present regardless of `control`, so a stray one
+  // whose stages do not sum fails the whole file's load (signal plans §2.3.1).
+  | { type: "createSignalPlan"; id: NodeId }
+  | { type: "removeSignalPlan"; id: NodeId }
+  | { type: "addPhase"; id: NodeId }
+  | { type: "deletePhase"; id: NodeId; phase: PhaseId }
+  // One action for all three of a stage's times, on `setMarkingKind`'s
+  // whole-payload precedent: they are three fields of one record edited from three
+  // steppers of one row, and `cycle_time` follows from all of them whichever
+  // moved. `cycle_time` itself is **not** here and never will be — it is derived
+  // (§2.2).
+  | { type: "setPhaseTiming"; id: NodeId; phase: PhaseId; timing: PhaseTiming }
+  | { type: "setPlanOffset"; id: NodeId; offset: number }
   | { type: "startLink"; from: NodeId }
   | { type: "completeLink"; to: NodeId }
   | { type: "cancelLink" }
@@ -460,6 +502,24 @@ function editReducer(state: EditorState, action: EditAction): EditorState {
     case "deriveMovements":
       return deriveMovements(state, action.id);
 
+    case "createSignalPlan":
+      return createSignalPlan(state, action.id);
+
+    case "removeSignalPlan":
+      return removeSignalPlan(state, action.id);
+
+    case "addPhase":
+      return addPhase(state, action.id);
+
+    case "deletePhase":
+      return deletePhase(state, action.id, action.phase);
+
+    case "setPhaseTiming":
+      return setPhaseTiming(state, action.id, action.phase, action.timing);
+
+    case "setPlanOffset":
+      return setPlanOffset(state, action.id, action.offset);
+
     case "startLink":
       return { ...state, linkFrom: action.from };
 
@@ -636,7 +696,7 @@ function nudgedGlyph(
  * that has ever written `Junction.control`**, which until now was minted
  * `unsignalized` by {@link setNodeKind} and never touched again.
  *
- * Three things happen in the one action, so they are one undo step:
+ * Four things happen in the one action, so they are one undo step:
  *
  * - `control` is written into the one `Junction` inside `doc.junctions`;
  * - `rule` is **cleared going to `signal`**, because Assimilator's model says it
@@ -644,6 +704,11 @@ function nudgedGlyph(
  *   storing `undefined` — the one-representation rule {@link setSignLink} follows.
  *   Coming back the other way *keeps* a rule, which only a hand-edited file can
  *   have at that point, rather than inventing one;
+ * - `signal_plan` is **cleared coming back to `unsignalized`**, the mirror of the
+ *   same rule for the field on the other side of the same switch. That direction
+ *   is *not* symmetric with `rule`'s: a stray rule is inert, while a stray plan is
+ *   validated by Assimilator regardless of `control`, so keeping one is how a
+ *   flipped junction ends up in a file that fails to load (§2.4);
  * - the glyph follows, if {@link nudgedGlyph} says it may, through
  *   {@link setJunctionView} — which already creates the view a junction with no
  *   layout entry lacks, so that case needs no rule of its own.
@@ -664,8 +729,18 @@ function setJunctionControl(
 
   const junctions = doc.junctions.map((j) => {
     if (j.node_id !== id) return j;
-    const { rule: _dropped, ...rest } = j;
-    return control === "signal" ? { ...rest, control } : { ...j, control };
+    // Each direction drops the field its target state forbids, and only that one.
+    // Going to `signal`: `rule`, because `graph.rs` says it is `None` when
+    // signalized. Coming back: `signal_plan`, because that field is `None` unless
+    // signalized — and this is the action that makes the comment true rather than
+    // aspirational, since Assimilator validates any plan present regardless of
+    // `control`, so one left behind here is a file that can fail to load (§2.4).
+    if (control === "signal") {
+      const { rule: _dropped, ...rest } = j;
+      return { ...rest, control };
+    }
+    const { signal_plan: _dropped, ...rest } = j;
+    return { ...rest, control };
   });
   const next = { ...state, doc: { ...doc, junctions } };
 
@@ -903,6 +978,312 @@ function deriveMovements(state: EditorState, nodeId: NodeId): EditorState {
     doc: {
       ...doc,
       junctions: withMovements(doc.junctions, nodeId, [...movements, ...minted]),
+    },
+  };
+}
+
+/**
+ * A plan built from its stages — **the one place `cycle_time` is ever written**.
+ *
+ * Assimilator validates that every stage's `duration + amber_time + all_red_time`
+ * sums to `cycle_time`, and validates it at *load* rather than at the keystroke.
+ * So the number is not typed and checked afterwards: it is **derived**, here, by
+ * every action that touches a plan — which is how the invalid state is made
+ * unrepresentable rather than reported (signal plans §2.2, and markings §2.4's
+ * containment-is-a-property-of-the-tiling rule collecting again).
+ *
+ * The spec calls this `cycleTime(plan)`. It shipped as a **constructor** rather
+ * than a query because every caller has the *new* `phases` before it has a plan,
+ * so a query would force each of them to build a plan carrying the **old** cycle
+ * and then patch it — one forgotten line from the state this exists to forbid.
+ * {@link setPlanOffset}, where the stages did not change at all, is the one that
+ * would have been forgotten.
+ *
+ * `phases` is stored **by identity**, so that action hands history a plan still
+ * sharing its stage list with the snapshot before it.
+ */
+function replan(phases: Phase[], offset: number): SignalPlan {
+  return {
+    cycle_time: phases.reduce(
+      (total, p) => total + p.duration + p.amber_time + p.all_red_time,
+      0,
+    ),
+    offset,
+    phases,
+  };
+}
+
+/**
+ * One `Junction` inside `doc.junctions` with its signal plan replaced or removed
+ * — {@link withMovements}' twin, stating the same rule for the other optional
+ * field: **absent is the one representation.** A removed plan drops the key
+ * rather than storing `undefined`, matching Rust's `skip_serializing_if =
+ * "Option::is_none"` (`graph.rs`: "`None` unless signalized").
+ *
+ * The one place the twins differ is what "nothing" looks like *inside*.
+ * `movements: []` is never stored because Rust elides an empty vec — but
+ * `SignalPlan.phases` carries **no** `skip_serializing_if` and no
+ * `serde(default)`, so a plan with no stages keeps `phases: []` and dropping that
+ * key would write a file Rust cannot deserialize. The absent-key rule is about
+ * the plan, not about its stage list (OQ-7).
+ *
+ * Every other junction is returned **by identity**.
+ */
+function withSignalPlan(
+  junctions: Junction[],
+  id: NodeId,
+  plan: SignalPlan | undefined,
+): Junction[] {
+  return junctions.map((j) => {
+    if (j.node_id !== id) return j;
+    const { signal_plan: _dropped, ...rest } = j;
+    return plan === undefined ? rest : { ...rest, signal_plan: plan };
+  });
+}
+
+/**
+ * A plan with nothing in it — what {@link createSignalPlan} plans *from*, and
+ * what deleting the last stage leaves behind (OQ-7). The same value both times,
+ * which is why it is named rather than written twice.
+ */
+const EMPTY_PLAN: SignalPlan = { cycle_time: 0, offset: 0, phases: [] };
+
+/**
+ * What a fresh stage is: 20 s of green, and Zukai's own 3 s amber and 2 s all-red
+ * (`graph.rs`'s serde defaults — *not* Assimilator's, whose two fields are
+ * required and carry no default at all) — **and no movements**, so neither
+ * `green_movements` nor `permitted_movements` is written.
+ *
+ * That makes it an all-red stage, which is deliberately useless and deliberately
+ * honest: a plan is a *frame*, and the alternative — every movement protected in
+ * one stage — produces a plan that runs and is wrong, a junction where every
+ * conflicting stream has right of way at once (§2.7, OQ-4).
+ */
+function seedPhase(id: PhaseId): Phase {
+  return { id, duration: 20, amber_time: 3, all_red_time: 2 };
+}
+
+/**
+ * `plan` with one more seeded stage on the end, its id minted by `nextId` over
+ * **that plan's own** phases — so `P1`/`P2` continue within a junction, two
+ * junctions each start at `P1`, and a delete does not make the next stage collide
+ * with a surviving one.
+ *
+ * Shared by {@link createSignalPlan} and {@link addPhase}, which is what makes
+ * §2.7's seeded 25 s cycle a *consequence* rather than a second copy of three
+ * numbers: one 20/3/2 stage in an {@link EMPTY_PLAN} is 25, by {@link replan}.
+ */
+function planWithPhase(plan: SignalPlan): SignalPlan {
+  const id = nextId(
+    plan.phases.map((p) => p.id),
+    "P",
+  );
+  return replan([...plan.phases, seedPhase(id)], plan.offset);
+}
+
+/**
+ * Give a signalized junction a plan — **the first thing that has ever written
+ * `Junction.signal_plan`**, a field in both mirrors since the first commit that
+ * nothing had read (§1).
+ *
+ * **This one guards on `control`, and the departure is the point.**
+ * {@link setJunctionRule} deliberately does not look at a sibling field, because
+ * encoding one there makes the same value legal or illegal depending on something
+ * the action never touches. The asymmetry is not inconsistency: the difference is
+ * in the other program. A `rule` on a signalized junction is **inert** —
+ * Assimilator reads it only for unsignalized control — while a `signal_plan` on
+ * an unsignalized junction is **not**: validation enters its cycle-time rule on
+ * any plan present, with no `control` check at all, so a stray plan whose stages
+ * do not sum fails the whole file's load. `graph.rs` already says the field is
+ * "`None` unless signalized"; this is the action that makes that true rather than
+ * aspirational (§2.3.1). The panel withholds the section as well — both, not
+ * either, exactly as the Rule row is withheld *and* {@link setJunctionControl}
+ * clears the field.
+ *
+ * **A junction that already has one keeps it.** The duplicate check is
+ * {@link addMovement}'s, for a sharper reason: without it a second click would
+ * silently replace every stage of the plan below the button.
+ */
+function createSignalPlan(state: EditorState, id: NodeId): EditorState {
+  const { doc } = state;
+  const junction = findJunction(doc, id);
+  if (!junction || junction.control !== "signal") return state;
+  if (junction.signal_plan) return state;
+
+  return {
+    ...state,
+    doc: {
+      ...doc,
+      junctions: withSignalPlan(doc.junctions, id, planWithPhase(EMPTY_PLAN)),
+    },
+  };
+}
+
+/**
+ * Take the plan away, leaving **no key at all** ({@link withSignalPlan}).
+ *
+ * **Deliberately does not guard on `control`**, unlike {@link createSignalPlan}
+ * beside it, and the asymmetry follows the same argument: creating a stray plan
+ * is what §2.3.1 forbids, while *removing* one can only improve the document —
+ * and on an unsignalized junction carrying one from a hand-edited file, this is
+ * the only repair there is.
+ */
+function removeSignalPlan(state: EditorState, id: NodeId): EditorState {
+  const { doc } = state;
+  if (!findJunction(doc, id)?.signal_plan) return state;
+
+  return {
+    ...state,
+    doc: { ...doc, junctions: withSignalPlan(doc.junctions, id, undefined) },
+  };
+}
+
+/**
+ * One more stage on the end of the plan, seeded by {@link seedPhase} — so the
+ * cycle grows by 25 s and the panel says so without being asked.
+ *
+ * A new stage is **re-seeded rather than copied** from the one before it: that
+ * keeps {@link seedPhase} the single answer to "what does a stage start as", and
+ * copying would be a claim about the plan the user has not made.
+ *
+ * Guards on the plan rather than on `control` — that check belongs to
+ * {@link createSignalPlan}, and between it and {@link setJunctionControl} an
+ * unsignalized junction has no plan to add a stage to.
+ */
+function addPhase(state: EditorState, id: NodeId): EditorState {
+  const { doc } = state;
+  const plan = findJunction(doc, id)?.signal_plan;
+  if (!plan) return state;
+
+  return {
+    ...state,
+    doc: {
+      ...doc,
+      junctions: withSignalPlan(doc.junctions, id, planWithPhase(plan)),
+    },
+  };
+}
+
+/**
+ * Withdraw one stage — the per-row button in the panel, the way a movement is
+ * withdrawn: a stage is not an object on the canvas, so `deleteSelection` never
+ * sees one and the Delete key does nothing to it.
+ *
+ * **Deleting the last stage does not delete the plan** (OQ-7). What is left is a
+ * plan with no stages and a `cycle_time` of 0, which the panel says out loud;
+ * Remove is an explicit control beside it, and auto-removing here would make that
+ * button's job ambiguous and surprise a human mid-edit.
+ */
+function deletePhase(
+  state: EditorState,
+  nodeId: NodeId,
+  id: PhaseId,
+): EditorState {
+  const { doc } = state;
+  const plan = findJunction(doc, nodeId)?.signal_plan;
+  if (!plan || !plan.phases.some((p) => p.id === id)) return state;
+
+  return {
+    ...state,
+    doc: {
+      ...doc,
+      junctions: withSignalPlan(
+        doc.junctions,
+        nodeId,
+        replan(
+          plan.phases.filter((p) => p.id !== id),
+          plan.offset,
+        ),
+      ),
+    },
+  };
+}
+
+/**
+ * Retime one stage — all three of its numbers at once, on {@link setMarkingKind}'s
+ * whole-payload precedent: they are three fields of one record edited from three
+ * steppers of one row, and the cycle follows from all of them whichever moved.
+ *
+ * **The stage is spread, and only the three times are named**, so its movement
+ * lists survive untouched — {@link setMarkingKind}'s reason for never naming
+ * `lane`. An imported plan needs that today; Phase 2 depends on it.
+ *
+ * **Nothing is clamped here.** The panel disables both ends of each stepper, the
+ * way it does for a speed roundel, so it says what a stage can carry rather than
+ * silently correcting it — which matters more than usual because this action
+ * carries all three numbers: clamping would rewrite a foreign file's 200 s green
+ * on a click aimed at its amber (OQ-1's "rewriting a number the user did not ask
+ * us to touch is how a round-trip claim rots").
+ *
+ * A stage already at those three values returns `state` by identity, which is
+ * what a stepper whose `disabled` came out wrong would otherwise dirty the
+ * document for.
+ */
+function setPhaseTiming(
+  state: EditorState,
+  nodeId: NodeId,
+  id: PhaseId,
+  timing: PhaseTiming,
+): EditorState {
+  const { doc } = state;
+  const plan = findJunction(doc, nodeId)?.signal_plan;
+  const phase = plan?.phases.find((p) => p.id === id);
+  if (!plan || !phase) return state;
+  if (
+    phase.duration === timing.duration &&
+    phase.amber_time === timing.amber_time &&
+    phase.all_red_time === timing.all_red_time
+  ) {
+    return state;
+  }
+
+  return {
+    ...state,
+    doc: {
+      ...doc,
+      junctions: withSignalPlan(
+        doc.junctions,
+        nodeId,
+        replan(
+          plan.phases.map((p) => (p.id === id ? { ...p, ...timing } : p)),
+          plan.offset,
+        ),
+      ),
+    },
+  };
+}
+
+/**
+ * Shift the whole plan against a common reference — the one number a plan carries
+ * that is not about this junction at all.
+ *
+ * It is meaningless for the single-junction fragments Zukai represents, and it is
+ * **editable anyway** (OQ-5): it is one number, the panel already has the stepper
+ * idiom, and a readout of a field nothing can set is what `associated_link`
+ * taught us not to build twice.
+ *
+ * The stages go through {@link replan} **by identity**, so the plan is rebuilt
+ * and its stage list is not — and the cycle is recomputed for free, which is the
+ * whole reason that function is a constructor.
+ */
+function setPlanOffset(
+  state: EditorState,
+  id: NodeId,
+  offset: number,
+): EditorState {
+  const { doc } = state;
+  const plan = findJunction(doc, id)?.signal_plan;
+  if (!plan || plan.offset === offset) return state;
+
+  return {
+    ...state,
+    doc: {
+      ...doc,
+      junctions: withSignalPlan(
+        doc.junctions,
+        id,
+        replan(plan.phases, offset),
+      ),
     },
   };
 }

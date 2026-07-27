@@ -1347,6 +1347,44 @@ describe("junction control and rule", () => {
     expect("rule" in j).toBe(false);
   });
 
+  /**
+   * The mirror of the rule above, for the field on the other side of the switch —
+   * and it was a **live bug** until signal plans Phase 1: the unsignalized branch
+   * was `{ ...j, control }`, so a plan survived the flip. That matters more than a
+   * stray `rule` does, because Assimilator validates any plan present with no
+   * `control` check at all, so the junction went out in a file that could fail to
+   * load (signal plans §2.4).
+   *
+   * **There is no identity assertion to make here**, deliberately: a flip always
+   * rewrites `control`, so `doc`, `doc.junctions` and the junction are new by
+   * construction on every call that gets past the already-in-target-state guard.
+   */
+  it("drops a signal plan when the junction is handed back to give-way", () => {
+    const back = run(
+      junction(),
+      { type: "setJunctionControl", id: "N1", control: "signal" },
+      { type: "createSignalPlan", id: "N1" },
+      { type: "setJunctionControl", id: "N1", control: "unsignalized" },
+    );
+    const j = findJunction(back.doc, "N1")!;
+
+    expect(j.control).toBe("unsignalized");
+    // The absent-key form, not `toBeUndefined()`: that passes on a stored
+    // `undefined`, which would export `signal_plan: null`.
+    expect("signal_plan" in j).toBe(false);
+  });
+
+  /** Phase 1's scope, pinned: a plan is an explicit act, never a side effect. */
+  it("mints no plan of its own when the junction is signalised", () => {
+    const signal = run(junction(), {
+      type: "setJunctionControl",
+      id: "N1",
+      control: "signal",
+    });
+
+    expect("signal_plan" in findJunction(signal.doc, "N1")!).toBe(false);
+  });
+
   it("keeps a rule when handing the junction back to give-way control", () => {
     const back = run(
       junction(),
@@ -1893,5 +1931,340 @@ describe("junction movements", () => {
 
       expect(reducer(start, { type: "deriveMovements", id: "N4" }).doc).toBe(start.doc);
     });
+  });
+});
+
+/**
+ * The stages a signalized junction cycles through — the first thing ever to write
+ * `Junction.signal_plan`, a field in both mirrors since the first commit that
+ * nothing had read (signal plans §1, Phase 1).
+ *
+ * No links anywhere below: Phase 1 reads no geometry, and a stage names no
+ * movement until Phase 2.
+ */
+describe("junction signal plans", () => {
+  /** `N1`, a junction, signalized — the state Create is offered from. */
+  function signalized(): EditorState {
+    return run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "setNodeKind", id: "N1", kind: "junction" },
+      { type: "setJunctionControl", id: "N1", control: "signal" },
+    );
+  }
+
+  /** …with §2.7's seeded plan: one 20/3/2 stage, so a 25 s cycle. */
+  function planned(): EditorState {
+    return run(signalized(), { type: "createSignalPlan", id: "N1" });
+  }
+
+  /** Two signalized junctions, each with its own plan — `N2` is the bystander. */
+  function twoPlanned(): EditorState {
+    return run(
+      planned(),
+      { type: "addNode", pos: { x: 200, y: 0 } },
+      { type: "setNodeKind", id: "N2", kind: "junction" },
+      { type: "setJunctionControl", id: "N2", control: "signal" },
+      { type: "createSignalPlan", id: "N2" },
+    );
+  }
+
+  /** The plan on `N1`, which every assertion below is about. */
+  function plan(state: EditorState, id = "N1") {
+    return findJunction(state.doc, id)!.signal_plan!;
+  }
+
+  /**
+   * §2.7: a *frame*, not a claim. One stage, no movements at all — an all-red
+   * junction, which is deliberately useless and deliberately honest, because the
+   * alternative (every movement protected in one stage) produces a plan that runs
+   * and is wrong.
+   */
+  it("seeds one all-red stage, and the cycle is its sum", () => {
+    const state = planned();
+
+    expect(plan(state)).toEqual({
+      cycle_time: 25,
+      offset: 0,
+      phases: [{ id: "P1", duration: 20, amber_time: 3, all_red_time: 2 }],
+    });
+    expect(state.dirty).toBe(true);
+
+    // Absent, not `[]`: Rust elides an empty vec, so two encodings of "no
+    // movements this stage" would differ by identity and save to the same bytes.
+    const phase = plan(state).phases[0];
+    expect("green_movements" in phase).toBe(false);
+    expect("permitted_movements" in phase).toBe(false);
+  });
+
+  /**
+   * §2.3.1, the one place this spec departs from `setJunctionRule`'s
+   * don't-guard-on-a-sibling posture — and the reason is in the other program: a
+   * stray `rule` is inert, a stray `signal_plan` is validated regardless of
+   * `control` and can fail the whole file's load.
+   */
+  it("refuses to create a plan on an unsignalized junction, by identity", () => {
+    const start = run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "setNodeKind", id: "N1", kind: "junction" },
+    );
+    const next = reducer(start, { type: "createSignalPlan", id: "N1" });
+
+    expect(next.doc).toBe(start.doc);
+    expect(next.dirty).toBe(start.dirty);
+  });
+
+  /** Without the duplicate check a second click replaces every stage below it. */
+  it("creates one plan and no more", () => {
+    const start = run(planned(), { type: "addPhase", id: "N1" });
+    const again = reducer(start, { type: "createSignalPlan", id: "N1" });
+
+    expect(again.doc).toBe(start.doc);
+    expect(plan(start).phases).toHaveLength(2);
+  });
+
+  it("adds a stage, and the cycle follows it", () => {
+    const state = run(planned(), { type: "addPhase", id: "N1" });
+
+    expect(plan(state).cycle_time).toBe(50);
+    expect(plan(state).phases.map((p) => p.id)).toEqual(["P1", "P2"]);
+
+    const back = reducer(state, { type: "undo" });
+    expect(plan(back).cycle_time).toBe(25);
+  });
+
+  /**
+   * `nextId` scans **that junction's own** phases, so a delete cannot make the
+   * next stage collide with a survivor, and two junctions each start at `P1`. A
+   * length-based counter passes every assertion above and fails both of these.
+   */
+  it("numbers stages over that junction's own phases", () => {
+    const state = run(
+      twoPlanned(),
+      { type: "addPhase", id: "N1" },
+      { type: "deletePhase", id: "N1", phase: "P1" },
+      { type: "addPhase", id: "N1" },
+    );
+
+    expect(plan(state).phases.map((p) => p.id)).toEqual(["P2", "P3"]);
+    expect(plan(state, "N2").phases.map((p) => p.id)).toEqual(["P1"]);
+  });
+
+  /** The one-owner claim, once per field — `replan` is the only writer. */
+  it("recomputes the cycle when any of the three times changes", () => {
+    const at = (timing: {
+      duration: number;
+      amber_time: number;
+      all_red_time: number;
+    }) =>
+      plan(
+        reducer(planned(), {
+          type: "setPhaseTiming",
+          id: "N1",
+          phase: "P1",
+          timing,
+        }),
+      ).cycle_time;
+
+    expect(at({ duration: 25, amber_time: 3, all_red_time: 2 })).toBe(30);
+    expect(at({ duration: 20, amber_time: 4, all_red_time: 2 })).toBe(26);
+    expect(at({ duration: 20, amber_time: 3, all_red_time: 0 })).toBe(23);
+  });
+
+  /**
+   * OQ-7: the last stage going leaves a plan with no stages and a zero cycle,
+   * **not** no plan. Remove is an explicit control, and auto-removing here would
+   * make its job ambiguous. `phases: []` is stored rather than dropped — the one
+   * place a signal plan does not follow the absent-key rule, because
+   * `SignalPlan.phases` carries no `skip_serializing_if` and no `serde(default)`.
+   */
+  it("keeps the plan when the last stage goes, at a zero cycle", () => {
+    const state = run(planned(), {
+      type: "deletePhase",
+      id: "N1",
+      phase: "P1",
+    });
+
+    expect("signal_plan" in findJunction(state.doc, "N1")!).toBe(true);
+    expect(plan(state)).toEqual({ cycle_time: 0, offset: 0, phases: [] });
+  });
+
+  /**
+   * The offset is not in the cycle, so nothing about the stages may be rebuilt for
+   * it — the identity assertion no behavioural test can see. It is also what says
+   * `replan` is a constructor: the cycle is recomputed on a path where no stage
+   * changed, which is the branch a `cycleTime(phases)` query would have been
+   * forgotten on.
+   */
+  it("sets the offset without touching the cycle, and shares the stages", () => {
+    const start = planned();
+    const state = reducer(start, { type: "setPlanOffset", id: "N1", offset: 10 });
+
+    expect(plan(state).offset).toBe(10);
+    expect(plan(state).cycle_time).toBe(25);
+    expect(plan(state).phases).toBe(plan(start).phases);
+  });
+
+  it("removes the plan as no key at all, not as undefined", () => {
+    const before = planned();
+    const state = reducer(before, { type: "removeSignalPlan", id: "N1" });
+    const j = findJunction(state.doc, "N1")!;
+
+    expect(j.signal_plan).toBeUndefined();
+    expect("signal_plan" in j).toBe(false);
+
+    // And one undo brings the whole plan back, not a husk of it.
+    const back = reducer(state, { type: "undo" });
+    expect(plan(back)).toEqual(plan(before));
+  });
+
+  /**
+   * Every rejection in the table, in one place. Each must return `doc` **by
+   * identity**, or `recordHistory` snapshots a document nothing changed in
+   * (`rules/history.md`).
+   */
+  it("is a no-op, by identity, on every rejection", () => {
+    const noRecord: EditorState = {
+      ...signalized(),
+      doc: { ...signalized().doc, junctions: [] },
+    };
+    const noPlan = signalized();
+    const withPlan = planned();
+
+    const everyAction: Action[] = [
+      { type: "createSignalPlan", id: "N1" },
+      { type: "removeSignalPlan", id: "N1" },
+      { type: "addPhase", id: "N1" },
+      { type: "deletePhase", id: "N1", phase: "P1" },
+      {
+        type: "setPhaseTiming",
+        id: "N1",
+        phase: "P1",
+        timing: { duration: 30, amber_time: 3, all_red_time: 2 },
+      },
+      { type: "setPlanOffset", id: "N1", offset: 10 },
+    ];
+
+    // A junction-kind node with no `Junction` record — the hand-edited file.
+    for (const action of everyAction) {
+      expect(reducer(noRecord, action).doc).toBe(noRecord.doc);
+    }
+
+    // Signalized, but with no plan yet: only Create has anything to do.
+    for (const action of everyAction.slice(1)) {
+      expect(reducer(noPlan, action).doc).toBe(noPlan.doc);
+    }
+
+    // With a plan: a duplicate create, an unknown stage, and both
+    // already-in-the-target-state cases.
+    for (const action of [
+      { type: "createSignalPlan", id: "N1" },
+      { type: "deletePhase", id: "N1", phase: "P9" },
+      {
+        type: "setPhaseTiming",
+        id: "N1",
+        phase: "P9",
+        timing: { duration: 30, amber_time: 3, all_red_time: 2 },
+      },
+      {
+        type: "setPhaseTiming",
+        id: "N1",
+        phase: "P1",
+        timing: { duration: 20, amber_time: 3, all_red_time: 2 },
+      },
+      { type: "setPlanOffset", id: "N1", offset: 0 },
+    ] as Action[]) {
+      expect(reducer(withPlan, action).doc).toBe(withPlan.doc);
+    }
+  });
+
+  /**
+   * `withSignalPlan` returns every other junction by identity, so a document with
+   * two intersections shares the untouched one with its history snapshots. A `map`
+   * that rebuilds them passes every behavioural test in this file.
+   */
+  it("leaves every other junction alone, by reference", () => {
+    const start = twoPlanned();
+    const state = run(
+      start,
+      { type: "addPhase", id: "N1" },
+      { type: "setPlanOffset", id: "N1", offset: 5 },
+      { type: "removeSignalPlan", id: "N1" },
+    );
+
+    expect(findJunction(state.doc, "N2")).toBe(findJunction(start.doc, "N2"));
+  });
+
+  /**
+   * The four steppers are discrete clicks, so none of them appears in
+   * `coalesceKeyFor` and each is its own undo step — the Lanes and Size steppers'
+   * rule (`rules/history.md`).
+   */
+  it("is one undo step per click", () => {
+    const state = run(
+      planned(),
+      {
+        type: "setPhaseTiming",
+        id: "N1",
+        phase: "P1",
+        timing: { duration: 25, amber_time: 3, all_red_time: 2 },
+      },
+      {
+        type: "setPhaseTiming",
+        id: "N1",
+        phase: "P1",
+        timing: { duration: 30, amber_time: 3, all_red_time: 2 },
+      },
+    );
+    expect(plan(state).phases[0].duration).toBe(30);
+
+    const once = reducer(state, { type: "undo" });
+    expect(plan(once).phases[0].duration).toBe(25);
+
+    const twice = reducer(once, { type: "undo" });
+    expect(plan(twice).phases[0].duration).toBe(20);
+  });
+
+  /**
+   * OQ-1: a hand-edited or foreign file may arrive with stages that do not sum to
+   * its `cycle_time`. Import does not touch it, and neither does reading it — the
+   * document holds the file's own number until the **first plan edit**, which
+   * recomputes. Normalizing on load would make every such file round-trip
+   * *changed*, which is how a round-trip claim rots.
+   */
+  it("leaves an imported plan's own cycle time alone until the first edit", () => {
+    const raw: RawDocument = {
+      schema_version: SCHEMA_VERSION,
+      metadata: { name: "foreign" },
+      nodes: [{ id: "N1", type: "junction" }],
+      junctions: [
+        {
+          node_id: "N1",
+          control: "signal",
+          signal_plan: {
+            cycle_time: 99,
+            offset: 0,
+            phases: [
+              { id: "P1", duration: 20, amber_time: 3, all_red_time: 2 },
+            ],
+          },
+        },
+      ],
+    };
+    const loaded = run(initialState(), {
+      type: "loadDocument",
+      doc: raw,
+      path: "/foreign.zkai",
+    });
+    expect(plan(loaded).cycle_time).toBe(99);
+
+    const edited = reducer(loaded, {
+      type: "setPhaseTiming",
+      id: "N1",
+      phase: "P1",
+      timing: { duration: 25, amber_time: 3, all_red_time: 2 },
+    });
+    expect(plan(edited).cycle_time).toBe(30);
   });
 });

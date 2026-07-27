@@ -1,22 +1,28 @@
 # Junctions
 
 What a junction *means*, as opposed to what it looks like: `Junction.control`,
-`Junction.rule`, and — from Phase 2 onward — the turn movements through it.
+`Junction.rule`, the turn movements through it, and its fixed-time signal plan.
 Frontend only. `Junction`, `JunctionControl`, `UnsignalizedRule`, `Movement`,
 `Phase` and `SignalPlan` have all been in both mirrors since the first commit, so
 nothing here crosses IPC on new terms, reaches disk in a new shape, or moves
 `SCHEMA_VERSION` (still **2**). The design rationale lives in
-`specs/junction_semantics_spec.md`; hand-maintained.
+`specs/junction_semantics_spec.md` and `specs/signal_plans_spec.md`;
+hand-maintained.
 
-**Build state: the spec is complete** (all four phases). `control`, `rule` and
-`movements` are written, read, **drawn**, and derivable in one click.
-`Junction.signal_plan` is still what it has always been — **a field nothing
-reads** — and so are `Movement`'s `from_lanes`/`to_lanes` and the three the
-`network.yaml` reader added beside them, `priority`/`yields_to`/`lane_mapping`.
-Do not treat their presence in `src/model/types.ts` as evidence anything consumes
-them. All six are *carried* rather than dead: the importer writes them and a
-future writer reads them back (`rules/network-yaml.md`). Nothing in this
-subsystem does either.
+**Build state: junction semantics is complete** (all four phases) and **signal
+plans is at Phase 1 of 4**. `control`, `rule` and `movements` are written, read,
+**drawn**, and derivable in one click; `signal_plan` is written and read — the
+panel shows the cycle, the offset and every stage's three times — but **which
+movements run in a stage is Phase 2**, so `Phase.green_movements` and
+`Phase.permitted_movements` are still carried rather than edited, and nothing
+draws a plan yet (Phase 3).
+
+What remains a field nothing reads: `Movement`'s `from_lanes`/`to_lanes` and the
+three the `network.yaml` reader added beside them,
+`priority`/`yields_to`/`lane_mapping`. Do not treat their presence in
+`src/model/types.ts` as evidence anything consumes them. All five are *carried*
+rather than dead: the importer writes them and the writer reads them back
+(`rules/network-yaml.md`). Nothing in this subsystem does either.
 
 ## The three parts of a junction, and which layer owns each
 
@@ -86,22 +92,30 @@ and leave the control unsignalized. The nudge makes the common case correct with
 nothing to read; it does not make the contradiction unrepresentable, because
 representing it is sometimes right.
 
-## The five actions
+## The twelve actions
 
 | Action | Shape it copies | Note |
 |---|---|---|
-| `setJunctionControl(id, control)` | `setMarkingKind` (guard) + `setJunctionView` (the nudge) | clears `rule` going to `signal`; moves a default glyph |
+| `setJunctionControl(id, control)` | `setMarkingKind` (guard) + `setJunctionView` (the nudge) | clears `rule` going to `signal` **and `signal_plan` coming back**; moves a default glyph |
 | `setJunctionRule(id, rule?)` | `setSignLink` | `rule` absent clears the key |
 | `addMovement(id, from, to)` | `setLinkLanes` (minted from the panel, not a gesture) | mints `M_<from>_<to>`, classified by `movementKind` |
 | `deleteMovement(id, movement)` | — | the last one takes the `movements` key with it |
 | `setMovementKind(id, movement, kind)` | `setLaneKind` | the hand override |
+| `deriveMovements(id)` | — | every legal turn at once, less the u-turns |
+| `createSignalPlan(id)` | `addMovement` (the duplicate check) | **the one action here that guards on a sibling field** |
+| `removeSignalPlan(id)` | `setSignLink` | drops the key; deliberately does *not* guard on `control` |
+| `addPhase(id)` | `setLinkLanes` | one more `seedPhase`, ids from `nextId(…, "P")` |
+| `deletePhase(id, phase)` | `deleteMovement` | the last one leaves a plan with `phases: []` |
+| `setPhaseTiming(id, phase, timing)` | `setMarkingKind` (whole payload) | all three times at once |
+| `setPlanOffset(id, offset)` | `setJunctionScale` | the one number that is not about this junction |
 
-All five are **deliberate clicks**, so none appears in `coalesceKeyFor` and each is
-its own undo step (`rules/history.md`).
+All twelve are **deliberate clicks**, so none appears in `coalesceKeyFor` and each
+is its own undo step (`rules/history.md`) — the plan's four steppers included, on
+the Lanes and Size steppers' rule.
 
-The three movement actions take the **junction node** as `id` and the movement as a
-second field — `setLaneKind`'s shape, because a movement lives inside a `Junction`
-the way a lane lives inside a `Link`.
+The movement and phase actions take the **junction node** as `id` and the movement
+or stage as a second field — `setLaneKind`'s shape, because both live inside a
+`Junction` the way a lane lives inside a `Link`.
 
 **`rule` is an absent key, never `undefined`** — the one-representation rule
 `Lane.kind`, `LinkView.align`, `Marking.lane` and `Sign.associated_link` all
@@ -110,11 +124,19 @@ drop it by destructuring rather than assigning `undefined`. "None" in the panel 
 the only route to that state from the UI; a field nothing can clear is a field
 only a hand-edited file can clear.
 
-**Clearing `rule` is `setJunctionControl`'s job, and only in one direction.**
-Going to `signal` drops it, because `graph.rs` says `rule` is `None` when
-signalized. Coming *back* keeps whatever is there — at that point only a
-hand-edited file has one, and inventing or destroying a value is worse than
-carrying it.
+**Clearing the field the target state forbids is `setJunctionControl`'s job, and
+each direction clears exactly one.** Going to `signal` drops `rule`, because
+`graph.rs` says it is `None` when signalized; coming back to `unsignalized` drops
+`signal_plan`, because `graph.rs` says *that* is `None` unless signalized.
+
+The two are **not** symmetric, and the asymmetry is worth keeping straight. A
+`rule` left behind by the flip *back* is carried rather than destroyed, because at
+that point only a hand-edited file has one and inventing or destroying a value is
+worse than carrying it — a stray rule is inert. A `signal_plan` left behind is
+**not** inert: Assimilator enters its cycle-time rule on any plan present, with no
+`control` check, so a plan surviving the flip is a file that can fail to load.
+That was a live bug until signal plans Phase 1 — the branch read `{ ...j, control }`
+and dropped nothing.
 
 **`setJunctionRule` deliberately says nothing about `control`.** A rule on a
 signalized junction is meaningless, but the *panel* is what withholds the row —
@@ -123,6 +145,20 @@ encoding a sibling field's state into an action that does not own it makes the
 same value legal or illegal depending on something the action never touches.
 `setJunctionControl` is the one place the two fields meet, because there the
 change *is* to `control`.
+
+**`createSignalPlan` does the opposite, and the departure is principled rather
+than inconsistent.** It returns `state` by identity unless `control === "signal"`,
+and the difference from `rule` is the one above: a stray rule is inert, a stray
+plan is validated. `graph.rs` already claimed the field is "`None` unless
+signalized"; that action is what makes the claim true rather than aspirational.
+The panel withholds the section as well — **both, not either**, exactly as the
+Rule row is withheld *and* `setJunctionControl` clears the field.
+
+The other five plan actions guard on the **plan**, not on `control`. Between
+`createSignalPlan` and `setJunctionControl` an unsignalized junction has none to
+act on, and restating the check five more times would be the sibling-field mistake
+again. `removeSignalPlan` in particular must not guard: on an unsignalized
+junction carrying a plan from a hand-edited file, it is the only repair there is.
 
 ### Two identity returns, both reachable
 
@@ -228,13 +264,22 @@ deleted node's own record goes whole, and then the `dropped` set that arm alread
 builds cleans its incident links out of any neighbour that permitted a turn onto
 one.
 
-### An empty list is an absent key
+### An empty list is an absent key — except the one that is not
 
 `withMovements` states it once: `movements: []` is never stored. Rust elides an
 empty vec (`skip_serializing_if = "Vec::is_empty"`), so the two encodings save to
 the same bytes while differing by document identity — the one-representation rule
 `rule`, `lane` and `associated_link` all follow. Deleting the last movement, and a
 cascade that strands every one, both leave no key behind.
+
+`withSignalPlan` is its twin and states the same rule for `signal_plan`: removed
+means **no key**, never a stored `undefined`. But the rule stops at the plan and
+does **not** reach inside it. `SignalPlan.phases` carries no `skip_serializing_if`
+and no `serde(default)`, so a plan with no stages keeps `phases: []` — dropping
+that key writes a file Rust cannot deserialize. Deleting the last stage therefore
+leaves a real plan with an empty list and a `cycle_time` of 0, which is OQ-7's
+answer: Remove is an explicit control, and auto-removing would make its job
+ambiguous.
 
 ### Derive — every legal turn at once, less the u-turns
 
@@ -270,6 +315,70 @@ second statement of the rule in the file least able to test it. Note that it is
 *not* `addable.length` — a junction with every crossing turn permitted still has
 u-turns left to *add* and nothing left to derive.
 
+## The signal plan
+
+A fixed-time plan is a **table, not a picture**: a cycle, an offset, and a list of
+stages, each with a green, an amber and an all-red. `SignalPlan` and `Phase` have
+been in both mirrors since the first commit; Phase 1 is the first thing that reads
+either.
+
+### `cycle_time` is derived, never typed
+
+Assimilator validates that every stage's `duration + amber_time + all_red_time`
+sums to `cycle_time`, within 0.01 s — and validates it at **load**, not at the
+keystroke. An editor that lets a human type the number therefore lets them write a
+file the other program refuses, and refuses late.
+
+So the number is not typed and checked afterwards. **`replan(phases, offset)` is
+the only place `cycle_time` is ever written**, and every plan action goes through
+it. The panel shows the cycle as a `.readout` and offers no input for it. That is
+markings' rule collecting again — *containment is a property of the tiling, not a
+clamp applied to it* — and it means the validation rule cannot be broken by
+anything a user does here, so no phase of this spec needs a validation pass.
+
+**A constructor rather than a `cycleTime(phases)` query**, which is where the spec
+named it. Every action has the *new* phases before it has a plan, so a query
+forces each caller to build a plan carrying the **old** cycle and then patch it —
+one forgotten line from the state the design exists to forbid. `setPlanOffset` is
+the caller that would have been forgotten: nothing about its stages changed, and
+it still has to recompute, because an imported plan's number is only repaired by
+the first edit (OQ-1). It passes `plan.phases` **by identity**, so the plan is
+rebuilt and the stage list is not.
+
+### What a fresh plan contains
+
+`seedPhase` — 20 s green, 3 s amber, 2 s all-red, and **no movements at all**, so
+neither `green_movements` nor `permitted_movements` is written. `createSignalPlan`
+is `planWithPhase(EMPTY_PLAN)` and `addPhase` is `planWithPhase(plan)`, so §2.7's
+25 s cycle is a *consequence* rather than a second copy of three numbers.
+
+That makes a new plan an **all-red junction**, deliberately useless and
+deliberately honest. Seeding every movement protected in one stage would produce a
+plan that runs and is *wrong* — every conflicting stream with right of way at
+once. A useless plan the panel visibly nags about beats a plausible plan that lies.
+
+The 3 and the 2 are **Zukai's own serde defaults** (`graph.rs`), *not*
+Assimilator's, whose `amber_time`/`all_red_time` carry no default and are
+required. They are reused because they match what `cross-4` actually writes, which
+is a weaker claim than "the format's defaults" and the accurate one.
+
+A stage id is `nextId(plan.phases.map(p => p.id), "P")` — over **that plan's own**
+phases, so `P1`/`P2` continue within a junction, two junctions each start at `P1`,
+and a delete cannot make the next stage collide with a survivor.
+
+### Nothing is clamped
+
+The four steppers **disable** at their bounds and the reducer stores what it is
+handed — `SignKph`'s rule ("the panel says what the sign can carry"), not
+`setJunctionScale`'s. Here it matters more than usual, because `setPhaseTiming`
+carries all three of a stage's numbers: a reducer-side clamp would rewrite a
+foreign file's 200 s green on a click aimed at its amber, and rewriting a number
+the user did not ask us to touch is how a round-trip claim rots (OQ-1).
+
+`PHASE_GREEN`, `PHASE_INTERGREEN` and `PLAN_OFFSET` therefore live beside `KPH` in
+`Inspector.tsx` rather than being exported from the reducer. Both ends sit **on
+the step grid**, so the seeded 20 and `cross-4`'s 25 are both reachable.
+
 ## The panel
 
 `JunctionFields` (`components/Inspector.tsx`) renders, in this order:
@@ -281,11 +390,29 @@ u-turns left to *add* and nothing left to derive.
 3. **Movements** — `MovementRows` (or a `.readout` reading `None`), then the
    **Derive all turns** button;
 4. **Add movement** — `MovementAdd`, only while some legal pair is unclaimed;
-5. **Glyph**, 6. **Size** — as before.
+5. **Signal plan** — `SignalPlanFields`, only while `control === "signal"`;
+6. **Glyph**, 7. **Size** — as before.
 
 Semantics above presentation, which also puts the nudge's cause above its visible
 effect. `segmented-labels` is load-bearing: `.seg` sets
 `text-transform: capitalize`, which would render "All-way Stop".
+
+**The plan sits below the movements rather than beside Control**, though it is the
+signalized twin of the Rule row: a stage is *about* the movements, so Phase 2's
+per-stage rows have to read under the list they name — and putting it there keeps
+Movements and Add movement adjacent.
+
+**Create plan hides once spent; Derive greys instead.** The two diverge for the
+reason Derive and Add already do: Derive's spent state is invisible, so hiding it
+would hide the answer, while Create's spent state *is* the plan rendered in its
+place. A plan with no stages says `No stages` — reachable, so it has to say
+something.
+
+**`SecondsStepper` is `SignKph`'s stepper with the label beside it**, and the
+label is why: three bare steppers need about 300 px and the panel has 248. It
+takes a *setter* rather than building the action, because a timing stepper cannot
+dispatch alone — only `PhaseRow` holds the other two numbers. `secs()` is display
+only; the stored number is never rounded.
 
 `RULES` is a segmented row rather than `SignLink`'s `<select>` because the
 discriminator that control's own comment gives is *where the options come from* —
@@ -410,6 +537,10 @@ pad, which is already inside the frame.
 | `findJunction` | `src/model/document.ts` |
 | `setJunctionControl`, `setJunctionRule`, `nudgedGlyph` | `src/editor/state.ts` |
 | `addMovement`, `deleteMovement`, `setMovementKind`, `deriveMovements`, `withMovements`, `dropMovements` | `src/editor/state.ts` |
+| `createSignalPlan`, `removeSignalPlan`, `addPhase`, `deletePhase`, `setPhaseTiming`, `setPlanOffset` | `src/editor/state.ts` |
+| `replan`, `withSignalPlan`, `EMPTY_PLAN`, `seedPhase`, `planWithPhase`, `PhaseTiming` | `src/editor/state.ts` |
+| `SignalPlanFields`, `PhaseRow`, `SecondsStepper`, `secs`, `PHASE_GREEN`, `PHASE_INTERGREEN`, `PLAN_OFFSET` | `src/components/Inspector.tsx` |
+| `.plan-*` (four rules shared with `.movement-*` by comma) | `src/styles.css` (chrome) |
 | `movementId`, `movementKind`, `legalMovements`, `derivableMovements`, `armDirection` | `src/editor/geometry.ts` |
 | `MovementEnd`, `MovementArc`, `movementArc`, `movementPath` | `src/editor/geometry.ts` |
 | `CONTROLS`, `RULES`, `MOVEMENT_KINDS`, `JunctionFields`, `MovementRows`, `MovementAdd` | `src/components/Inspector.tsx` |
@@ -437,11 +568,21 @@ derivation.
 
 ## Still unbuilt
 
-The spec is closed; what follows was cut from it by decision, not left undone.
+The junction-semantics spec is closed and what it cut is below. The signal-plans
+spec is **open at Phase 2**, so the first three entries are scheduled work rather
+than decisions.
 
-- **Signal plans are cut entirely** and deferred to a follow-up spec: a fixed-time
-  plan is a table, not a picture, and the one drawable part (which movements share a
-  stage) needed movements to exist first.
+- **Which movements run in a stage** — the protected/permitted/off tri-state, and
+  `setPhaseMovement` (signal plans Phase 2). Until it lands, a stage authored here
+  carries no movement ids, and `green_movements`/`permitted_movements` survive
+  only because `setPhaseTiming` never names them.
+- **Two cascades are still live bugs.** `deleteMovement` and `dropMovements` purge
+  a movement from `j.movements` and **not** from any stage that names it, so an
+  imported plan can be left with a dangling id — which Assimilator rejects
+  outright. Phase 1 does not make it worse (a plan it can author names nothing),
+  and Phase 2's shared `purgeMovements` is the fix. This is the **fourth** answer
+  the cascade table above will need.
+- **Nothing draws a plan** (Phase 3), and nothing derives one (Phase 4).
 - **`Movement.from_lanes`/`to_lanes` stay empty**, and a lane-pair matrix at a
   4-arm junction is still a large editor for something the schematic does not
   show. But the old gloss — "Assimilator accepts that" — needs one correction,

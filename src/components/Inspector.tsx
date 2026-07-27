@@ -29,9 +29,11 @@ import {
   Node,
   NodeId,
   NodeKind,
+  Phase,
   Sign,
   SignId,
   SignKind,
+  SignalPlan,
   TurnDirection,
   UnsignalizedRule,
 } from "../model/types";
@@ -41,7 +43,7 @@ import {
   movementId,
   MovementPair,
 } from "../editor/geometry";
-import { Action, EditorState } from "../editor/state";
+import { Action, EditorState, PhaseTiming } from "../editor/state";
 
 interface InspectorProps {
   state: EditorState;
@@ -235,6 +237,29 @@ const MOVEMENT_KINDS: { value: MovementKind; label: string }[] = [
   { value: "right", label: "Right" },
   { value: "u-turn", label: "U-turn" },
 ];
+/**
+ * What a stage's green may be, and the step the panel walks it by — {@link KPH}'s
+ * table for {@link SecondsStepper}'s four uses.
+ *
+ * Both ends sit **on the step grid**, so both are reachable from the seeded 20 s
+ * and so is `cross-4`'s 25. 5 s is the shortest credible green; 120 s is longer
+ * than any fixed-time green in service, so the ceiling is a guard rail rather than
+ * a road rule.
+ */
+const PHASE_GREEN = { min: 5, max: 120, step: 5 };
+/**
+ * What a stage's amber and all-red may be — **one table, because they are one
+ * control**: both are clearance intervals, both step by the second, and both may
+ * be 0, which is a real plan rather than a degenerate one. Zukai's own 3 s and 2 s
+ * defaults sit inside it, and so does everything `cross-4` writes.
+ */
+const PHASE_INTERGREEN = { min: 0, max: 10, step: 1 };
+/**
+ * What a plan's offset may be. Meaningful only against a corridor Zukai does not
+ * represent (§2.8, OQ-5), so the ceiling is a guard rail: 240 s is longer than any
+ * cycle a fixed-time plan runs.
+ */
+const PLAN_OFFSET = { min: 0, max: 240, step: 5 };
 
 export function Inspector({ state, dispatch }: InspectorProps) {
   const { doc, selection } = state;
@@ -1189,6 +1214,21 @@ function JunctionFields({
         </Field>
       )}
 
+      {/* Withheld unless signalized, the way the Rule row above is withheld while
+          it is — and here the *action* guards too, because a stray plan is not
+          inert the way a stray rule is (signal plans §2.3.1). Below the movements
+          rather than beside Control, because a stage is *about* them: Phase 2's
+          per-stage rows have to read under the list they name. */}
+      {junction?.control === "signal" && (
+        <Field label="Signal plan">
+          <SignalPlanFields
+            node={node.id}
+            plan={junction.signal_plan}
+            dispatch={dispatch}
+          />
+        </Field>
+      )}
+
       <Field label="Glyph">
         <div className="segmented segmented-wrap">
           {GLYPHS.map((g) => (
@@ -1372,6 +1412,210 @@ function MovementAdd({
       </button>
     </div>
   );
+}
+
+/**
+ * The stages a signalized junction cycles through — the first thing in the project
+ * to read `Junction.signal_plan`, a field in both mirrors since the first commit
+ * that nothing consulted (signal plans §1).
+ *
+ * **The cycle is a readout, and there is deliberately no input for it.** It is the
+ * sum of every stage's green, amber and all-red; Assimilator refuses a plan whose
+ * stages do not sum to it, and refuses at *load* rather than at the keystroke, so
+ * the invalid state is made unrepresentable instead of validated afterwards
+ * (§2.2). Every action below recomputes it.
+ *
+ * A stage is not an object on the canvas — no tool, no `Selection` arm, and remove
+ * is a per-row button — which is a `Movement`'s posture for a `Movement`'s reason.
+ */
+function SignalPlanFields({
+  node,
+  plan,
+  dispatch,
+}: {
+  node: NodeId;
+  plan: SignalPlan | undefined;
+  dispatch: (action: Action) => void;
+}) {
+  // Hidden once there is a plan, unlike Derive beside it: Derive's spent state is
+  // invisible so it greys instead, while this button's spent state *is* the plan
+  // rendered in its place.
+  if (!plan) {
+    return (
+      <>
+        <div className="readout">None</div>
+        <button
+          className="plan-create-btn"
+          onClick={() => dispatch({ type: "createSignalPlan", id: node })}
+        >
+          Create plan
+        </button>
+      </>
+    );
+  }
+
+  return (
+    <div className="plan">
+      <div className="plan-head">
+        <span className="readout plan-cycle">cycle {secs(plan.cycle_time)} s</span>
+        <button
+          className="plan-remove-btn"
+          onClick={() => dispatch({ type: "removeSignalPlan", id: node })}
+        >
+          Remove plan
+        </button>
+      </div>
+
+      <SecondsStepper
+        label="Offset"
+        value={plan.offset}
+        bounds={PLAN_OFFSET}
+        onSet={(offset) => dispatch({ type: "setPlanOffset", id: node, offset })}
+      />
+
+      <div className="plan-stages">
+        {/* Deleting the last stage leaves the plan standing at a zero cycle —
+            Remove is explicit, and auto-removing would make its job ambiguous
+            (OQ-7). So this state is reachable and has to say something. */}
+        {plan.phases.length === 0 && <div className="readout">No stages</div>}
+        {plan.phases.map((p) => (
+          <PhaseRow key={p.id} node={node} phase={p} dispatch={dispatch} />
+        ))}
+      </div>
+
+      <button
+        className="plan-stage-add"
+        onClick={() => dispatch({ type: "addPhase", id: node })}
+      >
+        Add stage
+      </button>
+    </div>
+  );
+}
+
+/**
+ * One stage: which it is, the way to withdraw it, and its three times.
+ *
+ * All three steppers dispatch **one** `setPhaseTiming` carrying the whole triple,
+ * on {@link MarkingKindPicker}'s whole-payload precedent — so the row owns the two
+ * values a stepper did not move, and the reducer needs neither an action per field
+ * nor a merge.
+ */
+function PhaseRow({
+  node,
+  phase,
+  dispatch,
+}: {
+  node: NodeId;
+  phase: Phase;
+  dispatch: (action: Action) => void;
+}) {
+  const timing: PhaseTiming = {
+    duration: phase.duration,
+    amber_time: phase.amber_time,
+    all_red_time: phase.all_red_time,
+  };
+  const set = (moved: Partial<PhaseTiming>) =>
+    dispatch({
+      type: "setPhaseTiming",
+      id: node,
+      phase: phase.id,
+      timing: { ...timing, ...moved },
+    });
+
+  return (
+    <div className="plan-stage">
+      <div className="plan-stage-head">
+        <span className="plan-stage-id">{phase.id}</span>
+        <button
+          className="plan-stage-del"
+          title={`Remove ${phase.id}`}
+          onClick={() =>
+            dispatch({ type: "deletePhase", id: node, phase: phase.id })
+          }
+        >
+          ×
+        </button>
+      </div>
+      <SecondsStepper
+        label="Green"
+        value={timing.duration}
+        bounds={PHASE_GREEN}
+        onSet={(duration) => set({ duration })}
+      />
+      <SecondsStepper
+        label="Amber"
+        value={timing.amber_time}
+        bounds={PHASE_INTERGREEN}
+        onSet={(amber_time) => set({ amber_time })}
+      />
+      <SecondsStepper
+        label="All-red"
+        value={timing.all_red_time}
+        bounds={PHASE_INTERGREEN}
+        onSet={(all_red_time) => set({ all_red_time })}
+      />
+    </div>
+  );
+}
+
+/**
+ * A labelled number of seconds — {@link SignKph}'s stepper with the label beside
+ * it rather than above, because the panel is 248px wide inside its padding and
+ * three bare steppers across need about 300.
+ *
+ * Both ends are **disabled rather than clamped**, {@link SignKph}'s rule and its
+ * reason: the panel says what a stage can carry. Here that matters more than
+ * usual, because `setPhaseTiming` carries all three numbers — a reducer-side clamp
+ * would rewrite an imported plan's 200 s green on a click aimed at its amber, and
+ * rewriting a number the user did not touch is how a round-trip claim rots (OQ-1).
+ *
+ * It takes a setter rather than building the action, because a timing stepper
+ * cannot dispatch alone: only {@link PhaseRow} holds the other two values.
+ */
+function SecondsStepper({
+  label,
+  value,
+  bounds,
+  onSet,
+}: {
+  label: string;
+  value: number;
+  bounds: { min: number; max: number; step: number };
+  onSet: (next: number) => void;
+}) {
+  return (
+    <div className="plan-row">
+      <span className="plan-row-label">{label}</span>
+      <div className="stepper">
+        <button
+          onClick={() => onSet(value - bounds.step)}
+          disabled={value <= bounds.min}
+        >
+          −
+        </button>
+        <span className="stepper-value">{secs(value)} s</span>
+        <button
+          onClick={() => onSet(value + bounds.step)}
+          disabled={value >= bounds.max}
+        >
+          +
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Seconds as the panel writes them: whole where they are whole, so a 25 s green
+ * does not read as "25.0" while a foreign file's 2.5 s amber still reads as
+ * itself — and a cycle that summed to 27.299999999999997 reads as 27.3.
+ *
+ * Display only. The **stored** number is never rounded: Assimilator's tolerance is
+ * 0.01 s, and correcting a value nobody asked us to touch is OQ-1's own argument.
+ */
+function secs(v: number): string {
+  return Number.isInteger(v) ? `${v}` : v.toFixed(1);
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
