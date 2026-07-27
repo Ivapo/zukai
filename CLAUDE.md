@@ -84,7 +84,7 @@ phase from a spec still `status: draft`** — it must pass the review loop
   right-of-way rule, and the turn movements through it (implemented; 4 phases)
 - `specs/network_yaml_spec.md` — import and export Assimilator's `network.yaml`:
   the serde mirror, the two directions and their asymmetry, and the four
-  `#[serde(default)]` fields that fail silently (Phases 1–2 of 4 implemented)
+  `#[serde(default)]` fields that fail silently (Phases 1–3 of 4 implemented)
 
 **`rules/` — current-state reference (the *what is*).** Terse, authoritative maps
 of subsystems, read on demand. Unlike specs, rules describe the code as it is now;

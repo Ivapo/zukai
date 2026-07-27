@@ -6,10 +6,12 @@ format Zukai reads that Zukai does not own. Nothing here moves `SCHEMA_VERSION`
 Zukai's *own* YAML, a different format with a different owner. The design
 rationale lives in `specs/network_yaml_spec.md`; hand-maintained.
 
-**Build state: Phase 2 of 4.** The format is **read**, and a real file now
-reaches the editor: a serde mirror, a version probe, `network_to_document`, the
-`import_network` command and a File ▸ Import network… menu item. **No writer** —
-nothing in Zukai can produce a `network.yaml` yet. `Movement` gained `priority`,
+**Build state: Phase 3 of 4.** The format is **read and written**: a serde
+mirror, a version probe, `network_to_document`, the `import_network` command, a
+File ▸ Import network… menu item — and now `document_to_network`,
+`document_to_yaml` and the `export_network` command. What is missing is only the
+way to *reach* the writer: no menu item, no dialog, and no run of an exported
+file through Assimilator's own simulator. `Movement` gained `priority`,
 `yields_to` and `lane_mapping` in Phase 1; they are **carried, never edited**,
 joining `Junction.signal_plan` and `Movement.from_lanes`/`to_lanes` on the list
 of fields whose presence in `src/model/types.ts` is not evidence that anything
@@ -35,7 +37,7 @@ the parsed `Value` and **strips it** before typed deserialization, so every one 
 its loaders sees a document without one. `CLAUDE.md`'s "the coupling point is the
 documented, `schema_version`-keyed file format" is correct as written.
 
-Three consequences, all in `network/mod.rs`:
+Four consequences, three of them in `network/mod.rs`:
 
 - `parse_network` probes the version first, `persist.rs`'s `VersionProbe` shape
   with one difference that is load-bearing: **the field is an `Option`**.
@@ -48,6 +50,11 @@ Three consequences, all in `network/mod.rs`:
 - `ASSIMILATOR_SCHEMA_VERSION = 1` is **a hand copy, not a derivation** — read
   from `crates/config/src/version.rs` at commit `d79c32d` on **2026-07-26**. It is
   the one number here that can rot silently, so the date travels with it.
+- The writer stamps it as a **text prefix**, in `document_to_yaml`, not as a
+  struct field: `format!("schema_version: {…}\n{body}")`. Giving `NetworkFile` a
+  field to match would break the mirror, and omitting the key is legal *today*
+  only — it becomes a hard error the moment that constant reaches 2, which is a
+  file that arrives already deprecated. The stamp is above serde on both sides.
 
 ## Optionality follows Assimilator's source, not Zukai's model
 
@@ -71,7 +78,15 @@ thing in this spec. Assimilator's own editor really does write `from_lanes: []`
 for a u-turn — `cross-4` has four — so an empty list is correct *data*; what is
 fatal is `skip_serializing_if`, which omits the key rather than writing `[]`.
 `graph.rs`'s doc-comment now says so. Its attribute stays, because `.zkai` has no
-reason to carry empty lists; the writer overrides it.
+reason to carry empty lists; the writer overrides it by going **through the
+mirror**, whose bare fields cannot elide.
+
+One corollary about the attribute the two sides *do* differ on. The mirror rule
+governs `default` — what a reader must accept. `skip_serializing_if` is a
+separate, write-side choice, set independently: every `Option` in the mirror
+skips when absent (Assimilator's own files carry no `rule:` on a signalized
+junction, and `rule: null` reads as a bug), while every **bare** field must never
+gain one. Confusing the two is how `from_lanes` breaks.
 
 ## The enums are shared, and one test is what keeps that honest
 
@@ -95,7 +110,10 @@ become `u_turn`** — that spelling belongs to `TurnDirection`, which is paint.
 
 ## The scale, and the y that is a compass bearing
 
-`metres_to_canvas` is the one conversion, and it does two things:
+`metres_to_canvas` and `canvas_to_metres` are the only two conversions, and they
+sit beside each other in `mod.rs` rather than one per direction's module — the
+scale and the handedness are a single decision, and a writer free to re-derive
+either would be free to disagree with the reader. Each does two things:
 
 - **Scale by `UNITS_PER_METRE`** = `9 / 3.5`, a hand-mirror of
   `src/editor/geometry.ts`'s constant. Rust has neither half — `LANE_PX` never
@@ -112,9 +130,20 @@ here names a **compass bearing** rather than a sign —
 `the_southern_node_seeds_a_positive_canvas_y` — the same treatment `movementKind`
 gets in `rules/junctions.md` for the same trap.
 
+They are inverses to within a rounding step, not to the bit — `x * K / K` is two
+operations, each free to round once — so a test comparing a coordinate across a
+round trip names a tolerance (a micrometre) rather than hoping for `==`.
+
 Note what the scale means in practice: a 500 m arm arrives 1285 canvas units long
 against a 9-unit lane. That is **true to life and wrong for a schematic**, and it
-is the intended outcome.
+is the intended outcome. Phase 3 looked for a better constant and found that
+**none exists**: the same 2.571 u/m that makes `t_junction`'s 500 m arm unusable
+(143 lane-widths) leaves `cross-4`'s 100 m arms at a perfectly legible 28, and a
+constant small enough to fix the first shrinks the second below its own road
+width. A fixed number is now disproven rather than merely doubted, which leaves
+fit-to-extent — a factor **stored per document**, so the two directions stay
+inverses — as the only live answer, and that is a `SCHEMA_VERSION` bump for a
+later spec (spec OQ-2).
 
 ## What import throws away, and the one thing it demotes
 
@@ -136,6 +165,13 @@ is the intended outcome.
   flags (a file prohibiting a lane change comes back permitting it),
   `turn_speed` and `control_points` (tuned against real geometry Zukai does not
   have), and the four instrumentation blocks.
+- **`lateral_offset` belongs on that list too**, and it is the one the spec's
+  §2.3.3 audit did not name. The mirror *reads* it, but nothing carries it into
+  the `Document` — so a file with `lateral_offset: 2.0` comes back at whatever
+  `LinkAlign` derives, which for a freshly imported link is **0**. Same shape as
+  node `z`: parses cleanly, changes where the road is, no error. Not fixed
+  because the honest fix is a metres→`align` inference that is lossy in the other
+  direction; recorded here so it is a known cost and not a discovery.
 - **The only error is a non-`metric` `coordinate_system`** — and the check must
   not fire on an **absent** key, which `#[serde(default = "default_coordinate_system")]`
   already reads as metric. Both halves are tested. Past that a malformed file
@@ -160,6 +196,63 @@ Zukai round-trips; **dropped** if Assimilator recomputes it from data Zukai does
 supply, or if it is simulation instrumentation. Neither bucket implies an editor.
 A field in *neither* bucket is a bug, not an omission — spec §2.3.3 enumerates all
 62 against source.
+
+## What export has to invent, and the two offsets it must not
+
+Import discards; export **synthesizes**, because `LinkConfig.geometry` and
+`NodeConfig.point` are both required and a schematic has neither. That asymmetry
+is the whole design: an unsaveable `.zkai` is loud, while a `network.yaml` Zukai
+writes happily and Assimilator refuses is silent until someone runs it.
+
+**The polyline is built from the nodes, never from the drawing.** `linkPolyline`
+— node position, bends, node position — not `drawnPolyline`, which is that
+stepped sideways by two lateral terms:
+
+| Term | Where it comes from | Why it must not be baked in |
+|---|---|---|
+| carriageway offset | `carriageways()`, from `median_gap` | Assimilator offsets each link by `median_gap / 2` itself |
+| alignment | `alignmentShift()`, from `LinkView.align` | Assimilator applies `lateral_offset` itself |
+
+Exporting the drawn polyline would therefore **double-offset every two-way road**.
+Both are handed over as *values* instead. A useful side effect of building from
+the nodes: the polyline's ends land exactly on them, so validation rule 5 (within
+1 m) holds by construction rather than by care.
+
+`lateral_offset` is derived from `align` — `nearside → −(Σ lane widths)/2`,
+`offside → +that` — in **metres**, not from `alignmentShift`'s canvas value. The
+signs already agree: a positive `lateral_offset` and a positive canvas shift both
+mean *right of the direction of travel* (`geometry.ts`'s `DRIVE_SIDE` derives
+that from SVG's y-down axis). What the canvas value folds in and metres must not
+is `ROAD_MARGIN` (a three-unit casing lip) and the class width factor — both
+exist to make a drawing legible and mean nothing surveyed.
+
+**The three lane cases**, per list, each against its own link, and the only place
+the writer decides anything:
+
+1. **non-empty in the model** → verbatim, which is what makes a round trip exact;
+2. **empty on a `u-turn`** → `[]`, matching what Assimilator's editor writes;
+3. **empty on anything else** → every lane index. `[]` here would be a lie — the
+   field means "lanes that can use this movement" — and it defeats Assimilator's
+   positional `lane_mapping` computation, the thing that makes carrying no lane
+   detail survivable at all.
+
+Case 3 counts the link's lanes rather than reading their declared `id:`s, so
+validation rule 3 (indices in range) cannot be broken by a hand-edit. Unequal
+lane counts are fine and left alone: 2 lanes into 1 gives `[0, 1]` → `[0]`, and
+export invents no `lane_mapping` to paper over the orphan.
+
+**A node with no layout entry exports at the origin.** Refusing the whole
+document would punish a state a hand-edited `.zkai` can reach.
+
+**The gate is an audit, not a spot-check.** `comparable()` blanks `geometry` and
+rounds coordinates to a micrometre, then compares the *whole* re-parsed
+`NetworkFile` — so a field that stops round-tripping fails without anyone having
+remembered to assert it, and adding a field to `comparable` is an admission. Two
+mutations were run against it before the phase shipped: a `skip_serializing_if`
+on the mirror's `from_lanes` fails 7 tests, and un-negating the export's y fails
+5. The u-turn in the hand-built `authored()` document is load-bearing for the
+first — every other movement there is filled by case 3 and would be written
+either way.
 
 ## How a network reaches the editor
 
@@ -198,25 +291,30 @@ differences** — both following from the file belonging to another program:
 |---|---|
 | `NetworkFile` + the eight mirror structs | `src-tauri/src/network/mod.rs` |
 | `ASSIMILATOR_SCHEMA_VERSION`, `UNITS_PER_METRE` | `src-tauri/src/network/mod.rs` |
-| `VersionProbe`, `parse_network`, `metres_to_canvas` | `src-tauri/src/network/mod.rs` |
+| `VersionProbe`, `parse_network` | `src-tauri/src/network/mod.rs` |
+| `metres_to_canvas` **and** `canvas_to_metres`, side by side | `src-tauri/src/network/mod.rs` |
 | `network_to_document` and its three helpers | `src-tauri/src/network/import.rs` |
 | `import_network`, the command around it | `src-tauri/src/network/import.rs` |
+| `document_to_network`, `movement_lanes`, `lateral_offset` | `src-tauri/src/network/export.rs` |
+| `document_to_yaml` (the header stamp) and `export_network` | `src-tauri/src/network/export.rs` |
 | `importNetwork` (dialog + IPC), the `.yaml` filter | `src/editor/files.ts` |
 | the `importDocument` case and the `install` helper | `src/editor/state.ts` |
 | `MovementPriority`, `LaneMappingEntry`, the three carried fields | `src-tauri/src/model/graph.rs` |
 | the TypeScript mirror of those | `src/model/types.ts` |
 | the two fixtures + their provenance | `src-tauri/tests/fixtures/network/` |
 
-`import.rs` holds both the pure conversion and the I/O shell, and the module doc
-draws the line: `network_to_document` takes a parsed `NetworkFile` and touches no
-filesystem, so every test above reaches it with a `&str`. Phase 3's writer takes
-the same shape.
+`import.rs` and `export.rs` each hold both the pure conversion and the I/O shell,
+and their module docs draw the line: `network_to_document` and
+`document_to_network` touch no filesystem, so every test above reaches them
+without one.
 
-`mod network;` in `lib.rs` is **private again** as of this phase. Phase 1 needed
-`pub` only because nothing in the binary called into it, which left every item
-unreachable from the crate root and failed
-`cargo clippy --all-targets -- -D warnings` on `dead_code`; `import_network` is
-now that caller.
+`mod network;` in `lib.rs` is **private**, and both commands are registered in
+`generate_handler!`. That registration is not optional bookkeeping: an
+unregistered command in a private module is unreachable from the crate root and
+fails `cargo clippy --all-targets -- -D warnings` on `dead_code`, which is why
+`export_network` landed in Phase 3 with the writer rather than in Phase 4 with
+its menu item. Phase 1 needed `pub mod` for exactly the same reason, before
+`import_network` existed to be its caller.
 
 The fixtures are the **first checked-in test data in the repo**. They are loaded
 with `include_str!` from the inline `#[cfg(test)]` modules, so no
@@ -226,18 +324,19 @@ binary.
 
 ## Still unbuilt
 
-Everything after "read". By plan, not by omission:
+Everything between the writer and a user. By plan, not by omission:
 
-- **The writer.** `document_to_network` and `export_network` are Phase 3 — where
-  geometry must be *synthesized* from node positions and `bends` (never from
-  `drawnPolyline`, which has the carriageway offset and the alignment already
-  baked in, and Assimilator applies both itself), `schema_version: 1` gets stamped
-  as the first line, and the always-write rule for `from_lanes`/`to_lanes`/
-  `green_movements` finally has code depending on it.
 - **Export from the app.** The second menu item, the save dialog and the honesty
-  note about what is being dropped are Phase 4 — as is the only check that proves
-  the format claim: running an exported `cross-4` through Assimilator's own
-  simulator.
+  note about what is being dropped are Phase 4. So is the rule an export inherits
+  from `rules/diagram-export.md` — an export is not a document, so it must not set
+  `currentPath` or clear `dirty`.
+- **The only check that proves the format claim.** Nothing in this repo can run
+  Assimilator. `cargo test` shows the emitted file satisfies all seven of
+  `validation.rs`'s rules as Zukai understands them, which is not the same as
+  Assimilator agreeing: that needs an exported `cross-4` dropped into a copy of
+  its own scenario directory and run (`assimilator run --config …`), which works
+  because ids round-trip verbatim and its `demand.yaml` addresses nodes by id.
+  Phase 4, and it needs the human.
 - **Editing any of the carried fields.** No Inspector control for `priority`,
   `yields_to`, `lane_mapping` or signal plans. An authored priority junction
   therefore exports with every movement `major`, which the export dialog will say

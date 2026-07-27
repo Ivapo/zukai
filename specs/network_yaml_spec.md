@@ -1,9 +1,9 @@
 ---
 status: reviewed
 last_updated: 2026-07-26
-note: Phases 1–2 of 4 shipped 2026-07-26 (the format read, and reaching the app). Import and export Assimilator's `network.yaml` — the one coupling the two projects were ever meant to have, and the first thing Zukai has built that another program reads.
-implemented: ["Phase 1", "Phase 2"]
-not_implemented: ["Phase 3", "Phase 4"]
+note: Phases 1–3 of 4 shipped 2026-07-26 (the format read, reaching the app, and written). Import and export Assimilator's `network.yaml` — the one coupling the two projects were ever meant to have, and the first thing Zukai has built that another program reads.
+implemented: ["Phase 1", "Phase 2", "Phase 3"]
+not_implemented: ["Phase 4"]
 related: [specs/save_load_spec.md, specs/junction_semantics_spec.md, specs/ramps_and_tapers_spec.md, specs/diagram_export_spec.md]
 reference: "Assimilator's `crates/config/src/network.rs` — `NetworkConfig` and its `NodeConfig`/`LinkConfig`/`LaneConfig`/`JunctionConfig`/`MovementConfig`/`SignalPlanConfig`/`PhaseConfig` — plus `crates/config/src/version.rs` (the `schema_version` header, §2.1, `CURRENT_SCHEMA_VERSION = 1`), `crates/network/src/validation.rs` (the seven rules an export must satisfy, §2.4) and `crates/cli/src/{main,runner}.rs` (what the CLI can actually load, Phase 4). All read at `../assimilator` on 2026-07-26. Explicitly *not* in scope from it: `detectors`, `stops`, `crossings`, `rerouters`, and the simulation-only per-junction fields (`conflict_pairs`, `gap_acceptance`, `collision_avoidance`, `conflict_model`, `b_amber`, `enforce_entry_guards`), which `graph.rs:11-15` already records as deliberately omitted."
 ---
@@ -525,6 +525,19 @@ blocks §2.8 drops (OQ-5) and, for a junction drawn here rather than imported,
     document**, which is a `SCHEMA_VERSION` bump and a new `layout` field;
   - **non-uniform spacing** — schematization proper, and a named non-goal
     (`CLAUDE.md`, §2.6).
+
+  **Settled in Phase 3, and the first branch is now *disproven* rather than
+  doubted.** The "50 m slip road becomes a dot" objection above was written as a
+  hypothetical; the two committed fixtures make it concrete, which is the evidence
+  this OQ had been missing. At today's 2.571 u/m, `t_junction`'s 500 m arm is 1285
+  units against a 9-unit lane — 143 lane-widths, unusable — but `cross-4`'s 100 m
+  arms are 257 units, ≈28 lane-widths, which is a perfectly legible schematic. Pick a
+  constant small enough to fix `t_junction` (~0.2 u/m) and `cross-4`'s arms become 20
+  units, **shorter than its own 21-unit-wide road**. One number cannot serve both,
+  and no third fixture is needed to see it. So: **`UNITS_PER_METRE` kept**, the fixed
+  constant closed, and **fit-to-extent is the only live branch** — for a spec that
+  can afford the schema bump, not this one. Still untested by any gate here, for the
+  reason above: a round trip is scale-neutral by construction.
 - **OQ-3** — **Id collisions on import.** Assimilator ids are free-form
   (`L_W_J`, `M_major_thru`), and Zukai's `nextId` parses a **numeric** suffix
   (`document.ts:129-138`), so after importing a file of non-numeric ids the next
@@ -792,6 +805,54 @@ the first two being decisions the spec left to the plan:
   - The y round-trips: a node south on the canvas exports negative and imports back
     south.
 - **Docs touched:** the Phase 1 rule file.
+
+**As built (2026-07-26).** Gate met: `cargo fmt --check`, `cargo clippy
+--all-targets -- -D warnings`, 64 `cargo test` (+18), plus `bun run build` and 360
+vitest, all green. Six notes, the first two being the forks the spec handed to the
+plan and the rest things the phase found:
+
+- **OQ-2 is settled by disproof, not by choice** (decided by the user). Keeping
+  `UNITS_PER_METRE` was the recommendation, but the argument for it is new: checking
+  the two fixtures *against each other* shows **no fixed constant serves both**. At
+  2.571 u/m `t_junction`'s 500 m arm is 1285 units (143 lane-widths, unusable) while
+  `cross-4`'s 100 m arms are 257 (≈28, perfectly legible); at a constant small enough
+  to fix the first, `cross-4`'s arms fall to 20 units — **shorter than its own
+  21-unit-wide road**. The "smaller fixed constant" branch is therefore dead rather
+  than merely doubted, which leaves fit-to-extent (a factor stored per document, so
+  the two directions stay inverses) as the only live answer, and that is a
+  `SCHEMA_VERSION` bump for a later spec.
+- **`lateral_offset` is derived from `align`, in metres** (chosen by the user). §2.4
+  said the two "map" without saying how literally. The signs already agree — a
+  positive `lateral_offset` and a positive canvas shift both mean *right of travel* —
+  so it is a three-line match on `Σ lane widths / 2`. What it deliberately does *not*
+  use is `alignmentShift`'s canvas value, which folds in `ROAD_MARGIN` and the class
+  width factor; exporting those would dress a rendering artefact as a surveyed offset.
+- **The command shipped in this phase, not Phase 4, and clippy is why.** An
+  unregistered `#[tauri::command]` in the private `mod network` is unreachable from
+  the crate root and fails `-D warnings` on `dead_code` — Phase 1 hit this exactly.
+  One line in `generate_handler!`; Phase 4 is now purely frontend.
+- **The gate was mutation-tested, and one test was found not to bite.**
+  `an_authored_document_writes_every_required_key` is the assertion this whole
+  section exists for, and against a deliberately broken mirror (a
+  `skip_serializing_if` on `from_lanes`) it **passed** — because every movement in
+  the hand-built document was a `through` or a `left`, which §2.3 case 3 fills, so
+  the skip never had an empty list to swallow. Adding a **u-turn** is what made it a
+  real check: 3 tests caught the mutation before, 7 after. Un-negating the export's
+  y fails 5. Both mutations are recorded in the rule file, because "all green on the
+  first run" is not evidence about a format.
+- **The write-side attributes are set independently of the mirror rule**, and the
+  module doc now says so. Optionality follows Assimilator (a *reader* concern);
+  `skip_serializing_if` is a separate choice, and the two are opposite here: every
+  `Option` in the mirror gained one, so the emitted key set matches the fixtures'
+  exactly (`rule:` on `t_junction` and not on `cross-4`, no `author: null`), while
+  every **bare** field must never gain one. Conflating them is precisely how
+  `from_lanes` breaks.
+- **A drop §2.3.3's 62-field audit missed:** `lateral_offset` is *mirrored* on read
+  but never carried into the `Document`, so a file with `lateral_offset: 2.0` comes
+  back at whatever `align` derives — 0, for anything imported. Same silent shape as
+  node `z`, found only because this phase had to decide what to *write* there.
+  Recorded in the rule file's drop list beside `z` rather than fixed: the honest fix
+  is a metres→`align` inference that is lossy in the other direction.
 
 ### Phase 4 — Export from the app, and the proof it works  (depends on Phase 3)
 
