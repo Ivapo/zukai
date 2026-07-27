@@ -64,33 +64,20 @@ export type UnsignalizedRule = "priority" | "priority_right" | "all_way_stop";
 /** Turn category of a movement. */
 export type MovementKind = "through" | "left" | "right" | "u-turn";
 
-/** Right of way of a movement at a priority-controlled junction. */
-export type MovementPriority = "major" | "minor";
-
-/** One approach lane paired with one departure lane through a movement. */
-export interface LaneMappingEntry {
-  from: LaneIdx;
-  to: LaneIdx;
-}
-
 /**
  * A permitted turn from one approach link to one exit link.
  *
- * The last three fields are **carried, never edited** — they exist so an
- * imported `network.yaml` survives a round trip, and nothing in the editor
- * creates one. See `rules/network-yaml.md`.
+ * **Lane detail is deliberately absent.** `from_lanes`, `to_lanes`, `priority`,
+ * `yields_to` and `lane_mapping` were mirrored here so an imported
+ * `network.yaml` could be written back out unchanged; Zukai no longer writes
+ * that format, and none of the five was ever read or drawn — a schematic shows
+ * *that* a turn is permitted, not which lane pairs with which.
  */
 export interface Movement {
   id: MovementId;
   from_link: LinkId;
   to_link: LinkId;
-  from_lanes?: LaneIdx[];
-  to_lanes?: LaneIdx[];
   type: MovementKind;
-  /** Absent means `major`; Rust elides the key for a major movement. */
-  priority?: MovementPriority;
-  yields_to?: MovementId[];
-  lane_mapping?: LaneMappingEntry[];
 }
 
 /** One stage of a signal plan. */

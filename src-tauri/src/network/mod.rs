@@ -32,9 +32,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::graph::{
-    JunctionControl, LaneMappingEntry, MovementKind, MovementPriority, NodeKind, UnsignalizedRule,
-};
+use crate::model::graph::{JunctionControl, MovementKind, NodeKind, UnsignalizedRule};
 use crate::model::ids::{LaneIdx, LinkId, MovementId, NodeId, PhaseId};
 use crate::model::layout::Vec2;
 
@@ -197,11 +195,19 @@ pub struct NetworkJunction {
     pub signal_plan: Option<NetworkSignalPlan>,
 }
 
-/// Mirrors `MovementConfig` (`network.rs:1334-1378`).
+/// Mirrors `MovementConfig` (`network.rs:1334-1378`), less everything about
+/// lanes.
 ///
-/// The one struct where the mirror rule earns its keep. `turn_speed` and
-/// `control_points` are dropped: both are tuned against real geometry, and
-/// Zukai's radii are schematic fictions.
+/// `turn_speed` and `control_points` are dropped because both are tuned against
+/// real geometry and Zukai's radii are schematic fictions. `from_lanes`,
+/// `to_lanes`, `priority`, `yields_to` and `lane_mapping` are dropped for a
+/// different reason: **nothing draws them.** They were mirrored while Zukai
+/// still wrote this format back out, so that a round trip could survive them;
+/// with the export cut there is no round trip, and a schematic shows *that* a
+/// turn is permitted rather than which lane feeds which.
+///
+/// Dropping them is safe on the read side — serde ignores unknown keys unless
+/// told otherwise, so a real `network.yaml` carrying all five still parses.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NetworkMovement {
     /// Stable id, unique within the junction.
@@ -210,26 +216,10 @@ pub struct NetworkMovement {
     pub from_link: LinkId,
     /// Exit link; its `from_node` is the junction node.
     pub to_link: LinkId,
-    /// Approach lane indices. **No `default` and no `skip_serializing_if`, on
-    /// purpose** — Assimilator declares it plain, so an absent key is
-    /// `missing field `from_lanes`` and the whole file fails. Writing the mirror
-    /// faithfully is what makes the always-write rule hold for free.
-    pub from_lanes: Vec<LaneIdx>,
-    /// Exit lane indices. Required, same reason.
-    pub to_lanes: Vec<LaneIdx>,
     /// Turn category. Defaults to `through` **here** even though Zukai's own
     /// [`MovementKind`] has no default — the mirror rule, in one field.
     #[serde(default = "default_movement_kind", rename = "type")]
     pub kind: MovementKind,
-    /// Right of way at a priority junction.
-    #[serde(default)]
-    pub priority: MovementPriority,
-    /// Movements this one gives way to.
-    #[serde(default)]
-    pub yields_to: Vec<MovementId>,
-    /// Explicit lane pairings; empty means positional matching.
-    #[serde(default)]
-    pub lane_mapping: Vec<LaneMappingEntry>,
 }
 
 /// Mirrors `SignalPlanConfig` (`network.rs:1380-1393`).
@@ -406,10 +396,6 @@ mod tests {
         assert_eq!(t.junctions[0].control, JunctionControl::Unsignalized);
         assert_eq!(t.junctions[0].rule, Some(UnsignalizedRule::Priority));
         assert_eq!(t.junctions[0].movements[0].kind, MovementKind::Through);
-        assert_eq!(
-            t.junctions[0].movements[0].priority,
-            MovementPriority::Major
-        );
 
         let c = parse_network(CROSS_4).expect("parse");
         assert!(CROSS_4.contains("type: u-turn"));
@@ -442,16 +428,29 @@ mod tests {
         assert_eq!(movement.kind, MovementKind::Through);
     }
 
-    /// ...but an omitted `from_lanes` is *not* legal, and the mirror has to fail
-    /// exactly where Assimilator fails. This is the assertion that would catch
-    /// someone helpfully adding `#[serde(default)]` to that field.
+    /// The lane and right-of-way keys are no longer mirrored, and this is the
+    /// assertion that dropping them cannot break a real file: serde ignores an
+    /// unknown key, so a movement carrying all five still parses — and so does
+    /// one carrying none.
+    ///
+    /// It replaces `a_movement_without_from_lanes_fails_to_parse`, which pinned
+    /// the opposite rule for a reason that has gone: an absent `from_lanes` had
+    /// to fail *because Zukai wrote this format back out*, and a file it could
+    /// not reproduce faithfully was a bug. Nothing writes it now.
     #[test]
-    fn a_movement_without_from_lanes_fails_to_parse() {
-        let yaml = "id: M1\nfrom_link: L1\nto_link: L2\nto_lanes: []\ntype: through\n";
+    fn the_lane_and_priority_keys_are_ignored_either_way() {
+        let full = concat!(
+            "id: M1\nfrom_link: L1\nto_link: L2\n",
+            "from_lanes:\n- 0\nto_lanes:\n- 0\ntype: through\n",
+            "priority: minor\nyields_to:\n- M2\nlane_mapping:\n- from: 0\n  to: 0\n",
+        );
+        let bare = "id: M1\nfrom_link: L1\nto_link: L2\ntype: through\n";
 
-        let err = serde_yaml::from_str::<NetworkMovement>(yaml).expect_err("must not parse");
-
-        assert!(err.to_string().contains("from_lanes"), "{err}");
+        for yaml in [full, bare] {
+            let movement: NetworkMovement = serde_yaml::from_str(yaml).expect("deserialize");
+            assert_eq!(movement.id.as_str(), "M1");
+            assert_eq!(movement.kind, MovementKind::Through);
+        }
     }
 
     /// The fixture's south node is at `[500, -300]`: 500 m east and 300 m

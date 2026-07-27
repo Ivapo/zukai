@@ -159,21 +159,20 @@ fn import_junction(junction: NetworkJunction) -> Junction {
     }
 }
 
-/// The three fields after `kind` are the ones that fail *quietly*: all are
-/// `#[serde(default)]` in Assimilator, so dropping them parses cleanly and
-/// silently promotes a minor movement to major, or re-wires a crossed lane
-/// mapping into the positional identity.
+/// A turn arrives as the pair of links it joins and the category of turn it is —
+/// which is all the schematic draws it from.
+///
+/// The file's lane detail (`from_lanes`, `to_lanes`, `lane_mapping`) and its
+/// right-of-way detail (`priority`, `yields_to`) are **discarded**, alongside the
+/// polyline geometry. They were once carried so an imported network could be
+/// written back out unchanged; nothing writes that format now, and a schematic
+/// says *that* a turn is permitted rather than which lane feeds which.
 fn import_movement(movement: NetworkMovement) -> Movement {
     Movement {
         id: movement.id,
         from_link: movement.from_link,
         to_link: movement.to_link,
-        from_lanes: movement.from_lanes,
-        to_lanes: movement.to_lanes,
         kind: movement.kind,
-        priority: movement.priority,
-        yields_to: movement.yields_to,
-        lane_mapping: movement.lane_mapping,
     }
 }
 
@@ -182,9 +181,7 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
-    use crate::model::graph::{
-        JunctionControl, LaneMappingEntry, MovementKind, MovementPriority, UnsignalizedRule,
-    };
+    use crate::model::graph::{JunctionControl, MovementKind, UnsignalizedRule};
     use crate::model::ids::NodeId;
     use crate::model::layout::JunctionGlyph;
     use crate::network::{parse_network, CROSS_4, T_JUNCTION, UNITS_PER_METRE};
@@ -288,31 +285,34 @@ mod tests {
         assert_eq!(view.scale, 1.0);
     }
 
-    /// The three fields that fail quietly. All are `#[serde(default)]` on
-    /// Assimilator's side, so a mirror that dropped any of them would import
-    /// this file without a murmur and export a priority junction in which
-    /// nothing yields, with the lane wiring regenerated from scratch.
+    /// A movement arrives as the two links it joins and the kind of turn it is,
+    /// and **nothing else** — the whole-struct comparison is the assertion, so a
+    /// field re-added to the model fails here rather than quietly reappearing.
+    ///
+    /// `t_junction.yaml`'s movements carry `from_lanes`, `to_lanes`,
+    /// `lane_mapping`, `priority` and `yields_to`, and the second half of this
+    /// test is that those keys being present is **harmless**: serde ignores an
+    /// unknown key, so dropping them from the mirror cannot make a real network
+    /// fail to parse. Importing this file at all is that assertion.
     #[test]
-    fn the_minor_movement_keeps_its_priority_yields_and_lane_mapping() {
+    fn a_movement_arrives_as_two_links_and_a_turn() {
         let doc = import(T_JUNCTION);
         let movements = &doc.junctions[0].movements;
 
-        let minor = &movements[1];
-        assert_eq!(minor.id.as_str(), "M_minor_left");
-        assert_eq!(minor.priority, MovementPriority::Minor);
-        assert_eq!(minor.yields_to.len(), 1);
-        assert_eq!(minor.yields_to[0].as_str(), "M_major_thru");
-        assert_eq!(minor.lane_mapping, [LaneMappingEntry { from: 0, to: 0 }]);
+        assert_eq!(
+            movements[0],
+            Movement {
+                id: "M_major_thru".into(),
+                from_link: "L_W_J".into(),
+                to_link: "L_J_E".into(),
+                kind: MovementKind::Through,
+            }
+        );
+
         // Its `type` is `right`, not `left` — the id names the road, the kind
         // names the turn, and the mirror carries the file's word for it.
-        assert_eq!(minor.kind, MovementKind::Right);
-
-        let major = &movements[0];
-        assert_eq!(major.priority, MovementPriority::Major);
-        assert!(major.yields_to.is_empty());
-        assert_eq!(major.lane_mapping, [LaneMappingEntry { from: 0, to: 0 }]);
-        assert_eq!(major.from_lanes, [0]);
-        assert_eq!(major.to_lanes, [0]);
+        assert_eq!(movements[1].id.as_str(), "M_minor_left");
+        assert_eq!(movements[1].kind, MovementKind::Right);
     }
 
     /// `cross-4` is signalized, so the plan is not hypothetical. Dropping it
@@ -350,41 +350,21 @@ mod tests {
         assert_eq!(first.all_red_time, 2.0);
     }
 
-    /// Assimilator's own editor writes `from_lanes: []` for a u-turn, and the
-    /// empty list has to survive as an empty list — the export direction may
-    /// not fill it in, or the round trip rewrites a file it should have
-    /// reproduced.
+    /// The u-turn is the one kind `derivableMovements` never mints, so an
+    /// imported junction is the only place the drawing meets one — and
+    /// `cross-4` has four. The kind is the whole of what survives import, and
+    /// it is what the arc is drawn from.
     #[test]
-    fn cross_4_keeps_its_four_empty_u_turns() {
+    fn cross_4_keeps_its_four_u_turns() {
         let doc = import(CROSS_4);
 
-        let u_turns: Vec<_> = doc.junctions[0]
+        let u_turns = doc.junctions[0]
             .movements
             .iter()
             .filter(|m| m.kind == MovementKind::UTurn)
-            .collect();
+            .count();
 
-        assert_eq!(u_turns.len(), 4);
-        for movement in u_turns {
-            assert!(movement.from_lanes.is_empty(), "{}", movement.id);
-            assert!(movement.to_lanes.is_empty(), "{}", movement.id);
-            assert!(movement.lane_mapping.is_empty(), "{}", movement.id);
-        }
-
-        // ...while a crossed-lane through movement keeps its explicit mapping,
-        // which is the field that cannot be regenerated.
-        let through = doc.junctions[0]
-            .movements
-            .iter()
-            .find(|m| m.id.as_str() == "M_L1_L3")
-            .expect("M_L1_L3");
-        assert_eq!(
-            through.lane_mapping,
-            [
-                LaneMappingEntry { from: 1, to: 1 },
-                LaneMappingEntry { from: 0, to: 0 },
-            ]
-        );
+        assert_eq!(u_turns, 4);
     }
 
     #[test]

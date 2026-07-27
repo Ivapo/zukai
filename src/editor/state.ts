@@ -837,9 +837,10 @@ function withMovements(
  * **The id is the duplicate check.** `M_<from>_<to>` *is* the ordered pair, so one
  * movement per pair falls out of an id lookup rather than a second predicate.
  *
- * `from_lanes`/`to_lanes` are left absent: a lane-pair matrix is a second editor
- * and the schematic reads the same without it (§2.8, OQ-4). Every rejection returns
- * `state` itself, so {@link recordHistory} records nothing.
+ * A `Movement` is the two links and the kind of turn, and nothing else — the lane
+ * detail the model once carried is gone, because a lane-pair matrix is a second
+ * editor and the schematic reads the same without it (§2.8, OQ-4). Every rejection
+ * returns `state` itself, so {@link recordHistory} records nothing.
  */
 function addMovement(
   state: EditorState,
