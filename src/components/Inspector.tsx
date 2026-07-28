@@ -19,6 +19,7 @@ import {
   LineStyle,
   Link,
   LinkAlign,
+  LinkEnd,
   LinkId,
   LinkStyle,
   Marking,
@@ -130,6 +131,13 @@ const LINE_STYLES: { value: LineStyle; label: string }[] = [
   { value: "dashed", label: "Dashed" },
   { value: "double", label: "Double" },
 ];
+/**
+ * Which end of the road a marking's distance is measured from. The default
+ * first, as {@link LINK_ALIGNS} puts `centre` — and bare strings for the same
+ * reason it uses them: `.seg` capitalizes, and the road's own two ends need no
+ * longer name than they have.
+ */
+const MARKING_ANCHORS: LinkEnd[] = ["start", "end"];
 /**
  * How each kind of sign is named in the panel. Exhaustive over `SignKind`, so a
  * kind added to the model without a label here will not build — the split
@@ -358,14 +366,24 @@ export function Inspector({ state, dispatch }: InspectorProps) {
           )}
         </Field>
 
+        {/* Withheld for the one kind that has no distance to anchor, on the same
+            terms as the Position readout below. */}
+        {marking.kind.type !== "lane_line" && (
+          <Field label="Anchor">
+            <MarkingAnchorPicker marking={marking} dispatch={dispatch} />
+          </Field>
+        )}
+
         {/* A lane line paints its boundary for the whole link and `position` is
             ignored (§2.3), so reporting a distance for one would be a small lie
-            at the only place the panel could tell the truth. */}
+            at the only place the panel could tell the truth. The frame is named
+            for the same reason: a bare "22.5 m" for paint measured back from the
+            junction is that lie one field over (lane arrows §2.3.1). */}
         <Field label="Position">
           <div className="readout">
             {marking.kind.type === "lane_line"
               ? "Whole link"
-              : `${marking.position.toFixed(1)} m`}
+              : `${marking.position.toFixed(1)} m from ${marking.anchor ?? "start"}`}
           </div>
         </Field>
 
@@ -650,6 +668,46 @@ function MarkingLineStyle({
           }
         >
           {s.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Which end of the road the marking's distance is measured from — the **fourth**
+ * control on a marking, and the first with an action of its own since the Span
+ * (lane arrows §2.3.1). It needs one because `anchor` is a field beside `kind`
+ * rather than a payload inside it, which is exactly the discriminator
+ * `setMarkingKind`'s three dispatchers rest on.
+ *
+ * **The picture moves when this is clicked**, and that is the design: `position`
+ * is kept verbatim, so paint 20 m from the start becomes paint 20 m from the end.
+ * Re-basing it to hold the drawing still would make the stored metres a function
+ * of the layout, which is the one thing keeping them in metres rules out.
+ *
+ * `marking.anchor ?? "start"` rather than `marking.anchor`: a start-anchored
+ * marking carries no key, so comparing the bare field lights neither button.
+ */
+function MarkingAnchorPicker({
+  marking,
+  dispatch,
+}: {
+  marking: Marking;
+  dispatch: (action: Action) => void;
+}) {
+  const anchor = marking.anchor ?? "start";
+  return (
+    <div className="segmented">
+      {MARKING_ANCHORS.map((a) => (
+        <button
+          key={a}
+          className={`seg${anchor === a ? " is-active" : ""}`}
+          onClick={() =>
+            dispatch({ type: "setMarkingAnchor", id: marking.id, anchor: a })
+          }
+        >
+          {a}
         </button>
       ))}
     </div>

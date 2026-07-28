@@ -2,8 +2,8 @@
 status: partial
 last_updated: 2026-07-28
 note: "Lane arrows become how a junction's turns are shown — painted on the approach lanes, seeded from an imported network, and replacing the dashed arcs across the pad. Includes the two things that have to exist first: a marking you can drag, and a marking that measures from the junction end."
-implemented: ["Phase 1"]
-not_implemented: ["Phase 2", "Phase 3", "Phase 4", "Phase 5 (deferred)"]
+implemented: ["Phase 1", "Phase 2"]
+not_implemented: ["Phase 3", "Phase 4", "Phase 5 (deferred)"]
 related: [specs/road_markings_spec.md, specs/junction_semantics_spec.md, specs/network_yaml_spec.md]
 reference: "Assimilator's `MovementConfig.from_lanes` (`crates/config/src/network.rs:1334-1378`) is the only field this spec reads back out of the format — which lanes of an approach feed a given turn. Read at `../assimilator` on 2026-07-26. Nothing else is wanted from it: `lane_mapping`, `priority` and `yields_to` were dropped in `fe8b452` and stay dropped."
 ---
@@ -483,7 +483,72 @@ a junction cannot express its turns at all.
     with `start` writes **no key**.
   - **Every existing marking test still passes untouched** — the assertion that
     absent-means-today is real.
-- **Docs touched:** `rules/road-markings.md`; markings OQ-5 gains its half-answer.
+- **Docs touched:** `rules/road-markings.md`; **markings OQ-6** gains its
+  half-answer. (Corrected from "OQ-5" — §2.3.1 assigns OQ-6 to this phase as "this
+  section's motivation exactly", and Phase 5's own docs-touched line already
+  claims OQ-5, which is answered only once the rim lands.)
+- **As built (2026-07-28)** — the phase landed as scoped, plus one fix the plan
+  did not have. Gate met: `bun run build`, 389 `bun run test` (up 17), 48 `cargo
+  test` (up 3), `cargo fmt --check` and `cargo clippy --all-targets -D warnings`
+  clean. **No `SCHEMA_VERSION` move** (still 2), asserted rather than assumed.
+  - **The type is `LinkEnd`, not `MarkingAnchor`.** `geometry.ts:964` already
+    exports an unrelated `interface MarkingAnchor` — the projected `{ at, dir,
+    span }` — and it is imported into `Diagram.tsx`, so a model type of that name
+    would be a hard duplicate-identifier error in load-bearing render code. It
+    lives in `decoration.rs` with the field: `graph.rs` is the 1:1 `network.yaml`
+    mirror and `anchor` never exports, and a **private** `is_start` predicate only
+    resolves from the module that owns the field.
+  - **The drag had to be fixed with it, which this phase did not plan for.**
+    `projectOntoLink` (`Canvas.tsx`) reports arc-length from the polyline *start*,
+    always. The moment the Anchor row made the field settable, a drag wrote a
+    start-frame position into a field the renderer read as end-frame: the paint
+    mirrors about the road's midpoint and tracks the pointer **backwards**.
+    Shipping the row without this ships a visibly inverted drag. The flip went
+    *inside* `projectOntoLink` rather than at its call site, so
+    `rules/road-markings.md`'s "the metre/unit boundary is exactly two functions"
+    stays true and nothing re-derives the polyline per pointer-move.
+  - **`anchoredAlong(total, distance, anchor)` is an involution**, which is why one
+    function serves both directions — `total - distance` for `end`, untouched for
+    `start`. Two expressions could disagree about which of them subtracts.
+  - **`polylineLength` was extracted, as the phase predicted, and the `SAME_EDGE`
+    filter is the load-bearing part**: `nearestOnPolyline` and `pointAlongPolyline`
+    both skip the same degenerate segments, so measuring against that sum makes the
+    drag's round trip *exact* rather than approximate. `pointAlongPolyline` keeps
+    its `segments.length === 0` guard — an empty polyline and two identical points
+    both measure zero and both must return nothing.
+  - **The subtraction happens before the clamp**, so an over-long `end`-anchored
+    marking resolves to a negative distance and piles up at the polyline **start** —
+    the mirror of today's behaviour, still on asphalt, still draggable. It also
+    leaves Phase 5 free to offset the anchor by a pad radius without moving the
+    clamp.
+  - **`setMarkingAnchor`'s identity guard has to normalize before it compares.**
+    A start-anchored marking carries no key, so `marking.anchor === anchor` is
+    `undefined === "start"` and re-clicking Start would dirty the document and push
+    a snapshot. `(marking.anchor ?? "start") === anchor`; the same expression
+    decides which segment lights.
+  - **The Rust tests went to `decoration.rs`**, not `model/mod.rs` as the gate
+    says — `layout.rs:205-220`'s precedent, which likewise asserts on a bare
+    `LinkView` rather than a whole document. `sample()`'s marking took
+    `anchor: LinkEnd::End` so `yaml_round_trips` covers the key rather than only
+    its absence, on the `align: LinkAlign::Offside` beside it.
+  - **The Anchor row is withheld for a `lane_line`**, whose `position` is ignored
+    entirely — the Position readout's own carve-out. That readout now names its
+    frame (`81.7 m from end`), because a bare distance for paint measured from the
+    far end is the same small lie its comment argues against.
+  - **Four mutations were run**, three caught and one deliberately not: the
+    un-normalized identity guard (1 test), the wrong sign in `anchoredAlong`
+    (6 tests), dropping the Rust `skip_serializing_if` (1 test) — and **dropping
+    the drag's `anchor` argument, which nothing caught**. `Canvas.tsx` has no test
+    file and the parameter is optional, so it compiles and all 389 tests pass.
+    That is the phase's own argument for the dev pass, and it is recorded in
+    `rules/road-markings.md` rather than left as folklore.
+  - Dev pass ran against Vite in a real browser (Phase 1's route; port 1420 was
+    held by another project, so 1425). Confirmed: the flip mirrors 280 → 480 on a
+    360-unit road; the drag tracks the pointer exactly at every step while the
+    stored metres grow away from the end; **an end-anchored marking held 210 units
+    from `N2` while `N2` moved 140 units, with a start-anchored one beside it
+    staying put**; and repainting through `lane_line` and back preserves both the
+    anchor and the position.
 
 ### Phase 3 — Import paints the lanes  (depends on Phase 2)
 

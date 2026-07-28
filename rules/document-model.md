@@ -12,7 +12,7 @@ A `Document` (`src-tauri/src/model/mod.rs`) has three deliberately-separated par
 |------|-------|------------------------|
 | **Semantic graph** | `graph.rs` — `Node`, `Link`, `Lane`, `Junction`, `Movement`, `SignalPlan`, `Phase` | ✅ yes — this is the `network.yaml`-compatible subset |
 | **Layout** (presentation) | `layout.rs` — `Vec2`, `NodeView`, `LinkView`, `JunctionView`, `JunctionGlyph`, `LinkStyle`, `LinkAlign` | ❌ dropped on export |
-| **Decorations** (Zukai-native) | `decoration.rs` — `Marking`, `Sign` | ❌ never — Assimilator has no equivalent |
+| **Decorations** (Zukai-native) | `decoration.rs` — `Marking`, `Sign`, `LinkEnd` | ❌ never — Assimilator has no equivalent |
 
 Ids are string newtypes (`ids.rs`) so ids imported from Assimilator survive a
 round-trip. Lane index is `u32`.
@@ -72,19 +72,27 @@ Three things move together on a bump, and the third is easy to miss:
 Pair every defaulted field with a `skip_serializing_if` so a document that never
 set it saves byte-for-byte as before — `Vec::is_empty` for `bends`,
 `Option::is_none` for `Lane.kind`, and a hand-written predicate
-(`LinkAlign::is_centre`, `MovementPriority::is_major`) for a plain enum, which has
-no such helper.
+(`LinkAlign::is_centre`, `LinkEnd::is_start`) for a plain enum, which has no such
+helper. Both predicates are **private to the module that owns the field**, which
+is what keeps the pattern copyable: `is_start` lives in `decoration.rs` beside
+`Marking.anchor`, not with the layout types its shape was borrowed from.
 
-**Some fields are `carried, never edited`** — the model holds them so an imported
-`network.yaml` survives a round trip, and nothing in the editor creates one.
-`Junction.signal_plan` has been the standing example since the first commit;
-`Movement` gained `priority`, `yields_to` and `lane_mapping` (plus the
-`MovementPriority` and `LaneMappingEntry` types) for the same reason, at
-`SCHEMA_VERSION` **2** — new optional *fields*, so no bump, and a brand-new enum
-*type* does not change that. The mirror discipline still applies in full: all
-three moved in `src/model/types.ts` in the same commit, as **optional**, because
-Rust elides all three. Why each one matters is `rules/network-yaml.md`; all that
-belongs here is that a field with no reader is not necessarily dead.
+**A new optional field costs no bump, and a brand-new enum *type* reached only
+through one does not change that.** `LinkView.align` arrived that way at version
+1 and `Marking.anchor` (with `LinkEnd`) at version 2 — a new **variant** of an
+*existing* enum is what costs a bump, because an older build fails to deserialize
+the whole document. The mirror discipline applies in full either way: the field
+moves in `src/model/types.ts` in the same commit, as **optional**, because Rust
+elides it.
+
+**Some fields were `carried, never edited`** — held so an imported `network.yaml`
+survived a round trip, with nothing in the editor creating one. `Movement` carried
+`priority`, `yields_to` and `lane_mapping` for exactly that reason and **lost all
+three in `fe8b452`**, when the export was cut: a field whose only justification is
+surviving a round trip has no justification once nothing writes the file
+(`graph.rs:142` keeps the note). `Junction.signal_plan` is the survivor of the
+pattern. The rule that outlived them: a field with no reader is not necessarily
+dead — but it needs a reason that is not the round trip.
 
 On-disk files use the **`.zkai`** extension and are read/written by the
 `save_document` / `load_document` Tauri commands in `src-tauri/src/persist.rs`.

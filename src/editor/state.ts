@@ -21,6 +21,7 @@ import {
   LaneIdx,
   LaneKind,
   LinkAlign,
+  LinkEnd,
   LinkId,
   LinkStyle,
   Marking,
@@ -140,6 +141,10 @@ export type EditAction =
   | { type: "addMarking"; link: LinkId; position: number; lane?: LaneIdx }
   | { type: "setMarkingKind"; id: MarkingId; kind: MarkingKind }
   | { type: "setMarkingLane"; id: MarkingId; lane?: LaneIdx }
+  // Required, not `anchor?`: the Rust field is a defaulted enum rather than an
+  // `Option`, so `start` is a value the caller names and the *reducer* is what
+  // stores it as an absent key — `setLinkAlign`'s shape, not `setMarkingLane`'s.
+  | { type: "setMarkingAnchor"; id: MarkingId; anchor: LinkEnd }
   // Both fields at once, because a drag writes both: the lane already falls out
   // of the click that *places* a marking, and a drag that crossed a divider
   // without changing lanes would be the surprising reading (lane arrows §2.2).
@@ -500,6 +505,9 @@ function editReducer(state: EditorState, action: EditAction): EditorState {
 
     case "setMarkingLane":
       return setMarkingLane(state, action.id, action.lane);
+
+    case "setMarkingAnchor":
+      return setMarkingAnchor(state, action.id, action.anchor);
 
     case "moveMarking":
       return moveMarking(state, action.id, action.position, action.lane);
@@ -1192,6 +1200,54 @@ function setMarkingLane(
         if (m.id !== id) return m;
         const { lane: _dropped, ...rest } = m;
         return lane === undefined ? rest : { ...rest, lane };
+      }),
+    },
+  };
+}
+
+/**
+ * Measure a marking's distance from the other end of its road.
+ *
+ * **What auto-placed paint needs** (lane arrows §2.3): a `start`-anchored
+ * marking sits a fixed distance from the *far* end of its road, so dragging a
+ * node past it leaves an arrow that used to be at the junction piled up inside
+ * the pad. An `end` anchor holds the distance the drawing actually cares about.
+ *
+ * **`start` is stored as an *absent* `anchor`**, {@link setLinkAlign}'s rule for
+ * `centre` and {@link setMarkingLane}'s for a carriageway-wide span: absent is
+ * what Rust writes back (`skip_serializing_if = "LinkEnd::is_start"`), so a
+ * second encoding of it would differ by document identity while saving to the
+ * same bytes.
+ *
+ * **The flip moves the paint and does not re-base `position`.** A marking 20 m
+ * from the start becomes 20 m from the end. Re-basing it to `total - position`
+ * would hold the paint still, but only by making the stored metres a function of
+ * the drawing — which is the one thing keeping the position in metres rules out,
+ * and it would need the drawn polyline in here.
+ *
+ * **The identity guard normalizes before comparing.** A start-anchored marking
+ * carries no `anchor` key at all, so a bare `marking.anchor === anchor` compares
+ * `undefined` with `"start"` and re-clicking Start would dirty the document and
+ * push an undo snapshot for nothing.
+ */
+function setMarkingAnchor(
+  state: EditorState,
+  id: MarkingId,
+  anchor: LinkEnd,
+): EditorState {
+  const { doc } = state;
+  const marking = findMarking(doc, id);
+  if (!marking) return state;
+  if ((marking.anchor ?? "start") === anchor) return state;
+
+  return {
+    ...state,
+    doc: {
+      ...doc,
+      markings: doc.markings.map((m) => {
+        if (m.id !== id) return m;
+        const { anchor: _dropped, ...rest } = m;
+        return anchor === "start" ? rest : { ...rest, anchor };
       }),
     },
   };

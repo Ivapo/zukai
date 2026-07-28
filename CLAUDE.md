@@ -123,7 +123,7 @@ work that removes what another spec shipped.
   approach instead of arcs across the pad: a marking you can drag, a marking
   anchored to the junction end, import painting the lanes from the file's own
   lane data, and the removal of the movement arcs and the movement list
-  (**Phase 1 implemented**; reviewed in 2 rounds — 4 phases plus a deferred
+  (**Phases 1–2 implemented**; reviewed in 2 rounds — 4 phases plus a deferred
   Phase 5 for the junction rim)
 
 **`rules/` — current-state reference (the *what is*).** Terse, authoritative maps
@@ -155,9 +155,12 @@ there's real cross-file knowledge worth extracting, not for every file.
   tiling that makes containment a property rather than a clamp, the one number
   that bounds all six turn-arrow directions, the lane line that runs *along* the
   road and replaces the divider it lands on, the third `Selection` arm and the
-  three failures the compiler does not catch, what removes a marking, and the
+  three failures the compiler does not catch, what removes a marking, the
   seventh kind — text set along the road, centred by arithmetic rather than
-  `dominant-baseline`, and the panel's first `<input>`
+  `dominant-baseline`, and the panel's first `<input>` — and the end a marking
+  measures from: the involution that lets one function serve both directions, why
+  the frame flip lives inside the two functions that already convert rather than
+  making a third, and the one half of it no test can see
 - `rules/signs.md` — the objects beside the road: why a sign is node-shaped
   rather than marking-shaped, the bare `Vec2` in `layout.signs`, the four actions
   and their three coalescing keys, clear-instead-of-cascade and the map-vs-filter

@@ -12,6 +12,7 @@ import {
   LaneIdx,
   Link,
   LinkAlign,
+  LinkEnd,
   LinkId,
   LineStyle,
   LinkStyle,
@@ -51,6 +52,7 @@ import {
   TurnArrow,
   UNITS_PER_METRE,
   alignmentShift,
+  anchoredAlong,
   bandAt,
   boundaryAt,
   boundaryTaken,
@@ -65,6 +67,7 @@ import {
   laneLine,
   laneLineOffsets,
   legalMovements,
+  markingAnchor,
   markingArrow,
   markingTeeth,
   markingText,
@@ -77,6 +80,7 @@ import {
   offsetPolyline,
   pointAlongPolyline,
   polygonsPath,
+  polylineLength,
   polylinesPath,
   rayCircleExit,
   rayIntersection,
@@ -1191,6 +1195,72 @@ describe("pointAlongPolyline", () => {
       pointAlongPolyline([{ x: 4, y: 4 }, { x: 4, y: 4 }], 10),
     ).toBeUndefined();
   });
+
+  /**
+   * The total that used to be private to the walk above, and the reason it is
+   * not: an `end`-anchored marking measures back from it, and a drag has to
+   * measure forward to the same number or the round trip does not close.
+   */
+  describe("polylineLength", () => {
+    it("sums the segments the walk itself walks", () => {
+      expect(polylineLength(bent)).toBe(200);
+      // The far end of the walk is the whole length, by construction.
+      expect(pointAlongPolyline(bent, polylineLength(bent))!.at).toEqual({
+        x: 100,
+        y: 100,
+      });
+    });
+
+    /**
+     * The `SAME_EDGE` filter, which is what makes this the walk's total rather
+     * than merely a plausible one: a repeated point contributes no segment to
+     * either, so both agree a 200-unit polyline is 200 units long.
+     */
+    it("skips a segment too short to have a direction", () => {
+      expect(
+        polylineLength([
+          { x: 0, y: 0 },
+          { x: 100, y: 0 },
+          { x: 100, y: 0 },
+          { x: 100, y: 100 },
+        ]),
+      ).toBe(200);
+      expect(polylineLength([])).toBe(0);
+      expect(polylineLength([{ x: 4, y: 4 }, { x: 4, y: 4 }])).toBe(0);
+    });
+  });
+
+  /**
+   * One function for both directions, because two expressions could disagree
+   * about which of them subtracts (lane arrows §2.3.1).
+   */
+  describe("anchoredAlong", () => {
+    it("leaves a start-anchored distance alone, absent anchor included", () => {
+      expect(anchoredAlong(200, 40, "start")).toBe(40);
+      expect(anchoredAlong(200, 40, undefined)).toBe(40);
+    });
+
+    it("measures an end-anchored distance back from the far end", () => {
+      expect(anchoredAlong(200, 40, "end")).toBe(160);
+    });
+
+    it("is its own inverse, which is what closes the drag's round trip", () => {
+      for (const anchor of ["start", "end"] as const) {
+        expect(anchoredAlong(200, anchoredAlong(200, 40, anchor), anchor)).toBe(40);
+      }
+    });
+
+    /** Past the end of the road resolves *behind* its start, where the walk
+     *  clamps it — the mirror of a start-anchored marking running off the far
+     *  end, and now reachable from ordinary data rather than a hand-edited file. */
+    it("sends an over-long end-anchored distance off the near end", () => {
+      expect(anchoredAlong(200, 260, "end")).toBe(-60);
+      expect(pointAlongPolyline(bent, anchoredAlong(200, 260, "end"))!.at).toEqual({
+        x: 0,
+        y: 0,
+      });
+    });
+  });
 });
 
 /**
@@ -1933,6 +2003,102 @@ describe("the sign vocabulary", () => {
     // The two are genuinely different boxes, which is the whole reason this
     // function exists rather than the plate serving both.
     expect(signPlate("").box.height).toBeLessThan(SIGN_SIZE);
+  });
+});
+
+/**
+ * Which end a marking measures from (lane arrows Phase 2). One straight road due
+ * east, so a marking's whole longitudinal geometry is one `x`.
+ */
+describe("markingAnchor, and the end it measures from", () => {
+  /** A one-lane road `N1 → N2`, `N2` at `far`, carrying `marking`. */
+  function road(marking: Marking, far = 120): Document {
+    const base = emptyDocument("anchored");
+    return {
+      ...base,
+      nodes: [
+        { id: "N1", type: "endpoint" },
+        { id: "N2", type: "endpoint" },
+      ],
+      links: [
+        {
+          id: "L1",
+          from_node: "N1",
+          to_node: "N2",
+          lanes: defaults(1),
+          median_gap: DEFAULT_MEDIAN_GAP,
+        },
+      ],
+      layout: {
+        ...base.layout,
+        nodes: { N1: { pos: { x: 0, y: 0 } }, N2: { pos: { x: far, y: 0 } } },
+      },
+      markings: [marking],
+    };
+  }
+
+  /** A stop line `position` metres along `L1`, measured from `anchor`. */
+  function stop(anchor: LinkEnd, position = 14): Marking {
+    return {
+      id: "M1",
+      link: "L1",
+      position,
+      ...(anchor === "start" ? {} : { anchor }),
+      kind: { type: "stop_line" },
+    };
+  }
+
+  /** How far along the drawn road the first marking sits. */
+  function at(doc: Document): number {
+    return markingAnchor(doc, doc.markings[0], carriageways(doc))!.at.x;
+  }
+
+  const ALONG = 14 * UNITS_PER_METRE; // 36 units
+
+  it("measures from the start when nothing says otherwise", () => {
+    expect(at(road(stop("start")))).toBeCloseTo(ALONG);
+    // The absent key and the explicit value are the same marking.
+    expect(at(road({ ...stop("start"), anchor: "start" }))).toBeCloseTo(ALONG);
+  });
+
+  it("measures back from the end node when anchored to it", () => {
+    expect(at(road(stop("end")))).toBeCloseTo(120 - ALONG);
+  });
+
+  /**
+   * **The whole point of the field** (lane arrows §2.3), and asserted by moving
+   * the node rather than by arithmetic: an imported arm is 1285 units long and
+   * gets dragged into schematic shape, which must not take the paint with it.
+   */
+  it("holds its distance from the end node while that node moves", () => {
+    for (const far of [120, 300, 60]) {
+      expect(at(road(stop("end"), far))).toBeCloseTo(far - ALONG);
+    }
+  });
+
+  it("holds its distance from the start node instead, as it always did", () => {
+    for (const far of [120, 300, 60]) {
+      expect(at(road(stop("start"), far))).toBeCloseTo(ALONG);
+    }
+  });
+
+  /**
+   * The clamp, mirrored. A start-anchored marking longer than its road piles up
+   * at the far end; an end-anchored one piles up at the near end. Either way it
+   * stays on the road, visible and draggable, which is what the clamp is for.
+   */
+  it("clamps an over-long marking to the end furthest from its anchor", () => {
+    expect(at(road(stop("start", 400)))).toBeCloseTo(120);
+    expect(at(road(stop("end", 400)))).toBeCloseTo(0);
+  });
+
+  /** An arrow measured back from the junction still points the way traffic runs. */
+  it("does not flip the direction of travel", () => {
+    for (const anchor of ["start", "end"] as const) {
+      expect(
+        markingAnchor(road(stop(anchor)), road(stop(anchor)).markings[0], {})!.dir,
+      ).toEqual({ x: 1, y: 0 });
+    }
   });
 });
 

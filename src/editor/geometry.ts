@@ -14,6 +14,7 @@ import {
   LaneIdx,
   Link,
   LinkAlign,
+  LinkEnd,
   LinkId,
   LinkStyle,
   LineStyle,
@@ -869,32 +870,75 @@ export interface PolylinePoint {
 }
 
 /**
+ * How far it is from one end of `points` to the other, skipping segments too
+ * short to have a direction.
+ *
+ * **The `SAME_EDGE` filter is what makes this the right total rather than merely
+ * a plausible one**: {@link nearestOnPolyline} and {@link pointAlongPolyline}
+ * both walk the same filtered segments, so a distance measured against this one
+ * converts between their two frames exactly (see {@link anchoredAlong}) rather
+ * than to within a few float slacks. Written as a plain sum of point-to-point
+ * distances it would drift from both.
+ */
+export function polylineLength(points: Vec2[]): number {
+  let total = 0;
+  for (let i = 0; i < points.length - 1; i++) {
+    const len = Math.hypot(points[i + 1].x - points[i].x, points[i + 1].y - points[i].y);
+    if (len < SAME_EDGE) continue;
+    total += len;
+  }
+  return total;
+}
+
+/**
+ * A distance in the other end's frame — `total - distance` for a marking
+ * anchored to the `end` of its road, and `distance` untouched for one anchored
+ * to the `start`.
+ *
+ * **Its own inverse**, which is the whole reason it is one function: the drawing
+ * turns a marking's stored metres into an arc-length from the polyline's start
+ * ({@link markingAnchor}), and a drag turns an arc-length back into stored
+ * metres (`projectOntoLink`). Two expressions could disagree about which
+ * direction subtracts; one cannot.
+ */
+export function anchoredAlong(
+  total: number,
+  distance: number,
+  anchor: LinkEnd | undefined,
+): number {
+  return anchor === "end" ? total - distance : distance;
+}
+
+/**
  * The point `along` world units from the start of `points`, and the direction of
  * travel there — the inverse of {@link nearestOnPolyline}'s `along`.
  *
  * **`along` is clamped to the polyline**, which is what keeps a marking on a road
  * the user has since shortened by dragging a node: its stored metres may now
- * exceed the drawn length, and the marking sits at the end rather than off it
- * (markings spec §2.2). `undefined` for a polyline with no length to walk, the
- * same posture {@link endDirection} takes.
+ * exceed the drawn length, and the marking sits at whichever end is furthest from
+ * its own anchor rather than off the road (markings spec §2.2; an end-anchored
+ * marking resolves to a *negative* `along`, so it piles up at the start). The
+ * clamp is deliberately applied to the resolved distance rather than the stored
+ * one. `undefined` for a polyline with no length to walk, the same posture
+ * {@link endDirection} takes.
  */
 export function pointAlongPolyline(
   points: Vec2[],
   along: number,
 ): PolylinePoint | undefined {
   const segments: { a: Vec2; dir: Vec2; len: number }[] = [];
-  let total = 0;
   for (let i = 0; i < points.length - 1; i++) {
     const a = points[i];
     const b = points[i + 1];
     const len = Math.hypot(b.x - a.x, b.y - a.y);
     if (len < SAME_EDGE) continue;
     segments.push({ a, dir: { x: (b.x - a.x) / len, y: (b.y - a.y) / len }, len });
-    total += len;
   }
+  // Not `polylineLength(points) === 0`: an empty polyline and two identical
+  // points both measure zero, and both must return nothing rather than walk.
   if (segments.length === 0) return undefined;
 
-  let remaining = Math.min(total, Math.max(0, along));
+  let remaining = Math.min(polylineLength(points), Math.max(0, along));
   for (const s of segments) {
     if (remaining <= s.len) {
       return {
@@ -979,6 +1023,12 @@ export interface MarkingAnchor extends PolylinePoint {
  * never types a distance, the click divides by {@link UNITS_PER_METRE}, and this
  * multiplies back (markings spec §2.2).
  *
+ * **`Marking.anchor` picks which end that distance is measured from**, through
+ * {@link anchoredAlong} — an `end`-anchored marking holds its distance from the
+ * link's `to_node` while the road's drawn length changes under it, which is what
+ * auto-placed paint needs (lane arrows §2.3). It does **not** flip `dir`: an
+ * arrow measured back from the junction still points the way the road runs.
+ *
  * **Four ways a marking is skipped rather than drawn**, all of them reachable
  * only from an imported or hand-edited document — the cascades in `state.ts`
  * cover every edit the app itself can make (§2.5). Indexing `laneBands` out of
@@ -1011,7 +1061,11 @@ export function markingAnchor(
   const points = drawnPolyline(doc, link, offsets);
   if (!points || points.length < 2) return undefined;
 
-  const along = marking.position * UNITS_PER_METRE;
+  const along = anchoredAlong(
+    polylineLength(points),
+    marking.position * UNITS_PER_METRE,
+    marking.anchor,
+  );
   if (!Number.isFinite(along)) return undefined;
   const at = pointAlongPolyline(points, along);
   if (!at) return undefined;

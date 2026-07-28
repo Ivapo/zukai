@@ -110,11 +110,21 @@ export type MarkingKind =
   | { type: "text"; content: string }
   | { type: "lane_line"; style: LineStyle };
 
+/**
+ * Which end of a link a marking's `position` is measured from — `end` is the
+ * link's `to_node`, so the paint holds its distance from the junction a road
+ * arrives at however the road's drawn length changes.
+ */
+export type LinkEnd = "start" | "end";
+
 /** A painted road-surface marking anchored to a link. */
 export interface Marking {
   id: MarkingId;
   link: LinkId;
+  /** Metres from the end named by `anchor`. */
   position: number;
+  /** Absent means `start`; Rust elides the key for a start-anchored marking. */
+  anchor?: LinkEnd;
   lane?: LaneIdx;
   kind: MarkingKind;
 }

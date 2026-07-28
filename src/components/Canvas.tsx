@@ -6,6 +6,7 @@ import { findLink, findMarking, linkStyle, nodePos } from "../model/document";
 import {
   LaneIdx,
   Link,
+  LinkEnd,
   Marking,
   MarkingId,
   Node,
@@ -17,12 +18,14 @@ import {
 import {
   LANE_PX,
   UNITS_PER_METRE,
+  anchoredAlong,
   bandAt,
   boundaryAt,
   carriageways,
   drawnPolyline,
   laneBands,
   nearestOnPolyline,
+  polylineLength,
   screenToWorld,
   zoomAbout,
 } from "../editor/geometry";
@@ -163,6 +166,16 @@ export function Canvas({ state, dispatch }: CanvasProps) {
    * vanish mid-drag. The kind-aware marking rules already live in the UI layer
    * rather than in the reducer (markings §2.3), and this is one more of them.
    *
+   * **`anchor` is the frame the answer is reported in**, and it is not
+   * kind-aware — it is read off the marking's own state. `nearestOnPolyline`
+   * measures from the polyline's start, so an `end`-anchored marking's metres
+   * have to come back measured from the other end, or a drag writes a distance
+   * the drawing reads backwards and the paint mirrors about the road's midpoint
+   * (lane arrows §2.3.1). The flip lives here rather than at the call site so the
+   * metre/unit boundary stays the two functions `rules/road-markings.md` names:
+   * placement and dragging share this one, and the caller would have to re-derive
+   * the polyline per pointer-move to know the total.
+   *
    * Returns `null` for a link with no drawable polyline, on which no click can
    * mean anything.
    */
@@ -170,13 +183,14 @@ export function Canvas({ state, dispatch }: CanvasProps) {
     e: React.PointerEvent,
     link: Link,
     boundaries: boolean,
+    anchor?: LinkEnd,
   ): { position: number; lane?: LaneIdx } | null {
     const points = drawnPolyline(doc, link, carriageways(doc));
     if (!points || points.length < 2) return null;
     const { along, offset } = nearestOnPolyline(points, worldPoint(e));
     const bands = laneBands(link.lanes, linkStyle(doc, link.id));
     return {
-      position: along / UNITS_PER_METRE,
+      position: anchoredAlong(polylineLength(points), along, anchor) / UNITS_PER_METRE,
       lane: boundaries ? boundaryAt(bands, offset) : bandAt(bands, offset),
     };
   }
@@ -283,12 +297,18 @@ export function Canvas({ state, dispatch }: CanvasProps) {
       // The odd one out: a marking has no free position to offset, only a place
       // **on a road**, so this re-runs placement's projection rather than the two
       // subtractions below. The marking supplies its own link — a drag slides it
-      // along the road it is painted on and never re-homes it to another — and
-      // its own kind, which is what picks boundaries over lane bands.
+      // along the road it is painted on and never re-homes it to another — its
+      // own kind, which is what picks boundaries over lane bands, and its own
+      // anchor, which is the frame the answer comes back in.
       const marking = findMarking(doc, d.id);
       const link = marking && findLink(doc, marking.link);
       if (!marking || !link) return;
-      const at = projectOntoLink(e, link, marking.kind.type === "lane_line");
+      const at = projectOntoLink(
+        e,
+        link,
+        marking.kind.type === "lane_line",
+        marking.anchor,
+      );
       if (at) dispatch({ type: "moveMarking", id: d.id, ...at });
     } else {
       const w = screenToWorld(view, s.x, s.y);

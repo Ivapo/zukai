@@ -16,14 +16,51 @@ pub struct Marking {
     pub id: MarkingId,
     /// Link the marking is painted on.
     pub link: LinkId,
-    /// Distance along the link from its start, metres (as with Assimilator's
-    /// `crossings`/`detectors` positions).
+    /// Distance along the link from the end named by [`anchor`](Self::anchor),
+    /// metres (as with Assimilator's `crossings`/`detectors` positions).
     pub position: f64,
+    /// Which end of the link [`position`](Self::position) is measured from.
+    ///
+    /// Elided when `start`, so every document written before this field existed
+    /// loads and saves byte-for-byte as it did — [`LinkAlign`](super::layout::LinkAlign)'s
+    /// shape, for its reason.
+    #[serde(default, skip_serializing_if = "LinkEnd::is_start")]
+    pub anchor: LinkEnd,
     /// Lane the marking applies to; `None` spans the whole carriageway.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lane: Option<LaneIdx>,
     /// What is painted.
     pub kind: MarkingKind,
+}
+
+/// Which end of a link a [`Marking`]'s position is measured from.
+///
+/// `End` means the link's `to_node`, so the paint holds its distance from the
+/// junction a road arrives at while the road's *drawn* length changes freely —
+/// which is what auto-placed paint needs, since a schematic's arms are dragged
+/// into shape after they are populated (lane arrows spec §2.3).
+///
+/// Named after a link but living among the decorations, because that is what it
+/// belongs to: `anchor` is Zukai's own and never exports, and
+/// [`graph`](super::graph) is the layer whose whole promise is a 1:1
+/// `network.yaml` mapping.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LinkEnd {
+    /// The link's `from_node` — where every marking measured from before the
+    /// field existed, and where one with no `anchor` key still measures from.
+    #[default]
+    Start,
+    /// The link's `to_node`.
+    End,
+}
+
+impl LinkEnd {
+    /// Whether this is the default start anchor — the `skip_serializing_if`
+    /// predicate for [`Marking::anchor`].
+    fn is_start(&self) -> bool {
+        matches!(self, Self::Start)
+    }
 }
 
 /// Kind of road-surface paint. A starter set; extend as the palette grows.
@@ -130,4 +167,57 @@ pub enum SignKind {
         /// Free-text label describing the sign.
         label: String,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A stop line 20 m along `L1`, anchored to the given end.
+    fn marking(anchor: LinkEnd) -> Marking {
+        Marking {
+            id: "K1".into(),
+            link: "L1".into(),
+            position: 20.0,
+            anchor,
+            lane: Some(0),
+            kind: MarkingKind::StopLine,
+        }
+    }
+
+    #[test]
+    fn an_anchor_survives_a_yaml_round_trip() {
+        let yaml = serde_yaml::to_string(&marking(LinkEnd::End)).expect("serialize");
+        let back: Marking = serde_yaml::from_str(&yaml).expect("deserialize");
+        assert_eq!(marking(LinkEnd::End), back);
+
+        // …written in the same snake_case the TypeScript mirror spells.
+        assert!(
+            yaml.contains("anchor: end"),
+            "unexpected anchor in {yaml:?}"
+        );
+    }
+
+    /// The whole point of the `skip_serializing_if` predicate: every marking
+    /// written before the field existed measured from the start, so one that
+    /// still does must save exactly as it did — which is what makes a new
+    /// optional field cost no `SCHEMA_VERSION` bump.
+    #[test]
+    fn a_start_anchored_marking_writes_no_anchor_key_at_all() {
+        let yaml = serde_yaml::to_string(&marking(LinkEnd::Start)).expect("serialize");
+
+        assert!(
+            !yaml.contains("anchor"),
+            "unexpected anchor key in {yaml:?}"
+        );
+    }
+
+    #[test]
+    fn a_file_without_the_field_loads_as_start() {
+        let marking: Marking =
+            serde_yaml::from_str("id: K1\nlink: L1\nposition: 20.0\nkind:\n  type: stop_line\n")
+                .expect("deserialize");
+
+        assert_eq!(marking.anchor, LinkEnd::Start);
+    }
 }

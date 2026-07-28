@@ -102,7 +102,7 @@ pub struct Metadata {
 
 #[cfg(test)]
 mod tests {
-    use super::decoration::{Marking, MarkingKind, Sign, SignKind, TurnDirection};
+    use super::decoration::{LinkEnd, Marking, MarkingKind, Sign, SignKind, TurnDirection};
     use super::graph::{
         Junction, JunctionControl, Lane, Link, Movement, MovementKind, Node, NodeKind,
     };
@@ -217,6 +217,9 @@ mod tests {
             id: "K1".into(),
             link: "L1".into(),
             position: 90.0,
+            // Non-default, as `align: LinkAlign::Offside` above is, so the round
+            // trip covers the key rather than only its absence.
+            anchor: LinkEnd::End,
             lane: Some(0),
             kind: MarkingKind::TurnArrow {
                 directions: vec![TurnDirection::Through],

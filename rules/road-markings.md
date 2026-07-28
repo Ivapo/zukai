@@ -1,10 +1,12 @@
 # Road markings
 
 The paint a human places on a road: how a marking is anchored, how the tool
-places one, how it is selected and drawn, and what removes it. Frontend only —
-`Marking` and `MarkingKind` have been in the model since the first commit, so
-nothing here crosses IPC, reaches disk, or moves `SCHEMA_VERSION`. The design
-rationale lives in `specs/road_markings_spec.md`; hand-maintained.
+places one, how it is selected and drawn, and what removes it. Almost entirely
+frontend — `Marking` and `MarkingKind` have been in the model since the first
+commit, and the one field added since (`anchor`, lane arrows Phase 2) is optional
+and elided at its default, so nothing here has ever moved `SCHEMA_VERSION`. The
+design rationale lives in `specs/road_markings_spec.md` and, for the anchor,
+`specs/lane_arrows_spec.md`; hand-maintained.
 
 **Six of the seven kinds are drawn.** `stop_line`, `give_way_line`, `crosswalk`,
 `turn_arrow` and `text` sit at a point across the road (spec Phases 1–3, plus
@@ -15,8 +17,8 @@ carries one — as do the two kinds whose fresh payload is empty.
 
 ## The anchor, and the one place metres become units
 
-`Marking` is `{ id, link, position, lane?, kind }`. Two things about it govern
-everything below:
+`Marking` is `{ id, link, position, anchor?, lane?, kind }`. Three things about
+it govern everything below:
 
 - **`position` is metres**, and stays metres. A schematic link has no length in
   metres — it is however far apart the human dragged two dots — but the field is
@@ -24,6 +26,11 @@ everything below:
   alternatives (reinterpreting it as a fraction, or adding a second
   presentation-side position) either make `decoration.rs` lie or create two
   sources of truth for one quantity.
+- **`anchor` absent means `start`** — which end those metres are measured from.
+  `LinkEnd` is a plain defaulted enum rather than an `Option`, `LinkAlign`'s
+  shape, elided by `skip_serializing_if = "LinkEnd::is_start"`, so every document
+  written before the field existed still saves byte-for-byte (lane arrows §2.3.1;
+  no `SCHEMA_VERSION` move).
 - **`lane` absent means the whole carriageway.** Stored as an *absent* key, never
   as `undefined` — the one-representation rule `Lane.kind`/`LinkView.align`
   already follow, matching Rust's `skip_serializing_if = "Option::is_none"`.
@@ -31,13 +38,32 @@ everything below:
 The metre/unit boundary is exactly two functions, and no third site converts:
 
 ```
-projectOntoLink (Canvas.tsx) world units → metres  position = along / UNITS_PER_METRE
-markingAnchor (geometry.ts)  metres → world units  along    = position * UNITS_PER_METRE
+projectOntoLink (Canvas.tsx) world units → metres  position = anchoredAlong(total, along) / UNITS_PER_METRE
+markingAnchor (geometry.ts)  metres → world units  along    = anchoredAlong(total, position * UNITS_PER_METRE)
 ```
 
 `projectOntoLink` is what placement and dragging **share**, which is what keeps
 that count at two: `placeMarking` is two lines over it, and the drag re-runs it
 per pointer-move. Extracting it was the whole of lane arrows Phase 1's arithmetic.
+
+**The frame flip lives inside those same two functions, and that is why the count
+is still two.** `anchoredAlong(total, distance, anchor)` is `total - distance` for
+an `end` anchor and the distance untouched for a `start` one — **its own inverse**,
+so one function serves both directions and no two expressions can disagree about
+which of them subtracts. Putting the flip at the drag's call site instead would
+have made a third site that knows the frame, and would have re-derived the
+polyline (and `carriageways(doc)`) per pointer-move to get `total`.
+
+`total` is `polylineLength(points)`, which is the sum `pointAlongPolyline` walks
+rather than a plain sum of point-to-point distances: both skip segments shorter
+than `SAME_EDGE`, and that is what makes the drag's round trip exact rather than
+approximate. It was private to that walk until an anchor needed to measure back
+from it.
+
+**Nothing tests the drag's half of it** — `Canvas.tsx` has no test file, and the
+`anchor` argument is optional, so dropping it at the call site compiles and every
+one of the 389 tests still passes (mutation-checked). `anchoredAlong` is unit-
+tested and the gesture itself is a dev-pass check.
 
 `markingForm(doc, marking, offsets)` is the **one call the renderer makes**, and
 it answers the only question with two answers: a marking is drawn either
@@ -64,13 +90,25 @@ band rather than the lane region. It lives in the anchor rather than in
 highlighting a strip the arrow is not painted on misreports the span at the moment
 the user is looking at it.
 
+**The anchor is not one of those kind-aware lines, and it does not flip `dir`.**
+An arrow measured back from the junction still points the way the road runs —
+`anchor` picks where the paint sits, never which way it faces.
+
 **Consequences of absolute metres, stated rather than discovered:** dragging a
-node shortens the road under its markings, so a marking sits proportionally
-further along than it did, and one whose metres now exceed the drawn length is
-**clamped to the end** by `pointAlongPolyline` rather than drawn off it. Verified
-in the app: shortening a 600-unit road to 350 moved a mid-road stop line to 86%
-along, still on asphalt in its lane. That is the same posture the rest of
-`geometry.ts` takes with degenerate input (spec OQ-6, left as-is).
+node shortens the road under its markings, so a **start**-anchored marking sits
+proportionally further along than it did, and one whose metres now exceed the
+drawn length is **clamped to the end furthest from its own anchor** by
+`pointAlongPolyline` rather than drawn off it — an end-anchored one resolves to a
+*negative* distance and piles up at the start. Verified in the app: shortening a
+600-unit road to 350 moved a mid-road stop line to 86% along, still on asphalt in
+its lane. That is the same posture the rest of `geometry.ts` takes with degenerate
+input. **An `end` anchor is the half-answer to spec OQ-6** ("should a marking
+follow the road when a node is dragged?"): it can now, if it says so — measured in
+the app, an end-anchored stop line held 210 units from `N2` while `N2` moved 140,
+with a start-anchored one beside it staying put. The clamp is what the other half
+still rests on. It also gives **OQ-1** a cheaper answer than the one recorded
+there: reversing a link can flip its markings' anchors instead of remapping every
+`position` to `length - position`.
 
 ## Placement: the click carries everything, so there is no dialog
 
@@ -119,6 +157,11 @@ about it are decisions rather than mechanics:
   to the lane under the pointer. The lane already falls out of the click for
   placement, and a drag that crossed a divider without changing lanes would be the
   surprising reading.
+- **The `position` it writes is in the marking's own frame**, which is what
+  `marking.anchor` is passed down for. Report a start-frame distance for an
+  end-anchored marking and the paint mirrors about the road's midpoint and tracks
+  the pointer *backwards* — a bug the drag would have shipped with the moment the
+  Anchor row made the field settable.
 - **The lane a drag resolves to is kind-aware, and this is the one place it is.**
   `bandAt` answers for every kind but a `lane_line`, whose `lane` names one of the
   road's `n-1` **boundaries**; `boundaryAt` answers for that one. Matching a lane
@@ -131,17 +174,37 @@ about it are decisions rather than mechanics:
   `(position, lane)`, and without it the document dirties for a gesture that
   changed nothing.
 
-## Editing: three controls, all kind-aware
+## Editing: four controls, all kind-aware
 
 The Inspector's marking panel carries a **Kind picker** (`setMarkingKind`), a
-**Span control** (`setMarkingLane`), and one payload control per kind that has a
-payload — a **Directions multi-select** for a `turn_arrow`, a **Style
-single-select** for a `lane_line`, a **Words field** for a `text`. `Road` stays a
-readout, and so does `Position`,
+**Span control** (`setMarkingLane`), an **Anchor row** (`setMarkingAnchor`), and
+one payload control per kind that has a payload — a **Directions multi-select**
+for a `turn_arrow`, a **Style single-select** for a `lane_line`, a **Words field**
+for a `text`. `Road` stays a readout, and so does `Position`,
 which reads **"Whole link"** for a lane line: `position` is ignored for one, and a
 distance in metres there would be a lie at the only place the panel could tell the
-truth. The Span control is the deliberate route to `lane: undefined` that
-placement's side door is not.
+truth. It now names its frame — `81.7 m from end` — because a bare distance for
+paint measured back from the junction is that same lie one field over. The Span
+control is the deliberate route to `lane: undefined` that placement's side door is
+not.
+
+**The Anchor row is withheld for a `lane_line`**, on the Position readout's own
+terms: that kind has no distance to anchor. And it is the **first marking control
+since the Span to need an action of its own** — `anchor` is a field beside `kind`
+rather than a payload inside it, which is exactly the discriminator the three
+`setMarkingKind` dispatchers rest on.
+
+**Clicking it moves the paint, deliberately.** `position` is kept verbatim, so
+paint 20 m from the start becomes paint 20 m from the end. Re-basing it to
+`total - position` would hold the drawing still, but only by making the stored
+metres a function of the layout — the one thing keeping them in metres rules out —
+and it would need the drawn polyline inside the reducer.
+
+**`setMarkingAnchor`'s identity guard normalizes before it compares**
+(`(marking.anchor ?? "start") === anchor`). A start-anchored marking carries no
+key, so the bare comparison is `undefined === "start"`, and re-clicking Start
+would dirty the document and push an undo snapshot for a click that changed
+nothing. The same `?? "start"` decides which segment lights.
 
 `setMarkingKind` carries the **whole tagged `MarkingKind`**, not just its `type`,
 so `turn_arrow`'s directions and `lane_line`'s style need no action of their own
@@ -548,16 +611,16 @@ two kinds whose fresh payload is empty.
 
 | Piece | Where | Tested by |
 |---|---|---|
-| `markingForm` — the one call the renderer makes; `nearestOnPolyline`, `pointAlongPolyline`, `markingAnchor` | `src/editor/geometry.ts` | `geometry.test.ts` (pure) |
+| `markingForm` — the one call the renderer makes; `nearestOnPolyline`, `pointAlongPolyline`, `polylineLength`, `anchoredAlong`, `markingAnchor` | `src/editor/geometry.ts` | `geometry.test.ts` (pure) |
 | `markingBar`/`markingTeeth`/`markingZebra`/`markingArrow`/`markingText`, `textWidth`, `spanCells`, `polygonsPath`/`polylinesPath`, and the build constants | `src/editor/geometry.ts` | `geometry.test.ts` (pure) |
 | `laneLine`/`boundaryOffset`, and `laneLineOffsets`/`boundaryTaken` — the replacement, which is the only piece the *roads* read | `src/editor/geometry.ts` | `geometry.test.ts` (pure) |
 | `MarkingShape`, `markingPaint`, `haloWidth`, `needsText` (**exported** — its consumer is `export.tsx`), the marking layer, `Interaction.onMarkingPointerDown`; `RoadShape`'s `replaced` prop | `src/components/Diagram.tsx` | `Diagram.test.tsx` via `renderToStaticMarkup` |
 | `.marking-bar`, `.marking-teeth`, `.marking-zebra`, `.marking-arrow-stem`, `.marking-arrow-head`, `.marking-line` and its two style modifiers, `.marking-text` — the paint, and the only marking rules that reach an export. `.marking-text` is **fill only**: the face and the size are attributes (`rules/diagram-export.md`) | `src/styles/diagram.css` | `export.test.ts` |
 | `.marking-hit`, `.marking-halo`, the panel-control rules — interaction, so **not** in `diagram.css` | `src/styles.css` | `export.test.ts`'s `CHROME` regex |
-| `addMarking`, `setMarkingKind`, `setMarkingLane`, the `Selection` arm, `keepMarkings` and the three cascades, `unreachable` | `src/editor/state.ts` | `state.test.ts` |
-| The marking tool: `placeMarking`, the two pointer handlers | `src/components/Canvas.tsx` | the `bun run dev` pass — SVG bubbling is what is under test |
+| `addMarking`, `setMarkingKind`, `setMarkingLane`, `setMarkingAnchor`, `moveMarking`, the `Selection` arm, `keepMarkings` and the three cascades, `unreachable` | `src/editor/state.ts` | `state.test.ts` |
+| The marking tool: `placeMarking`, `projectOntoLink` (which owns the frame flip), the two pointer handlers, the drag arm | `src/components/Canvas.tsx` | the `bun run dev` pass — SVG bubbling and the drag's frame are what is under test |
 | The toolbar button and `TOOL_KEYS` entry `m` | `src/components/Toolbar.tsx`, `src/App.tsx` | — |
-| The marking panel: `MarkingKindPicker`, `MarkingSpan`, `MarkingDirections`, `MarkingLineStyle`, `MarkingText`, `MARKING_PICKER`, `TURN_DIRECTIONS`, `LINE_STYLES` | `src/components/Inspector.tsx` | the `bun run dev` pass |
+| The marking panel: `MarkingKindPicker`, `MarkingSpan`, `MarkingAnchorPicker`, `MarkingDirections`, `MarkingLineStyle`, `MarkingText`, `MARKING_PICKER`, `TURN_DIRECTIONS`, `LINE_STYLES`, `MARKING_ANCHORS` | `src/components/Inspector.tsx` | the `bun run dev` pass |
 
 `strokeAllowance` (`src/editor/export.tsx`) needed **no** change and
 `export.test.ts` confirms it, for every kind: every marking is painted inside the
@@ -586,10 +649,16 @@ one kind where that was worth confirming rather than assuming.
   place there either. Recovery is undo, or grabbing a different marking. Lane
   arrows Phase 5 moves *auto-placed* paint out from under the disc by anchoring to
   the rim; a hand-drag can still park one there.
-- **Markings do not follow a dragged node (spec OQ-6)** — see the first section.
-  Rescaling `position` on a drag would make the stored metres a function of
-  layout, which is what keeping metres rules out. Dragging the **marking** is a
-  different verb and does not touch this: it moves paint, never the road under it.
+- **Markings follow a dragged node only if they say which end to follow (spec
+  OQ-6, half-answered).** `anchor: "end"` holds a marking's distance from the
+  `to_node`; a start-anchored one still sits proportionally further along as the
+  road shortens, and neither *rescales* `position`, which would make the stored
+  metres a function of layout — the thing keeping them in metres rules out.
+  Dragging the **marking** is a different verb again: it moves paint, never the
+  road under it.
 - **Link reversal (spec OQ-1).** Nothing reverses a link today, so
   `position`-from-`from_node` is unambiguous. A reverse action must remap every
-  marking to `length - position`, or every stop line jumps to the wrong end.
+  marking to `length - position`, or every stop line jumps to the wrong end —
+  though since Phase 2 it has the cheaper option of **flipping the anchor**
+  instead, which is the same claim said in one field rather than recomputed into
+  every marking.

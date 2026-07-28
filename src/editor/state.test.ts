@@ -932,6 +932,76 @@ describe("markings", () => {
   });
 
   /**
+   * Which end of the road the distance is measured from (lane arrows §2.3.1) —
+   * the field that lets auto-placed paint survive a node being dragged.
+   */
+  describe("which end a marking measures from", () => {
+    it("anchors to the end, and back to the start, without moving or repainting", () => {
+      const end = reducer(painted(3, 1), {
+        type: "setMarkingAnchor",
+        id: "M1",
+        anchor: "end",
+      });
+
+      expect(end.doc.markings[0]).toEqual({
+        id: "M1",
+        link: "L1",
+        position: 20,
+        anchor: "end",
+        lane: 1,
+        kind: { type: "stop_line" },
+      });
+      expect(end.dirty).toBe(true);
+
+      const back = reducer(end, { type: "setMarkingAnchor", id: "M1", anchor: "start" });
+      expect("anchor" in back.doc.markings[0]).toBe(false);
+      expect(back.doc.markings[0].position).toBe(20);
+    });
+
+    /**
+     * **Absent, never `"start"`** — the one-representation rule, and Rust's
+     * `skip_serializing_if = "LinkEnd::is_start"` is the other half of it.
+     */
+    it("mints no anchor key on a fresh marking", () => {
+      expect("anchor" in painted().doc.markings[0]).toBe(false);
+    });
+
+    it("is undoable a step at a time, like every other deliberate click", () => {
+      const end = reducer(painted(), { type: "setMarkingAnchor", id: "M1", anchor: "end" });
+
+      expect(reducer(end, { type: "undo" }).doc.markings[0].anchor).toBeUndefined();
+      expect(reducer(reducer(end, { type: "undo" }), { type: "redo" }).doc.markings[0]
+        .anchor).toBe("end");
+    });
+
+    /**
+     * **The guard has to normalize before it compares.** A start-anchored marking
+     * carries no key at all, so `marking.anchor === anchor` is `undefined ===
+     * "start"` — false — and re-clicking Start would dirty the document and push
+     * a snapshot for a click that changed nothing.
+     */
+    it("is a no-op, by identity, on the anchor already in force", () => {
+      const start = painted();
+      expect(
+        reducer(start, { type: "setMarkingAnchor", id: "M1", anchor: "start" }).doc,
+      ).toBe(start.doc);
+
+      const end = reducer(start, { type: "setMarkingAnchor", id: "M1", anchor: "end" });
+      expect(reducer(end, { type: "setMarkingAnchor", id: "M1", anchor: "end" }).doc).toBe(
+        end.doc,
+      );
+    });
+
+    it("is a no-op, by identity, on a marking that is not there", () => {
+      const start = painted();
+
+      expect(
+        reducer(start, { type: "setMarkingAnchor", id: "M9", anchor: "end" }).doc,
+      ).toBe(start.doc);
+    });
+  });
+
+  /**
    * The missing verb (lane arrows §2.2): a marking could be created, repainted,
    * re-spanned and deleted, and not **moved**. The canvas projects the pointer
    * onto the road and dispatches the result, so what is asserted here is what the
