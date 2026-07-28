@@ -1419,8 +1419,12 @@ export function markingZebra(anchor: MarkingAnchor): Vec2[][] {
  *
  * A schematic build constant like {@link CROSSWALK_DEPTH}, and **fixed rather
  * than band-derived**: two default lanes long, near the 2:1 a real turn arrow
- * cuts in a real lane. Its footprint along the road does not depend on which
- * directions are chosen, so adding a branch never moves the arrow.
+ * cuts in a real lane. It is the arrow's whole footprint at every direction set,
+ * forward or back — which is what a *rear* branch spends the shaft to keep: a
+ * two-headed arrow shortens the shaft to `-fork → fork` and gives the length
+ * back to the head it grew, rather than reaching further up the road than a
+ * single-headed one (markings §2.11). Adding a **forward** branch still never
+ * moves anything.
  */
 export const TURN_ARROW_LENGTH = 15;
 
@@ -1461,6 +1465,17 @@ const BRANCH_BEARING: Record<Exclude<TurnDirection, "u_turn">, number> = {
   right: Math.PI / 2,
 };
 
+/**
+ * Where a point of a turn arrow lands, from `across` the band and `along` the
+ * road — the frame every branch below is built in.
+ *
+ * There are two of them and that is the whole of the second head: the driver's
+ * own, and the oncoming driver's, which is the first rotated 180° about the band
+ * centre. Every builder takes one rather than closing over a single frame, so a
+ * rear branch is the same code read in the other frame.
+ */
+type ArrowFrame = (across: number, along: number) => Vec2;
+
 /** One direction of a turn arrow: a stem off the shaft, ending in a head. */
 export interface ArrowBranch {
   /**
@@ -1474,7 +1489,13 @@ export interface ArrowBranch {
 
 /** A turn arrow: one shaft, and one branch per direction. */
 export interface TurnArrow {
-  /** `[tail, fork]` — the one shaft every branch leaves, and the same for every direction set. */
+  /**
+   * `[tail, fork]` — the one shaft every branch leaves.
+   *
+   * The same for every *forward* direction set; a rear branch shortens the tail
+   * to `-fork`, so the two-headed arrow is symmetric and keeps
+   * {@link TURN_ARROW_LENGTH} as its footprint.
+   */
   shaft: [Vec2, Vec2];
   branches: ArrowBranch[];
   /**
@@ -1502,13 +1523,21 @@ export interface TurnArrow {
  * reaches exactly as far sideways as a hard stub's apex, and {@link ARROW_REACH}
  * alone bounds all six directions.
  *
- * `undefined` for an arrow with no directions it can draw — an empty list, or one
- * only a hand-edited document could hold. A bare shaft would read as a lane line,
- * which is worse than the placeholder bar the caller falls back to.
+ * `back` paints a **second head, at the upstream end and pointing upstream** —
+ * the two-way left-turn lane of markings §2.11. Its directions are read in the
+ * oncoming driver's frame, which is the one thing about it that is not obvious:
+ * a rear `left` is left *for the driver it faces*, the opposite side of the road.
+ * See {@link ArrowFrame}.
+ *
+ * `undefined` for an arrow with no **forward** directions it can draw — an empty
+ * list, or one only a hand-edited document could hold. A bare shaft would read as
+ * a lane line, which is worse than the placeholder bar the caller falls back to.
+ * A `back`-only arrow lands there too, and is unreachable from the panel.
  */
 export function markingArrow(
   anchor: MarkingAnchor,
   directions: TurnDirection[],
+  back?: TurnDirection[],
 ): TurnArrow | undefined {
   const width = anchor.span.width;
   const reach = ARROW_REACH * width;
@@ -1519,11 +1548,25 @@ export function markingArrow(
   const fork = TURN_ARROW_LENGTH / 2 - reach;
 
   /** A point in the arrow's own frame: `across` from the band centre, `along` from `position`. */
-  const at = (across: number, along: number) =>
+  const at: ArrowFrame = (across, along) =>
     markingPoint(anchor, anchor.span.offset + across, along);
+
+  /**
+   * The **oncoming driver's frame**, and it is one flip rather than two sign
+   * changes distributed through the builders below.
+   *
+   * {@link markingPoint} is affine — `P = at + across·n + along·d` — so negating
+   * both terms is a 180° rotation about the band centre at the marking's
+   * position, and it carries `stub`, `hook` and `head` into the facing frame
+   * wholesale, all six directions included. Negating `along` alone would draw a
+   * two-way left-turn lane with **both heads swinging the same way**: a rear
+   * `left` is left for the driver it faces, which is the other side of the road.
+   */
+  const facing: ArrowFrame = (across, along) => at(-across, -along);
 
   /** A head with its apex at `(across, along)`, pointing along the unit `(da, dl)`. */
   const head = (
+    frame: ArrowFrame,
     across: number,
     along: number,
     da: number,
@@ -1532,48 +1575,59 @@ export function markingArrow(
     const ba = across - da * headLength;
     const bl = along - dl * headLength;
     return [
-      at(across, along),
-      at(ba - dl * headHalf, bl + da * headHalf),
-      at(ba + dl * headHalf, bl - da * headHalf),
+      frame(across, along),
+      frame(ba - dl * headHalf, bl + da * headHalf),
+      frame(ba + dl * headHalf, bl - da * headHalf),
     ];
   };
 
-  const stub = (bearing: number): ArrowBranch => {
+  const stub = (frame: ArrowFrame, bearing: number): ArrowBranch => {
     const da = Math.sin(bearing);
     const dl = Math.cos(bearing);
     const base = reach - headLength;
     return {
-      stem: [at(0, fork), at(da * base, fork + dl * base)],
-      head: head(da * reach, fork + dl * reach, da, dl),
+      stem: [frame(0, fork), frame(da * base, fork + dl * base)],
+      head: head(frame, da * reach, fork + dl * reach, da, dl),
     };
   };
 
-  const hook = (): ArrowBranch => {
+  const hook = (frame: ArrowFrame): ArrowBranch => {
     const r = (reach - headHalf) / 2;
     const stem: Vec2[] = [];
     // Centred a radius to the left of the fork, so the arc leaves it heading
     // downstream and arrives at `-2r` heading back upstream.
     for (let i = 0; i <= HOOK_STEPS; i++) {
       const t = (Math.PI * i) / HOOK_STEPS;
-      stem.push(at(-r + r * Math.cos(t), fork + r * Math.sin(t)));
+      stem.push(frame(-r + r * Math.cos(t), fork + r * Math.sin(t)));
     }
-    stem.push(at(-2 * r, fork - reach + headLength));
-    return { stem, head: head(-2 * r, fork - reach, 0, -1) };
+    stem.push(frame(-2 * r, fork - reach + headLength));
+    return { stem, head: head(frame, -2 * r, fork - reach, 0, -1) };
   };
 
-  const branches: ArrowBranch[] = [];
-  for (const d of directions) {
-    // A direction the model does not name reaches here only from a hand-edited
-    // document, and would put a `NaN` bearing into the markup — so it is skipped
-    // on the same terms `markingAnchor` skips an unknown link.
-    if (d === "u_turn") branches.push(hook());
-    else if (d in BRANCH_BEARING) branches.push(stub(BRANCH_BEARING[d]));
-  }
+  const branchesIn = (frame: ArrowFrame, ds: TurnDirection[]): ArrowBranch[] => {
+    const built: ArrowBranch[] = [];
+    for (const d of ds) {
+      // A direction the model does not name reaches here only from a hand-edited
+      // document, and would put a `NaN` bearing into the markup — so it is
+      // skipped on the same terms `markingAnchor` skips an unknown link.
+      if (d === "u_turn") built.push(hook(frame));
+      else if (d in BRANCH_BEARING) built.push(stub(frame, BRANCH_BEARING[d]));
+    }
+    return built;
+  };
+
+  const branches = branchesIn(at, directions);
   if (branches.length === 0) return undefined;
+  const rear = branchesIn(facing, back ?? []);
 
   return {
-    shaft: [at(0, -TURN_ARROW_LENGTH / 2), at(0, fork)],
-    branches,
+    // Symmetric **iff a rear branch was actually built**, which is what makes
+    // the reflection exact when there is something to reflect and leaves every
+    // existing arrow untouched when there is not: `back: []` and a `back` naming
+    // only directions the model does not know both keep the single-headed shaft,
+    // with no arm of their own.
+    shaft: [at(0, rear.length ? -fork : -TURN_ARROW_LENGTH / 2), at(0, fork)],
+    branches: [...branches, ...rear],
     stroke: ARROW_STEM * width,
   };
 }

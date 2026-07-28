@@ -215,6 +215,10 @@ mod tests {
             lane: Some(0),
             kind: MarkingKind::TurnArrow {
                 directions: vec![TurnDirection::Through],
+                // Non-default for the same reason `anchor` above is: a
+                // two-headed arrow is what covers the `back` key rather than
+                // only its elision.
+                back: vec![TurnDirection::Left],
             },
         }];
         doc.signs = vec![Sign {

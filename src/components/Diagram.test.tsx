@@ -1354,6 +1354,38 @@ describe("road markings", () => {
     });
 
     /**
+     * The rear head reaches the drawing (markings spec Phase 5) — which is one
+     * assertion the geometry suite cannot make for us, because `back` is an
+     * **optional** parameter: a call site that never passes it builds green,
+     * tests green in `geometry.test.ts`, and quietly draws a single-headed
+     * arrow. Only the markup can tell.
+     */
+    it("carries a rear head into the drawing", () => {
+      const both = renderToStaticMarkup(
+        <Diagram
+          doc={repainted(
+            { type: "turn_arrow", directions: ["left"], back: ["left"] },
+            1,
+          )}
+        />,
+      );
+      const single = renderToStaticMarkup(
+        <Diagram doc={repainted({ type: "turn_arrow", directions: ["left"] }, 1)} />,
+      );
+
+      const heads = (svg: string) =>
+        svg.match(/class="marking-arrow-head" d="([^"]*)"/)![1].match(/Z/g)!;
+      expect(heads(both)).toHaveLength(2);
+      expect(heads(single)).toHaveLength(1);
+      expect(both).not.toMatch(/NaN|undefined/);
+      // The rear head sits at the other end of the lane's own stretch of road,
+      // so the arrow grew along the link rather than doubling up on itself.
+      const xs = (svg: string) =>
+        path(svg, "marking-arrow-head").filter((_, i) => i % 2 === 0);
+      expect(Math.min(...xs(both))).toBeLessThan(Math.min(...xs(single)));
+    });
+
+    /**
      * **A `turn_arrow` has no carriageway-wide meaning**, so a lane-less one
      * draws in the nearside lane (§2.7) — and the anchor is what resolves it, so
      * the hit target and the halo move there with it rather than highlighting a

@@ -594,7 +594,14 @@ function markingPaint(marking: Marking, anchor: MarkingAnchor, bar: string) {
         <path className="marking-zebra" d={polygonsPath(markingZebra(anchor))} />
       );
     case "turn_arrow": {
-      const arrow = markingArrow(anchor, marking.kind.directions);
+      // `back` is passed explicitly, and it is the one line of this phase a test
+      // could miss: an optional parameter left unpassed builds green and draws
+      // no second head.
+      const arrow = markingArrow(
+        anchor,
+        marking.kind.directions,
+        marking.kind.back,
+      );
       if (arrow)
         return (
           <>

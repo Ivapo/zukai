@@ -3,10 +3,14 @@
 The paint a human places on a road: how a marking is anchored, how the tool
 places one, how it is selected and drawn, and what removes it. Almost entirely
 frontend — `Marking` and `MarkingKind` have been in the model since the first
-commit, and the one field added since (`anchor`, lane arrows Phase 2) is optional
-and elided at its default, so nothing here has ever moved `SCHEMA_VERSION`. The
-design rationale lives in `specs/road_markings_spec.md` and, for the anchor,
-`specs/lane_arrows_spec.md`; hand-maintained.
+commit, and the two fields added since (`Marking.anchor`, lane arrows Phase 2;
+`TurnArrow.back`, markings Phase 5) are both optional and elided at their
+defaults, so nothing here has ever moved `SCHEMA_VERSION`. **That is the pattern
+rather than a coincidence:** a new optional *field* on an existing struct costs
+no bump where a new enum *variant* would, which is exactly why the second head is
+a field and not a pair of `TurnDirection`s. The design rationale lives in
+`specs/road_markings_spec.md` and, for the anchor, `specs/lane_arrows_spec.md`;
+hand-maintained.
 
 **Six of the seven kinds are drawn.** `stop_line`, `give_way_line`, `crosswalk`,
 `turn_arrow` and `text` sit at a point across the road (spec Phases 1–3, plus
@@ -244,12 +248,13 @@ about it are decisions rather than mechanics:
   `(position, lane)`, and without it the document dirties for a gesture that
   changed nothing.
 
-## Editing: four controls, all kind-aware
+## Editing: five controls, all kind-aware
 
 The Inspector's marking panel carries a **Kind picker** (`setMarkingKind`), a
 **Span control** (`setMarkingLane`), an **Anchor row** (`setMarkingAnchor`), and
 one payload control per kind that has a payload — a **Directions multi-select**
-for a `turn_arrow`, a **Style single-select** for a `lane_line`, a **Words field**
+for a `turn_arrow` (and an **Oncoming** one beside it, the same component reading
+`back`), a **Style single-select** for a `lane_line`, a **Words field**
 for a `text`. `Road` stays a readout, and so does `Position`,
 which reads **"Whole link"** for a lane line: `position` is ignored for one, and a
 distance in metres there would be a lie at the only place the panel could tell the
@@ -281,12 +286,15 @@ so `turn_arrow`'s directions and `lane_line`'s style need no action of their own
 and the *caller* owns the default a fresh pick starts from (`MARKING_PICKER` in
 `Inspector.tsx`). It never names `lane`, which is how a carriageway-wide marking
 stays carriageway-wide across a repaint: spreading an object with no `lane` key
-yields one with no `lane` key. **The three payload controls are that decision
+yields one with no `lane` key. **The four payload controls are that decision
 paying off** — each is one more dispatcher of the same action, sending a whole
 `{ type, …payload }`, and none can move the marking because the action names
-nothing else. Markings Phases 3 and 4 added a control apiece and no action at
+nothing else. Markings Phases 3, 4 and 5 added a control apiece and no action at
 all; so did signs Phase 1's Words field. **Moving one is the canvas's**, not the
 panel's — there is no Position field, and `Position` stays a readout.
+
+**Phase 5 is where that decision first cost something**, and the cost is below:
+two controls now write *one* payload, so neither may rebuild it.
 
 **The Words field is the panel's first `<input>`, and the first control that is
 not a click** — which makes it the first to touch two things every other control
@@ -313,7 +321,41 @@ a field the action does not touch:
 | kind is `lane_line` | Span offers `Centreline` + boundaries `0\|1 … n-2\|n-1` — **one fewer entry than there are lanes** |
 | kind is `turn_arrow` | Span offers lanes only; no `Whole carriageway`, which an arrow cannot mean |
 | `lane` is a number `≥ n-1` | Picker **withholds** `lane_line`: that lane's far side is the carriageway edge, not a boundary, so the renderer would skip it |
-| one direction is left | Directions **disables** it, as the lane stepper refuses to go below one: an arrow with no branches is a bare line up the lane |
+| one direction is left | **Directions** disables it, as the lane stepper refuses to go below one: an arrow with no branches is a bare line up the lane. **Oncoming does not** — see below |
+
+**One component serves both ends**, `field` saying which array it edits, and the
+two differ in exactly one behaviour: **the back control carries no
+last-one-standing guard**. That rationale does not transfer — emptying `back`
+leaves the forward arrow whole — and emptying it is the **only route back to a
+single-headed arrow**, without which adding a rear head could be escaped only by
+re-picking Turn arrow, which resets the forward directions too. By the
+`Vec`/`skip_serializing_if` decision it returns the document byte-identical to one
+that never had a rear head.
+
+**And both ends build their payload through `turnArrowKind`, never a fresh
+literal — this is the phase's one silent hazard.** `setMarkingKind` replaces the
+whole tagged kind with **no merge**, so a forward control that rebuilt
+`{ type: "turn_arrow", directions }` would delete the rear heads on every forward
+toggle. The asymmetry is what hides it: `directions` is required, so the compiler
+forces the *back* control to carry it, while `back` is optional, so nothing forces
+the *forward* one to carry `back` — the silent-data-loss class `setLinkLanes` and
+`Lane.kind` already record, by a different door.
+
+`turnArrowKind(current, patch)` lives in **`state.ts`**, exported and pure, and is
+**not an action** — it builds a payload for `setMarkingKind` and joins neither the
+`Action` union nor the reducer. It is a named function rather than two spreads in
+the panel because otherwise nothing could test it: the defect is not in the
+reducer (which faithfully stores whatever payload it is handed, so a hand-built
+`setMarkingKind` case passes whether or not the panel was ever amended), and this
+repo reaches no layer closer to the panel — `environment: "node"`, no
+`Inspector.test.tsx`, and `renderToStaticMarkup` fires no `onClick`. It sits in
+`state.ts` rather than `Inspector.tsx` because losing `back` is **document data
+loss**, not a panel slip. It also **drops the key** on an empty `back`, absent
+being the one representation as it is for a marking's `lane`.
+
+**What still guards nothing: that both call sites use it.** The unit test proves
+the merge is correct; only the dev pass proves the forward control goes through
+it. Reverting that one call site to a literal passes the entire suite.
 
 `TURN_DIRECTIONS` is listed in **road order left to right** (`u_turn`, `left`,
 `slight_left`, `through`, `slight_right`, `right`) rather than the model's
@@ -453,6 +495,55 @@ more directions run their heads together, and all six draw a starburst. One shaf
 with one branch per direction cannot do better, the paint still stays inside the
 band, and no road carries six directions in a lane. Two or three on a full-width
 lane is what it is sized for.
+
+#### The second head, and the one frame flip that keeps it honest
+
+`back` paints branches at the **upstream** end pointing upstream — a head at each
+end, for a lane carrying traffic both ways. The case that earns it is the
+**two-way left-turn lane**, the shared centre lane entered from both directions;
+a two-way single-track lane is the same glyph with `through` at both ends.
+Nothing imports one: `network.yaml` has no per-lane direction at all (a link runs
+`from_node` → `to_node` and a two-way road is a *pair* of links), so this is
+schematic-only as `Lane.kind` is.
+
+**It is a field on the existing variant, not a new `TurnDirection`** — the whole
+reason it was cheap. A new enum *variant* costs a `SCHEMA_VERSION` bump; a new
+optional field on a struct variant costs nothing, because nothing derives
+`deny_unknown_fields`. And it is a **`Vec` with `skip_serializing_if =
+"Vec::is_empty"`**, not an `Option<Vec>`: empty and absent are then the same
+document, so emptying the control needs no third state and no code decides what
+`Some(vec![])` means. `Marking.anchor`'s shape, for its reason.
+
+Three things about the drawing:
+
+- **`back`'s directions are read in the oncoming driver's frame**, and that is
+  the trap. A rear `left` is left *for the driver it faces*, which is the other
+  side of the road. Reflect `along` only and a two-way left-turn lane draws with
+  **both heads swinging the same way** — entirely plausible, and wrong. Same
+  silent-mirror class as the two projects' lane numberings.
+- **So there is exactly one flip, and it is a frame rather than a sign change.**
+  `markingPoint` is affine, so `at(across, along) → at(-across, -along)` is a
+  180° rotation about the **band centre at the marking's position** — which
+  carries `stub`, `hook` and `head` into the facing frame wholesale, all six
+  directions included. `markingArrow`'s builders take an `ArrowFrame` rather than
+  closing over one, so a rear branch is the same code read in the other frame,
+  and the rear hook hooks left for the driver it faces with its head pointing
+  back at them. Note the centre of that rotation is the band centre, **not**
+  `anchor.at`, which sits on the drawn polyline — they differ on every lane whose
+  band offset is not zero, and a test written about the wrong one fails a correct
+  implementation. Two paired assertions in `geometry.test.ts` pin both halves:
+  opposite-side (which a reflection of `along` alone fails) and the 180° rotation
+  (which a reflection of `across` alone fails instead).
+- **The shaft shortens to `-fork → fork`, conditionally** — iff a rear branch was
+  actually **built**, not iff the array was non-empty. That is what keeps
+  `TURN_ARROW_LENGTH` the arrow's whole footprint either way, and what leaves an
+  absent `back`, an empty one, and a hand-edited one naming nothing the model
+  knows all three at the single-headed footprint with no arm of their own.
+
+A **`back`-only arrow** (`directions: []` with a `back`) is unreachable from the
+panel and skipped by the renderer: `markingArrow` returns `undefined` on zero
+*forward* branches and the caller paints the placeholder bar, which is where
+every other hand-edited degenerate lands.
 
 ### The lane line: the one kind that runs along the road
 

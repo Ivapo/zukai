@@ -297,7 +297,13 @@ fn lane_arrows(junctions: &[NetworkJunction], links: &[NetworkLink]) -> Vec<Mark
                 // the paint has to stay by the junction while it is.
                 anchor: LinkEnd::End,
                 lane: Some(lane),
-                kind: MarkingKind::TurnArrow { directions },
+                kind: MarkingKind::TurnArrow {
+                    directions,
+                    // Never a rear head: a lane in `network.yaml` is
+                    // one-directional by construction, so nothing in the file
+                    // can supply one (markings §2.11).
+                    back: Vec::new(),
+                },
             });
         }
     }
@@ -367,7 +373,7 @@ mod tests {
             .find(|m| m.link.as_str() == link && m.lane == Some(lane))
             .unwrap_or_else(|| panic!("no arrow on {link} lane {lane}; have {:?}", doc.markings));
         match &marking.kind {
-            MarkingKind::TurnArrow { directions } => directions.clone(),
+            MarkingKind::TurnArrow { directions, .. } => directions.clone(),
             other => panic!("{link} lane {lane} is painted {other:?}, not an arrow"),
         }
     }
@@ -611,7 +617,7 @@ mod tests {
             "the fixture must still have them"
         );
         for marking in &doc.markings {
-            let MarkingKind::TurnArrow { directions } = &marking.kind else {
+            let MarkingKind::TurnArrow { directions, .. } = &marking.kind else {
                 panic!("import paints only arrows");
             };
             assert!(

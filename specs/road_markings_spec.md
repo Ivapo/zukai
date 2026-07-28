@@ -1,9 +1,9 @@
 ---
-status: partial (Phases 1–4 shipped 2026-07-25, reviewed in 3 rounds; Phase 5 added 2026-07-28, reviewed in 3 scoped rounds — cleared to implement)
+status: implemented (Phases 1–4 shipped 2026-07-25, reviewed in 3 rounds; Phase 5 reopened, reviewed in 3 scoped rounds and shipped 2026-07-28)
 last_updated: 2026-07-28
-note: Render and place road-surface markings — stop and give-way lines, crossings, lane arrows, lane lines. Paint only; signs and any painted text wait on font embedding. Reopened 2026-07-28 for the two-headed arrow (§2.11, Phase 5).
-implemented: ["Phase 1", "Phase 2", "Phase 3", "Phase 4"]
-not_implemented: ["Phase 5"]
+note: Render and place road-surface markings — stop and give-way lines, crossings, lane arrows, lane lines. Paint only; signs and any painted text wait on font embedding. Reopened 2026-07-28 for the two-headed arrow (§2.11, Phase 5), now shipped.
+implemented: ["Phase 1", "Phase 2", "Phase 3", "Phase 4", "Phase 5"]
+not_implemented: []
 related: [specs/road_rendering_spec.md, specs/ramps_and_tapers_spec.md, specs/diagram_export_spec.md, specs/lane_arrows_spec.md]
 reference: "Road-atlas marking convention — a transverse bar where traffic stops, a triangle line where it gives way, a zebra where people cross, destination arrows in the lane they belong to, and a longitudinal line whose style says whether you may cross it. Not to-scale marking dimensions (that is Assimilator's business, and it has no markings anyway), and not signage, which is textual."
 ---
@@ -1018,6 +1018,55 @@ gate) in three rounds on 2026-07-28 and **is cleared to implement**.
   on which directions are chosen" stops being true the moment a rear branch
   shortens the shaft; this spec's frontmatter to `implemented`; and the
   project-memory roadmap.
+- **Shipped 2026-07-28.** 370 vitest (up 9), 58 `cargo test` (up 3), no
+  `SCHEMA_VERSION` move (still 2). Three decisions the phase settled, none of
+  them pinned by the scope above:
+  - **One component serves both ends, `field` naming the array.** The scope says
+    "a second direction multi-select … on the existing one's shape", which reads
+    as a copy; a copy would have been two places to forget `turnArrowKind` in
+    rather than one. `MarkingDirections` takes the whole `kind` plus
+    `field: "directions" | "back"`, and the two differ in exactly one expression
+    — the guard, which is now `field === "directions" && on && length === 1`.
+    That also makes the missing guard *visible* at the place it is missing from,
+    instead of being an absence in a duplicated block.
+  - **`turnArrowKind` drops the key rather than storing `back: []`.** §2.11
+    settles that empty and absent are the same *document*, which is a claim about
+    the bytes Rust writes; in memory they are still two objects, and this repo has
+    a standing rule for that (`setMarkingLane` destructures the key away,
+    `setLaneKind` for `general`, `setLinkAlign` for `centre`). Rebuilding the
+    literal is what makes it cheap and is safe **here** where it is not in the
+    panel, because this function owns the variant's *whole* payload — both arrays.
+  - **The label is `Oncoming`, not `Back`.** The panel names what the drawing
+    means rather than the field it writes — `Paint` for `kind`, `Span` for `lane`,
+    `Words` for `content` — and an existing precedent settles a taste question for
+    free.
+
+  Three things worth carrying forward that the spec did not predict:
+  - **`Diagram.test.tsx` can catch the unpassed optional parameter after all**,
+    and it was worth one test: the gate assumed only the dev pass could see it.
+    A two-headed arrow emits two head polygons where a single-headed one emits
+    one, so the markup tells. Dropping `marking.kind.back` at the call site now
+    fails one assertion instead of none.
+  - **Mutation-testing the frame flip confirmed the paired assertions, in exactly
+    the split review predicted.** Reflecting `along` alone fails **both**
+    (opposite-side *and* the rotation); reflecting `across` alone fails **only**
+    the rotation. Writing the rotation about `anchor.at` rather than the band
+    centre was run too, and fails a correct implementation — so the trap §2.11
+    names is live in the test, not just in prose.
+  - **The one hazard the suite still cannot see was confirmed by mutation, not
+    assumed.** Reverting the forward control to a fresh literal passes all 370
+    tests. `turnArrowKind`'s test proves the merge; nothing proves both call sites
+    use it, which is precisely why the dev pass walks the middle gesture — and it
+    caught nothing only because the call site was already right.
+
+  The dev pass ran on Vite at **port 1425** again (1420 still held by `Muyu`),
+  driven through Playwright as lane arrows Phase 1 established. All three
+  gestures passed: a two-way left-turn lane reads as one marking rather than two
+  arrows fighting (an "S" of two left heads, each swinging to the opposite side);
+  toggling `Through` on it left `back: ["left"]` untouched and drew three heads;
+  and emptying Oncoming returned it to a single-headed arrow with the forward
+  directions intact. Note the canvas zoom is anchored at the **origin**, not the
+  viewport centre, so a zoomed-in screenshot needs a pan afterwards.
 
 ## 5. Review log
 

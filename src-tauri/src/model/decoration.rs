@@ -71,6 +71,24 @@ pub enum MarkingKind {
     TurnArrow {
         /// Directions the arrow points (e.g. through + left for a shared lane).
         directions: Vec<TurnDirection>,
+        /// Directions painted at the **upstream** end, pointing upstream — a
+        /// head at each end, for a lane carrying traffic both ways. The case
+        /// that earns it is the two-way left-turn lane (markings spec §2.11).
+        ///
+        /// A `Vec` rather than an `Option<Vec>`, and elided when empty: empty
+        /// and absent are then the same document, so emptying the control is
+        /// the whole route back to a single-headed arrow and no code has to
+        /// decide what `Some(vec![])` means. [`Marking::anchor`]'s shape, for
+        /// its reason — a defaulted value with a `skip_serializing_if`
+        /// predicate rather than an `Option`.
+        ///
+        /// **Nothing imports one.** Assimilator has no per-lane direction at
+        /// all — a link runs `from_node` → `to_node` and a two-way road is a
+        /// *pair* of links — so this is schematic-only, as [`Lane::kind`] is.
+        ///
+        /// [`Lane::kind`]: super::graph::Lane::kind
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        back: Vec<TurnDirection>,
     },
     /// A stop line across the carriageway or lane.
     StopLine,
@@ -219,5 +237,62 @@ mod tests {
                 .expect("deserialize");
 
         assert_eq!(marking.anchor, LinkEnd::Start);
+    }
+
+    /// A left-turn arrow with the given rear heads — a two-way left-turn lane
+    /// when `back` names `left`, and today's single-headed arrow when it is
+    /// empty (markings spec §2.11).
+    fn arrow(back: Vec<TurnDirection>) -> Marking {
+        Marking {
+            id: "K1".into(),
+            link: "L1".into(),
+            position: 20.0,
+            anchor: LinkEnd::Start,
+            lane: Some(1),
+            kind: MarkingKind::TurnArrow {
+                directions: vec![TurnDirection::Left],
+                back,
+            },
+        }
+    }
+
+    #[test]
+    fn a_rear_head_survives_a_yaml_round_trip() {
+        let marking = arrow(vec![TurnDirection::Left, TurnDirection::UTurn]);
+        let yaml = serde_yaml::to_string(&marking).expect("serialize");
+        let read: Marking = serde_yaml::from_str(&yaml).expect("deserialize");
+        assert_eq!(marking, read);
+
+        // …written in the same snake_case the TypeScript mirror spells.
+        assert!(yaml.contains("back:"), "no back key in {yaml:?}");
+        assert!(yaml.contains("u_turn"), "unexpected spelling in {yaml:?}");
+    }
+
+    /// The `skip_serializing_if` predicate, and the reason it is a `Vec` rather
+    /// than an `Option<Vec>`: emptying the back control is the whole route back
+    /// to a single-headed arrow, and it has to leave a file byte-identical to
+    /// one that never had a rear head. That is what makes the field cost no
+    /// [`SCHEMA_VERSION`](super::SCHEMA_VERSION) bump.
+    #[test]
+    fn an_arrow_with_no_rear_head_writes_no_back_key_at_all() {
+        let yaml = serde_yaml::to_string(&arrow(Vec::new())).expect("serialize");
+
+        assert!(!yaml.contains("back"), "unexpected back key in {yaml:?}");
+    }
+
+    #[test]
+    fn a_file_without_the_field_loads_as_single_headed() {
+        let marking: Marking = serde_yaml::from_str(
+            "id: K1\nlink: L1\nposition: 20.0\nkind:\n  type: turn_arrow\n  directions:\n  - left\n",
+        )
+        .expect("deserialize");
+
+        assert_eq!(
+            marking.kind,
+            MarkingKind::TurnArrow {
+                directions: vec![TurnDirection::Left],
+                back: Vec::new(),
+            }
+        );
     }
 }

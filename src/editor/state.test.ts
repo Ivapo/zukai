@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { findJunction, findLink, nodePos, RawDocument } from "../model/document";
 import { SCHEMA_VERSION, SignKind } from "../model/types";
-import { Action, EditorState, initialState, reducer } from "./state";
+import {
+  Action,
+  EditorState,
+  initialState,
+  reducer,
+  TurnArrowKind,
+  turnArrowKind,
+} from "./state";
 
 /** Apply a sequence of actions, as the UI would dispatch them. */
 function run(state: EditorState, ...actions: Action[]): EditorState {
@@ -835,6 +842,62 @@ describe("markings", () => {
       expect(lettered.kind).toEqual({ type: "text", content: "BUS" });
       expect(lettered.position).toBe(20);
       expect(lettered.lane).toBe(0);
+    });
+
+    /**
+     * The two-headed arrow's merge (markings spec Phase 5), and it is asserted
+     * **here rather than through the reducer** for the reason that made it a
+     * function at all: `setMarkingKind` faithfully stores whatever payload it is
+     * handed, so a case dispatching a hand-built payload passes whether or not
+     * the panel was ever amended. The defect lives in what the panel *builds* —
+     * a fresh `{ type, directions }` literal, wiping `back` on every forward
+     * toggle — and no layer closer to it is reachable from `environment: "node"`.
+     */
+    describe("turnArrowKind", () => {
+      const two: TurnArrowKind = {
+        type: "turn_arrow",
+        directions: ["left"],
+        back: ["left"],
+      };
+
+      it("preserves the array it is not given", () => {
+        expect(turnArrowKind(two, { directions: ["left", "through"] })).toEqual({
+          type: "turn_arrow",
+          directions: ["left", "through"],
+          back: ["left"],
+        });
+
+        expect(turnArrowKind(two, { back: ["through"] })).toEqual({
+          type: "turn_arrow",
+          directions: ["left"],
+          back: ["through"],
+        });
+      });
+
+      /**
+       * Emptying the back control is the only route back to a single-headed
+       * arrow, and it has to leave a document that saves byte-identically to one
+       * that never had a rear head — so the key goes, rather than becoming an
+       * empty array Rust would elide anyway. Absent is the one representation,
+       * as it is for a marking's `lane`.
+       */
+      it("drops the key when the rear head is emptied", () => {
+        const single = turnArrowKind(two, { back: [] });
+
+        expect("back" in single).toBe(false);
+        expect(single).toEqual({ type: "turn_arrow", directions: ["left"] });
+      });
+
+      it("leaves a single-headed arrow single-headed", () => {
+        const one: TurnArrowKind = { type: "turn_arrow", directions: ["through"] };
+        const next = turnArrowKind(one, { directions: ["through", "right"] });
+
+        expect("back" in next).toBe(false);
+        expect(next).toEqual({
+          type: "turn_arrow",
+          directions: ["through", "right"],
+        });
+      });
     });
 
     /**

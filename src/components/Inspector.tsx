@@ -33,7 +33,7 @@ import {
   TurnDirection,
   UnsignalizedRule,
 } from "../model/types";
-import { Action, EditorState } from "../editor/state";
+import { Action, EditorState, TurnArrowKind, turnArrowKind } from "../editor/state";
 
 interface InspectorProps {
   state: EditorState;
@@ -295,13 +295,27 @@ export function Inspector({ state, dispatch }: InspectorProps) {
         </Field>
 
         {marking.kind.type === "turn_arrow" && (
-          <Field label="Directions">
-            <MarkingDirections
-              id={marking.id}
-              directions={marking.kind.directions}
-              dispatch={dispatch}
-            />
-          </Field>
+          <>
+            <Field label="Directions">
+              <MarkingDirections
+                id={marking.id}
+                kind={marking.kind}
+                field="directions"
+                dispatch={dispatch}
+              />
+            </Field>
+
+            {/* The heads an oncoming driver reads. Empty for every ordinary
+                arrow, and emptying it again is the way back to one. */}
+            <Field label="Oncoming">
+              <MarkingDirections
+                id={marking.id}
+                kind={marking.kind}
+                field="back"
+                dispatch={dispatch}
+              />
+            </Field>
+          </>
         )}
 
         {marking.kind.type === "lane_line" && (
@@ -563,22 +577,42 @@ function MarkingKindPicker({
  * `MarkingKind`, which is exactly what that decision bought — and it never names
  * `lane`, so toggling a direction leaves the arrow where it is.
  *
- * **The last direction standing cannot be turned off**, the way the lane stepper
- * refuses to go below one: an arrow with no branches is a bare line up the lane's
- * centre, which reads as a lane line. The renderer falls back to the placeholder
- * bar for one anyway, but only a hand-edited document should ever see it.
+ * **One component serves both ends**, `field` saying which array it edits: the
+ * forward heads, or the `back` ones an oncoming driver reads (markings §2.11).
+ * The two differ in exactly one behaviour —
+ *
+ * **the last forward direction standing cannot be turned off**, the way the lane
+ * stepper refuses to go below one: an arrow with no branches is a bare line up
+ * the lane's centre, which reads as a lane line. (The renderer falls back to the
+ * placeholder bar for one anyway, but only a hand-edited document should ever see
+ * it.) **The back control carries no such guard**, deliberately: emptying it
+ * leaves the forward arrow whole and is the *only* route back to a single-headed
+ * arrow — without it, adding a rear head could be escaped only by re-picking Turn
+ * arrow in the Kind picker, which resets the forward directions too.
+ *
+ * And **both** ends build their payload through `turnArrowKind` rather than a
+ * fresh literal. `setMarkingKind` replaces the whole tagged kind with no merge,
+ * so a forward toggle that rebuilt `{ type, directions }` here would silently
+ * delete the rear heads — invisible to the compiler, since `back` is optional.
  */
 function MarkingDirections({
   id,
-  directions,
+  kind,
+  field,
   dispatch,
 }: {
   id: MarkingId;
-  directions: TurnDirection[];
+  kind: TurnArrowKind;
+  field: "directions" | "back";
   dispatch: (action: Action) => void;
 }) {
+  const directions = kind[field] ?? [];
   const set = (next: TurnDirection[]) =>
-    dispatch({ type: "setMarkingKind", id, kind: { type: "turn_arrow", directions: next } });
+    dispatch({
+      type: "setMarkingKind",
+      id,
+      kind: turnArrowKind(kind, field === "back" ? { back: next } : { directions: next }),
+    });
 
   return (
     <div className="segmented segmented-wrap segmented-labels segmented-dirs">
@@ -588,7 +622,7 @@ function MarkingDirections({
           <button
             key={d.value}
             className={`seg${on ? " is-active" : ""}`}
-            disabled={on && directions.length === 1}
+            disabled={field === "directions" && on && directions.length === 1}
             onClick={() =>
               set(
                 on

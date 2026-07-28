@@ -89,7 +89,18 @@ export type LineStyle = "solid" | "dashed" | "double";
 
 /** What is painted on the road surface. Internally tagged by `type`. */
 export type MarkingKind =
-  | { type: "turn_arrow"; directions: TurnDirection[] }
+  | {
+      type: "turn_arrow";
+      directions: TurnDirection[];
+      /**
+       * Directions painted at the **upstream** end, pointing upstream — a head
+       * at each end, for a lane carrying traffic both ways (a two-way left-turn
+       * lane is the case that earns it). Absent is a single-headed arrow, which
+       * is what Rust's elision of an empty `Vec` produces. Nothing imports one:
+       * `network.yaml` has no per-lane direction at all.
+       */
+      back?: TurnDirection[];
+    }
   | { type: "stop_line" }
   | { type: "give_way_line" }
   | { type: "crosswalk" }

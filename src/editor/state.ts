@@ -32,6 +32,7 @@ import {
   Sign,
   SignId,
   SignKind,
+  TurnDirection,
   UnsignalizedRule,
   Vec2,
 } from "../model/types";
@@ -876,6 +877,46 @@ function addMarking(
     doc: { ...doc, markings: [...doc.markings, marking] },
     selection: { kind: "marking", id },
   };
+}
+
+/** A turn arrow's kind — the one `MarkingKind` with two payload arrays. */
+export type TurnArrowKind = Extract<MarkingKind, { type: "turn_arrow" }>;
+
+/**
+ * A turn arrow's kind with **one** of its two direction arrays replaced and the
+ * other preserved — the payload both Inspector direction controls build.
+ *
+ * It is not an action and joins neither the `Action` union nor the reducer: it
+ * feeds {@link setMarkingKind}, which faithfully stores whatever payload it is
+ * handed. **That is exactly why this has to exist as a named function.** The
+ * failure it prevents lives in what the *panel* builds, not in what the reducer
+ * stores: `setMarkingKind` replaces the whole tagged kind with no merge, so a
+ * control that rebuilds a fresh `{ type: "turn_arrow", directions }` literal
+ * silently deletes the rear heads on every forward toggle. The asymmetry is what
+ * hides it — `directions` is required, so the compiler forces the *back* control
+ * to carry it, while `back` is optional, so nothing forces the *forward* control
+ * to carry `back`. Same silent-data-loss class as `setLinkLanes` and `Lane.kind`,
+ * by a different door, and this repo can reach no layer closer to the panel
+ * (`environment: "node"`, no DOM harness, `renderToStaticMarkup` fires no
+ * `onClick`) — so the rule lives here, where losing `back` is what it is:
+ * document data loss.
+ *
+ * **An empty `back` drops the key**, rather than storing `back: []`. Absent is
+ * the one representation, as {@link setMarkingLane} keeps for a lane and
+ * {@link setLinkAlign} for `centre`: Rust elides an empty `Vec`, so a stored
+ * empty array would be a second in-memory encoding of a document that saves
+ * single-headed. Rebuilding the literal is safe here where it is not in the
+ * panel, because this owns the variant's *whole* payload — both arrays.
+ */
+export function turnArrowKind(
+  current: TurnArrowKind,
+  patch: { directions?: TurnDirection[]; back?: TurnDirection[] },
+): TurnArrowKind {
+  const directions = patch.directions ?? current.directions;
+  const back = patch.back ?? current.back;
+  return back?.length
+    ? { type: "turn_arrow", directions, back }
+    : { type: "turn_arrow", directions };
 }
 
 /**

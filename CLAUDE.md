@@ -105,11 +105,11 @@ work that removes what another spec shipped.
 - `specs/ramps_and_tapers_spec.md` — the joins between roads: arm positions, link
   alignment, lane-drop tapers, gores (implemented; 4 phases)
 - `specs/road_markings_spec.md` — the paint on the road: stop and give-way lines,
-  crossings, lane arrows, lane lines (Phases 1–4 implemented; **reopened** for
-  Phase 5, the two-headed arrow — added 2026-07-28, reviewed in 3 scoped rounds,
-  cleared to implement). The worked example of `spec-authoring.md` §6.1 — and of
-  §7's phase-level gate, which is the reason its Review log carries two sets of
-  rounds.
+  crossings, lane arrows, lane lines (implemented; 5 phases — 1–4 in one pass,
+  then **reopened** for Phase 5, the two-headed arrow, added, reviewed in 3
+  scoped rounds and shipped on 2026-07-28). The worked example of
+  `spec-authoring.md` §6.1 — and of §7's phase-level gate, which is the reason
+  its Review log carries two sets of rounds.
 - `specs/signs_and_text_spec.md` — letters in the drawing: the embedded font,
   painted road text, and roadside signs (implemented; 4 phases)
 - `specs/junction_semantics_spec.md` — what a junction *means*: control and
@@ -165,10 +165,16 @@ there's real cross-file knowledge worth extracting, not for every file.
   road and replaces the divider it lands on, the third `Selection` arm and the
   three failures the compiler does not catch, what removes a marking, the
   seventh kind — text set along the road, centred by arithmetic rather than
-  `dominant-baseline`, and the panel's first `<input>` — and the end a marking
+  `dominant-baseline`, and the panel's first `<input>` — the end a marking
   measures from: the involution that lets one function serve both directions, why
   the frame flip lives inside the two functions that already convert rather than
-  making a third, and the one half of it no test can see
+  making a third, and the one half of it no test can see — and the arrow's second
+  head: a field rather than an enum variant because only one of the two costs a
+  version bump, the *other* frame flip (a rotation about the band centre, not
+  `anchor.at`, since a rear `left` is left for the driver it faces), the shaft
+  that shortens only when a rear branch was **built**, and the two controls now
+  writing one payload, which is why neither may rebuild it and why the merge is a
+  named function in `state.ts` — plus the half of *that* no test can see either
 - `rules/signs.md` — the objects beside the road: why a sign is node-shaped
   rather than marking-shaped, the bare `Vec2` in `layout.signs`, the four actions
   and their three coalescing keys, clear-instead-of-cascade and the map-vs-filter

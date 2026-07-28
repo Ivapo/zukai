@@ -50,6 +50,7 @@ import {
   TAPER_MAX_BEND,
   TEXT_SIZE,
   TURN_ARROW_LENGTH,
+  ArrowBranch,
   TurnArrow,
   UNITS_PER_METRE,
   alignmentShift,
@@ -1643,6 +1644,124 @@ describe("markingArrow", () => {
         expect(Math.abs(p.x)).toBeLessThanOrEqual(TURN_ARROW_LENGTH / 2 + 1e-9);
       }
     }
+  });
+
+  /**
+   * The second head (markings spec Phase 5). Every assertion below uses a band
+   * whose offset is **not** zero, because the flip is a rotation about the band
+   * centre — `markingPoint(anchor, span.offset, 0)` — and not about `anchor.at`,
+   * which sits on the drawn polyline. The two coincide only on a centred band,
+   * where a test cannot tell a correct implementation from a wrong one.
+   */
+  describe("the rear head", () => {
+    /** A band a lane off the polyline, so the two candidate centres differ. */
+    const OFFSET = LANE_PX;
+    /** The band centre at the marking's position, in this due-east frame. */
+    const CENTRE: Vec2 = { x: 0, y: OFFSET };
+
+    /** How far a head's apex sits across the band, signed as `laneBands` is. */
+    const across = (b: ArrowBranch) => b.head[0].y - OFFSET;
+
+    /**
+     * A rear `left` is left **for the driver it faces**, which is the other side
+     * of the road — so it lands opposite a forward `left`, not alongside it.
+     * This is the assertion a reflection of `along` alone fails, and a magnitude
+     * test would pass under exactly the mirror it exists to catch.
+     */
+    it("puts a rear head on the opposite side of the band from the forward one", () => {
+      const forward = markingArrow(anchor(OFFSET, LANE_PX), ["left"])!;
+      const both = markingArrow(anchor(OFFSET, LANE_PX), ["through"], ["left"])!;
+      const [ahead] = forward.branches;
+      const rear = both.branches[1];
+
+      expect(across(ahead)).toBeLessThan(-1);
+      expect(across(rear)).toBeGreaterThan(1);
+      expect(across(rear)).toBeCloseTo(-across(ahead));
+    });
+
+    /**
+     * The other half of the flip. A two-way left-turn lane is one arrow read
+     * from both ends, so its whole point set is invariant under a 180° rotation
+     * about the band centre — which a reflection of `across` alone fails, having
+     * put the rear head on the right side of the road at the wrong end of it.
+     */
+    it("draws a two-way left-turn lane symmetric about the band centre", () => {
+      const a = markingArrow(anchor(OFFSET, LANE_PX), ["left"], ["left"])!;
+      const turned = (p: Vec2) => ({
+        x: 2 * CENTRE.x - p.x,
+        y: 2 * CENTRE.y - p.y,
+      });
+      const key = (p: Vec2) => `${p.x.toFixed(6)},${p.y.toFixed(6)}`;
+
+      expect(a.branches).toHaveLength(2);
+      expect(points(a).map(turned).map(key).sort()).toEqual(
+        points(a).map(key).sort(),
+      );
+    });
+
+    /**
+     * Phase 3's containment rule holds of all six directions at either end: the
+     * flip is a point reflection about the band centre, so `ARROW_REACH` bounds
+     * a rear branch exactly as it bounds a forward one. Same two tolerances —
+     * stems stroked, heads filled.
+     */
+    it("keeps every rear branch inside the band, at every lane count and class", () => {
+      for (const style of ["motorway", "arterial", "local", "ramp"] as LinkStyle[]) {
+        for (let n = 1; n <= 8; n++) {
+          for (const band of laneBands(defaults(n), style)) {
+            const a = markingArrow(anchor(band.offset, band.width), ["through"], ALL)!;
+            const lo = band.offset - band.width / 2;
+            const hi = band.offset + band.width / 2;
+
+            for (const p of [...a.shaft, ...a.branches.flatMap((b) => b.stem)]) {
+              expect(p.y - a.stroke / 2).toBeGreaterThan(lo);
+              expect(p.y + a.stroke / 2).toBeLessThan(hi);
+            }
+            for (const p of a.branches.flatMap((b) => b.head)) {
+              expect(p.y).toBeGreaterThan(lo);
+              expect(p.y).toBeLessThan(hi);
+            }
+          }
+        }
+      }
+    });
+
+    /**
+     * The shaft shortens **iff a rear branch was built**, not iff the array was
+     * non-empty — which is what leaves an empty `back`, an absent one and a
+     * hand-edited one naming nothing the model knows all three at the Phase 3
+     * footprint, with no arm of their own.
+     */
+    it("shortens the shaft only when a rear branch is actually drawn", () => {
+      const single = markingArrow(anchor(OFFSET, LANE_PX), ["through"])!;
+
+      for (const back of [undefined, [], ["sideways" as TurnDirection]]) {
+        const a = markingArrow(anchor(OFFSET, LANE_PX), ["through"], back)!;
+
+        expect(a.shaft).toEqual(single.shaft);
+        expect(a.branches).toHaveLength(1);
+      }
+
+      const two = markingArrow(anchor(OFFSET, LANE_PX), ["through"], ["through"])!;
+
+      // The fork does not move; the tail comes to meet it.
+      expect(two.shaft[1]).toEqual(single.shaft[1]);
+      expect(two.shaft[0].x).toBeCloseTo(-two.shaft[1].x);
+      expect(two.shaft[0].x).toBeGreaterThan(single.shaft[0].x);
+      // And the arrow still owns exactly its own length of road, head to head.
+      for (const p of points(two)) {
+        expect(Math.abs(p.x)).toBeLessThanOrEqual(TURN_ARROW_LENGTH / 2 + 1e-9);
+      }
+    });
+
+    /**
+     * A `back`-only arrow is unreachable from the panel (the forward control
+     * will not unset its last direction), so it lands where every other
+     * hand-edited degenerate does: skipped, and the caller paints the bar.
+     */
+    it("draws no arrow for rear directions alone", () => {
+      expect(markingArrow(anchor(OFFSET, LANE_PX), [], ["left"])).toBeUndefined();
+    });
   });
 
   /**
