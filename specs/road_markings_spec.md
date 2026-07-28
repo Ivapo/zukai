@@ -1,5 +1,5 @@
 ---
-status: partial (Phases 1–4 shipped 2026-07-25, reviewed in 3 rounds; Phase 5 added 2026-07-28, NOT YET REVIEWED — not cleared to implement)
+status: partial (Phases 1–4 shipped 2026-07-25, reviewed in 3 rounds; Phase 5 added 2026-07-28, reviewed in 3 scoped rounds — cleared to implement)
 last_updated: 2026-07-28
 note: Render and place road-surface markings — stop and give-way lines, crossings, lane arrows, lane lines. Paint only; signs and any painted text wait on font embedding. Reopened 2026-07-28 for the two-headed arrow (§2.11, Phase 5).
 implemented: ["Phase 1", "Phase 2", "Phase 3", "Phase 4"]
@@ -477,7 +477,7 @@ has no per-lane direction at all: `LinkConfig` is `from_node` → `to_node`
 (`crates/config/src/network.rs:779-785`), and its own `median_gap` doc defines a
 two-way road as a **bidirectional *pair* of links**. So a lane there is
 one-directional by construction, and this joins `Lane.kind` in the category
-`import.rs:123` already names — "schematic-only, so nothing in the file can
+`import.rs:172` already names — "schematic-only, so nothing in the file can
 supply it". `lane_arrows_spec.md` Phase 3 paints from `from_lanes` and will never
 paint one of these.
 
@@ -487,8 +487,20 @@ paint one of these.
 directions painted at the *upstream* end, pointing upstream. Absent means today's
 single-headed arrow, byte-identical for every existing document.
 
+**In Rust it is a `Vec`, not an `Option<Vec>`, and that collapses a question
+rather than dodging it.** With `#[serde(default, skip_serializing_if =
+"Vec::is_empty")]`, **empty and absent are the same document** — so emptying the
+back control (which the panel below permits, and which is the whole route back to
+a single-headed arrow) leaves a file byte-identical to one that never had a rear
+head, and no code has to decide what `Some(vec![])` means. `Marking::anchor`'s
+shape exactly: a defaulted value with a `skip_serializing_if` predicate, not an
+`Option` (`decoration.rs:27`). The TypeScript mirror stays `back?:
+TurnDirection[]`, since absent is what the key's elision produces — the same
+Rust-defaulted/TS-optional pairing `anchor` already carries
+(`src/model/types.ts:114`).
+
 **The rejected alternative is the expensive one.** Adding `back_left` and friends
-to `TurnDirection` (`decoration.rs:61-74`) is a **new variant of an existing
+to `TurnDirection` (`decoration.rs:95-111`) is a **new variant of an existing
 enum**, which `model/mod.rs:29-42` is explicit costs a `SCHEMA_VERSION` bump — an
 older build fails to deserialize the whole document. A new optional *field* on an
 existing struct variant costs nothing, because nothing derives
@@ -499,7 +511,7 @@ precedent.
 #### The trap: `back`'s directions are in the oncoming driver's frame
 
 `markingArrow` builds every branch from `fork = TURN_ARROW_LENGTH / 2 - reach`
-and `at(across, along)` (`geometry.ts:1215-1283`), so a second head is a
+and `at(across, along)` (`geometry.ts:1509-1579`), so a second head is a
 reflection of code that already exists — `fork → -fork`, with `dl` negated.
 
 **But `across` reflects too.** A back branch labelled `left` is left *for the
@@ -510,8 +522,85 @@ failure class as `lane_arrows_spec.md` §2.5.1's lane numbering, and it earns th
 same treatment: **one explicit frame flip**, applied once, rather than two sign
 changes distributed through `stub()` and `hook()`.
 
-The shaft also shortens. Today it runs `-L/2 → fork`; two-headed it runs
-`-fork → fork`, symmetric, which is what makes the reflection exact.
+**Flipping both terms is a point reflection, and that is why it is exactly one
+change.** `markingPoint` is affine — `P = at + n·across + d·along`
+(`geometry.ts:1357`) — so `at(across, along) → at(-across, -along)` is a 180°
+rotation about the **band centre at the marking's position**, which carries
+`stub()`, `hook()` and `head()` into the oncoming driver's frame wholesale, all
+six directions included. The rear hook then hooks left *for the driver it faces*
+with its head pointing back at them, which is what a U-turn on the opposing
+approach looks like. Note the centre of that rotation is the band centre —
+`markingPoint(anchor, anchor.span.offset, 0)` — **not `anchor.at`**, which sits on
+the drawn polyline; they differ for every lane whose band offset is not zero, and
+a test written about the wrong one fails a correct implementation.
+
+The shaft also shortens — **conditionally**. Today it runs `-L/2 → fork`; it runs
+`-fork → fork`, symmetric, **iff at least one back branch is actually drawn**.
+That is what makes the reflection exact when there is something to reflect, and
+what keeps every existing arrow untouched when there is not: an arrow with no
+`back`, with `back: []`, or with a `back` naming only directions the model does
+not know (`geometry.ts:1565-1571` already skips those) keeps today's shaft. The
+condition is "a branch was built", not "the array is non-empty", so the two
+degenerate cases need no arm of their own.
+
+#### The second trap: two controls, one payload, and the one that wipes the other
+
+"No new action" is the right call and it has a cost that has to be written down,
+because the compiler does not catch it. `setMarkingKind` replaces the whole tagged
+kind — `markings.map(m => m.id === id ? { ...m, kind } : m)` (`state.ts:893-907`),
+no merge — and the shipped forward control builds its payload as a **fresh
+literal**, `{ type: "turn_arrow", directions: next }` (`Inspector.tsx:580-581`).
+So a second control that does the same thing means **toggling a forward direction
+silently deletes the rear heads**, and toggling a rear one deletes nothing only by
+luck of which array is required.
+
+The asymmetry is what hides it: `directions` is required, so TypeScript forces the
+*new* control to carry it, while `back?` is optional, so nothing forces the *old*
+control to carry `back`. This is the silent-data-loss class §2.5 already records
+for `setLinkLanes` and `Lane.kind`, arriving by a different door.
+
+So **both controls spread the marking's current kind rather than rebuilding it** —
+`{ ...marking.kind, directions: next }` and `{ ...marking.kind, back: next }` —
+which is the same "spreading an object with no `lane` key yields one with no
+`lane` key" reasoning `setMarkingKind`'s own doc comment already runs on `lane`,
+applied one level in. The Kind picker keeps rebuilding from `MARKING_PICKER`,
+because repainting a marking *is* meant to reset the payload.
+
+**And that merge is a named pure function in `state.ts`, not two spreads written
+twice in the panel — because otherwise nothing can test it.** The defect is not in
+the reducer: `setMarkingKind` faithfully stores whatever payload it is handed, so
+a `state.test.ts` case constructs its own payload and passes whether or not the
+panel was ever amended (`state.test.ts:815-838` is that test, and it would not
+move). The bug lives in what `Inspector.tsx:580-581` *builds*, and this repo
+cannot reach that: `vitest.config.ts` runs `environment: "node"` on the stated
+grounds that "the units under test are pure TS", there is no `Inspector.test.tsx`,
+and `Diagram.test.tsx` renders through `renderToStaticMarkup`, which fires no
+`onClick`. An invariant guarded only by a panel habit is guarded by nothing.
+
+So `turnArrowKind(current, patch)` — the marking's current kind plus the one array
+being changed, returning the whole tagged kind with the other array preserved —
+lives beside the action it feeds, both controls call it, and the assertion sits
+next to the payload test it belongs with. That places the rule at the level the
+danger is at: losing `back` is document data loss, not a panel slip. Adding a
+harness for the panel instead would be a dependency, a `vitest` environment change
+and a testing posture, none of which is this phase's subject.
+
+**And the back control has no last-one-standing guard, unlike the forward one.**
+`disabled={on && directions.length === 1}` (`Inspector.tsx:591`) exists because an
+arrow with no branches is a bare shaft that reads as a lane line. That rationale
+does not transfer: emptying `back` leaves the forward arrow whole, and it is the
+**only route back to a single-headed arrow** — without it a user who adds a rear
+head can only escape by re-picking Turn arrow in the Kind picker, which resets the
+forward directions too. Emptying it is therefore a supported gesture, and by the
+`Vec`/`skip_serializing_if` decision above it returns the document byte-identical
+to one that never had a rear head.
+
+A `back`-only arrow (`directions: []` with a `back`) is **not** reachable through
+the panel, since the forward guard still holds. `markingArrow` returns `undefined`
+on zero *forward* branches (`geometry.ts:1572`) and the caller falls back to the
+placeholder bar, so a hand-edited document that holds one lands in §2.5's
+skip-don't-crash posture unchanged. Nothing new is needed for it; it is recorded
+so the absence is deliberate.
 
 ## 3. Open questions
 
@@ -845,41 +934,90 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
     to an action that names nothing but the kind; the Span control shows the new
     reading immediately. Recorded rather than engineered around.
 
-### Phase 5 — The two-headed arrow  (added 2026-07-28; **not yet reviewed**)
+### Phase 5 — The two-headed arrow  (added 2026-07-28; reviewed 2026-07-28)
 
 Added by reopening (`spec-authoring.md §6.1`). Phases 1–4 are untouched and this
-depends on all of them. **It is not cleared to implement until its own scoped
-review round lands** (§7's phase-level gate) — the spec being `partial` rather
-than `draft` does not clear it.
+depends on all of them. It passed its own scoped review round (§7's phase-level
+gate) in three rounds on 2026-07-28 and **is cleared to implement**.
 
 - **Scope:** §2.11 — `MarkingKind::TurnArrow` gains `back?: TurnDirection[]`.
-  - `decoration.rs` / `types.ts` — the optional field. **No `SCHEMA_VERSION`
-    move** (§2.11), asserted rather than assumed.
-  - `geometry.ts` — `markingArrow` (`:1215`) grows the second head: the shaft
-    becomes symmetric (`-fork → fork`) and back branches are built through **one
-    frame flip** negating both `along` and `across`, not per-branch sign changes.
-    `stub()` and `hook()` are reused unchanged through that flip.
+  - `decoration.rs` / `src/model/types.ts` — the field, as a defaulted `Vec` with
+    `skip_serializing_if = "Vec::is_empty"` on the Rust side and `back?:` on the
+    TypeScript one (§2.11). **No `SCHEMA_VERSION` move**, asserted rather than
+    assumed. Adding a field to the struct variant makes the compiler walk the four
+    sites that name it — `import.rs:300`, `:370`, `:614` and `mod.rs:216` — which
+    gain `..` or a value; mechanical, but they are the phase's Rust surface.
+  - `geometry.ts` — `markingArrow` (`:1509`) grows the second head: the shaft
+    becomes symmetric (`-fork → fork`) **iff a back branch is drawn**, and back
+    branches are built through **one frame flip** negating both `along` and
+    `across`, not per-branch sign changes. `stub()` and `hook()` keep their bodies
+    across that flip — they capture `at` today (`:1541`, `:1551`), so the flip is
+    a frame they are parameterised by rather than an edit to either.
+  - `Diagram.tsx` — the call site (`:597`) passes the second array. Named because
+    an optional parameter left unpassed **builds and tests green while drawing
+    nothing**, and only the `bun run dev` step would catch it. Back branches join
+    the existing `TurnArrow.branches`, so the renderer needs nothing else: it
+    already maps over them (`:605-613`).
   - `Inspector.tsx` — a second direction multi-select, shown only for
     `turn_arrow`, on the existing one's shape. `setMarkingKind` carries the whole
     tagged `MarkingKind`, so this is a fifth panel control and **no new action** —
-    the same payoff Phase 4 recorded.
+    the same payoff Phase 4 recorded. Two amendments §2.11's second trap requires,
+    neither optional: **both** controls build their payload through the new
+    `turnArrowKind` instead of a fresh literal, or the forward one wipes `back`;
+    and the back control ships **without** the `directions.length === 1` guard
+    (`:591`), since emptying it is the only route back to a single-headed arrow. It
+    reuses `TURN_DIRECTIONS` rather than declaring a second table —
+    `import.rs:723-737` greps this file for `const TURN_DIRECTIONS` and asserts six
+    entries, matching first.
+  - `state.ts` — `turnArrowKind(current, patch)`, the exported pure merge both
+    controls call (§2.11). **Still no new action**: it builds a payload for
+    `setMarkingKind`, it does not join the `Action` union or the reducer. It exists
+    so the invariant is testable at all — see the gate.
 - **Exit gate:** `bun run build` + `bun run test` + `cargo test` green.
   - `geometry.test.ts`: a `back: ["left"]` arrow puts its rear head on the
     **opposite side of the band** from a forward `["left"]` — the assertion that
-    catches the §2.11 frame trap, and the one that passes if only `along` is
-    reflected must be shown to fail. A two-way left-turn lane
-    (`directions: ["left"], back: ["left"]`) is symmetric under a 180° rotation
-    about the marking's own point. A `back` u-turn hook stays inside the band, as
-    Phase 3's containment rule requires of all six directions.
-  - `model/mod.rs`: a `.zkai` with no `back` loads as a single-headed arrow, and
-    one saved without it writes **no key**.
-  - **Every existing arrow test still passes untouched** — the assertion that
-    absent-means-today is real.
+    catches the §2.11 frame trap, and the one a reflection of `along` alone fails.
+    A two-way left-turn lane (`directions: ["left"], back: ["left"]`) is symmetric
+    under a 180° rotation about the **band centre at the marking's position**
+    (`markingPoint(anchor, anchor.span.offset, 0)`, *not* `anchor.at` — §2.11), an
+    assertion a reflection of `across` alone fails instead, so the pair pins both
+    halves of the flip. A `back` u-turn hook stays inside the band, as Phase 3's
+    containment rule requires of all six directions. And the shaft is symmetric
+    only when a back branch is drawn: `back: []` and a `back` naming nothing the
+    model knows both leave the Phase 3 footprint exactly.
+  - `decoration.rs`'s own test module: the three `Marking.anchor` tests
+    (`:188-224`) get their `back` counterparts — a round trip with the field, a
+    marking without it writing **no key**, and a file lacking it loading as a
+    single-headed arrow. That module rather than `mod.rs`'s document-level round
+    trip, since it is the precedent §2.11 invokes and the one that pins the
+    *elision*.
+  - **Every existing arrow test in the TypeScript suite still passes untouched** —
+    the assertion that absent-means-today is real. Scoped to that suite
+    deliberately: the four Rust sites above are compiler-forced edits, so "untouched"
+    could not be literally true there and a gate that claimed it would be unmeetable.
+  - `state.test.ts`: `turnArrowKind` given a `directions` patch on an arrow that
+    has `back` returns both arrays, and the reverse; patching to an empty `back`
+    yields a kind that saves as single-headed. Asserted against **the function the
+    panel calls**, which is the whole reason §2.11 makes it one: a test that
+    dispatched a hand-built `setMarkingKind` payload would pass identically whether
+    or not the panel was amended, since the reducer is not where the wipe happens.
+    The §2.11 wipe is invisible to the compiler and to every existing test, so this
+    is the one assertion standing between it and a shipped bug — and it has to be
+    aimed at a layer this repo can actually reach (`environment: "node"`, no DOM
+    harness, `renderToStaticMarkup` fires no `onClick`).
   - A `bun run dev` pass: paint a two-way left-turn lane and confirm it reads as
-    one marking rather than two arrows fighting.
+    one marking rather than two arrows fighting; **toggle a forward direction on
+    it** and confirm the rear head survives; then **empty the back control again**
+    and confirm the arrow returns to single-headed, which is the gesture §2.11's
+    missing guard exists to allow. The middle gesture is the one no unit test
+    reaches: `turnArrowKind`'s test proves the merge is correct, and nothing proves
+    both call sites use it.
 - **Docs touched:** `rules/road-markings.md` (the arrow gains a second head and
-  the frame flip that keeps it honest); this spec's frontmatter to
-  `implemented`.
+  the frame flip that keeps it honest); `TURN_ARROW_LENGTH`'s doc comment
+  (`geometry.ts:1417-1424`), whose "its footprint along the road does not depend
+  on which directions are chosen" stops being true the moment a rear branch
+  shortens the shaft; this spec's frontmatter to `implemented`; and the
+  project-memory roadmap.
 
 ## 5. Review log
 
@@ -1010,3 +1148,117 @@ model — new `TurnDirection` variants — costs a `SCHEMA_VERSION` bump, and th
 cheap route is only obvious while the reasoning for `Marking.anchor`'s
 field-not-variant decision is fresh. Recorded now so it is not re-derived
 expensively later.
+
+### Round 1 — Phase 5 only — 2026-07-28 — `VERDICT: NOT READY` (2 blocking)
+
+The first scoped round under `spec-authoring.md` §7's phase-level gate. Fresh
+clean-room reviewer with repo access, told that Phases 1–4, §§2.1–2.10 and Rounds
+1–3 are settled and that every finding must concern §2.11 or Phase 5. **Fifteen
+findings, all fifteen accepted; none rejected, none deferred.**
+
+Three stale citations in §2.11/Phase 5 were corrected *before* the round, so the
+reviewer would verify accurate pointers rather than spend a capped round on them:
+`geometry.ts:1215-1283` → `:1509-1579` (it named `markingAnchor`, ~294 lines off),
+`decoration.rs:61-74` → `:95-111`, and a bare `types.ts` → `src/model/types.ts`.
+§6.1 permits this only because they sit in the sections the new phase touches; the
+stale citations in §§2.1–2.10 were left as they shipped.
+
+**Blocking, both accepted:**
+
+1. **The shipped forward-direction control would silently wipe `back`.**
+   `setMarkingKind` replaces the whole tagged kind with no merge
+   (`state.ts:893-907`) and `MarkingDirections` builds a fresh literal
+   (`Inspector.tsx:580-581`) — so painting a two-way left-turn lane and then
+   toggling any *forward* direction destroys the rear head. The asymmetry is what
+   hides it: `directions` is required so the compiler forces the **new** control to
+   carry it, while `back?` is optional so nothing forces the **old** control to
+   carry `back`. Same silent-data-loss class as §2.5's `setLinkLanes`/`Lane.kind`,
+   by a different door. §2.11 gained the "second trap" subsection; both controls
+   now merge rather than rebuild.
+2. **No stated route back to a single-headed arrow.** `disabled={on &&
+   directions.length === 1}` (`Inspector.tsx:591`) is deliberate for the forward
+   control, but copied onto the back one it traps a user who adds a rear head —
+   the only escape being a Kind repaint, which resets the forward directions too.
+   Resolved toward an **emptiable** back control: that guard's rationale (a
+   branchless shaft reads as a lane line) does not transfer, since emptying `back`
+   leaves the forward arrow whole.
+
+That second call cascaded through three non-blocking findings as a set, which is
+why it was worth settling rather than deferring: it made `back: []` reachable
+in-app, which decided the **Rust representation** (a defaulted `Vec` with
+`skip_serializing_if = "Vec::is_empty"`, so empty and absent are the same document
+and `Some(vec![])` never exists), which in turn let the **shaft rule** be stated as
+"symmetric iff a branch was *built*" — covering `back: []` and a hand-edited `back`
+of unknown names with no arm of its own.
+
+**Non-blocking, all accepted:** the renderer call site (`Diagram.tsx:597`) absent
+from scope, where an unpassed optional parameter builds and tests green while
+drawing nothing; "every existing arrow test untouched" being literally false on
+the Rust side (four compiler-forced sites — `import.rs:300`, `:370`, `:614`,
+`mod.rs:216` — so the clause is now scoped to the TypeScript suite); the serde gate
+naming `mod.rs` rather than `decoration.rs`'s own module, where the `Marking.anchor`
+precedent it invokes actually lives; `import.rs:123` → `:172`; "`stub()`/`hook()`
+reused unchanged" overstating what closures capturing `at` can do; the 180°
+symmetry assertion naming `anchor.at` rather than the **band centre**, which would
+fail a correct implementation on any lane whose band offset is not zero; the
+"must be shown to fail" clause being a mutation check no test can express (dropped
+— the gate now pairs two concrete assertions and says which half each catches); the
+unspecified `back`-only arrow; `import.rs:723-737`'s cross-file grep of
+`const TURN_DIRECTIONS`; `TURN_ARROW_LENGTH`'s doc comment, whose "adding a branch
+never moves the arrow" stops being true; and the roadmap missing from Docs touched.
+
+**Rejected:** none.
+
+### Round 2 — Phase 5 only — 2026-07-28 — `VERDICT: NOT READY` (1 blocking, newly introduced)
+
+Same reviewer, resumed. Both round-1 blockers confirmed resolved and re-verified
+at HEAD, along with every corrected pointer. The reviewer independently re-derived
+the paired-assertion claim and confirmed it pins both halves of the frame flip: a
+reflection of `along` alone puts the rear `left` head at `across = -reach` (fails
+opposite-side), and a reflection of `across` alone puts it at `(+reach, +fork)`
+(passes opposite-side, fails the rotation).
+
+One new blocker, introduced by round 1's own fix — the best catch of the loop:
+
+1. **The gate item guarding blocker 1 tested the wrong layer, and this repo cannot
+   test the right one.** The wipe does not live in the reducer — `setMarkingKind`
+   faithfully stores whatever payload it is handed, as §2.11 says itself — so a
+   `state.test.ts` case constructs its own payload and passes identically whether
+   or not the panel was ever amended (`state.test.ts:815-838` is that test, and it
+   would not move). The defect lives in what `Inspector.tsx:580-581` **builds**,
+   and nothing here reaches that: `vitest.config.ts:8` is `environment: "node"` on
+   the stated grounds that the units under test are pure TS, there is no
+   `Inspector.test.tsx`, and `Diagram.test.tsx` renders through
+   `renderToStaticMarkup`, which fires no `onClick`. The phase would have shipped a
+   gate that certified a guard while being unable to observe it.
+
+Accepted, with the first of the three remedies offered: the merge becomes an
+exported pure `turnArrowKind(current, patch)` in `state.ts` that both controls
+call. A `bun run dev` restatement does not survive a refactor, and adding a DOM
+harness is a dependency plus a `vitest` environment change plus a testing posture
+— a decision a two-headed-arrow phase has no business carrying. `state.ts` rather
+than `Inspector.tsx` because losing `back` is **document data loss** rather than a
+panel slip, so the rule belongs at that level, and because the assertion then sits
+beside the payload test it extends. Still no new action: it feeds `setMarkingKind`
+and joins neither the `Action` union nor the reducer.
+
+**Rejected:** none.
+
+### Round 3 — Phase 5 only — 2026-07-28 — `VERDICT: READY` (converged)
+
+Same reviewer, resumed. The round-2 blocker confirmed resolved: every leg of the
+new §2.11 block re-verified at HEAD, `turnArrowKind` confirmed reachable from
+`environment: "node"` with no DOM, and the placement checked for a module edge —
+`Inspector.tsx:36` already imports from `../editor/state` and `state.ts` does not
+import the panel, so there is no cycle. The reviewer also confirmed the two
+`include_str!` cross-file tests (`import.rs:353-354`) read `geometry.ts` and
+`Inspector.tsx` only, so nothing greps `state.ts`. **Zero blocking findings.**
+
+One non-blocking note, folded in: the `bun run dev` pass exercised painting and
+emptying but not **toggling a forward direction on an arrow that has `back`** —
+the one gesture that would catch a call site left unmigrated. `turnArrowKind`'s
+unit test proves the merge is correct; nothing proves both call sites use it. The
+dev pass now walks all three.
+
+Converged in three rounds — the cap, reached rather than exceeded. Phase 5's status
+line moves to `reviewed`; it is cleared for implementation.

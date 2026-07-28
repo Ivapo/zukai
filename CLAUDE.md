@@ -106,8 +106,10 @@ work that removes what another spec shipped.
   alignment, lane-drop tapers, gores (implemented; 4 phases)
 - `specs/road_markings_spec.md` — the paint on the road: stop and give-way lines,
   crossings, lane arrows, lane lines (Phases 1–4 implemented; **reopened** for
-  Phase 5, the two-headed arrow — added 2026-07-28, review pending). The worked
-  example of `spec-authoring.md` §6.1.
+  Phase 5, the two-headed arrow — added 2026-07-28, reviewed in 3 scoped rounds,
+  cleared to implement). The worked example of `spec-authoring.md` §6.1 — and of
+  §7's phase-level gate, which is the reason its Review log carries two sets of
+  rounds.
 - `specs/signs_and_text_spec.md` — letters in the drawing: the embedded font,
   painted road text, and roadside signs (implemented; 4 phases)
 - `specs/junction_semantics_spec.md` — what a junction *means*: control and
