@@ -140,6 +140,31 @@ that sign is the whole of which lane was clicked — lane 0 is nearside at the m
 point past either end clamps to that end, which falls out of clamping the
 projection parameter to `[0, 1]` rather than being a case of its own.
 
+## Paint has a second author, and it is the importer
+
+Every marking above is a human's. Importing a `network.yaml` mints them too — one
+`turn_arrow` per approach lane, from the movements' own `from_lanes`
+(`rules/network-yaml.md`). Three things about that are worth knowing here rather
+than one format over:
+
+- **They are ordinary markings.** No live binding, no re-derivation, no "these are
+  the imported ones" flag: select, drag, repaint, re-span or delete, and nothing
+  puts them back. Import seeds and lets go.
+- **They arrive `anchor: "end"`**, which is the only reason that field exists.
+  An imported arm is over a thousand units long and is about to be dragged into
+  shape; start-anchored paint would drift off the junction on the first drag and
+  pile up at the far end.
+- **They are the first paint nothing clicked into place**, so the failures the
+  hand path rules out by construction — a click lands in a band, so a lane always
+  exists — have to be ruled out arithmetically instead. `kerb_lane` returns an
+  `Option` and an out-of-range `from_lanes` index is skipped rather than clamped
+  onto a lane the file never named.
+
+`position` is `8.75 m` — `1.5 × TURN_ARROW_LENGTH`, converted. What that measures
+to is the **end node**, which stands in for the junction's rim until lane arrows
+Phase 5; on a divided junction the opaque `jn-pad` (drawn after this layer) covers
+the arrow's head. The measurement is in `rules/network-yaml.md`.
+
 ## Dragging: the same projection, pointed at a marking that exists
 
 Under the select tool a marking is grabbed and slid along its road

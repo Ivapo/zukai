@@ -16,6 +16,10 @@
 //! `#[serde(default, rename = "type")]` there while [`Movement::kind`] has no
 //! default, so a movement omitting `type:` must still parse here.
 //!
+//! [`NetworkMovement::from_lanes`] is the one deliberate departure, and its own
+//! doc comment says why: the rule was there to guarantee faithful *writing*, and
+//! nothing writes this format any more.
+//!
 //! What is *not* mirrored is mirrored nowhere by accident: `detectors`, `stops`,
 //! `crossings` and `rerouters` are simulation instrumentation a schematic has
 //! nowhere to draw, and nothing here derives `deny_unknown_fields`, so they pass
@@ -190,19 +194,25 @@ pub struct NetworkJunction {
     pub movements: Vec<NetworkMovement>,
 }
 
-/// Mirrors `MovementConfig` (`network.rs:1334-1378`), less everything about
-/// lanes.
+/// Mirrors `MovementConfig` (`network.rs:1334-1378`), less most of what it says
+/// about lanes.
 ///
 /// `turn_speed` and `control_points` are dropped because both are tuned against
-/// real geometry and Zukai's radii are schematic fictions. `from_lanes`,
-/// `to_lanes`, `priority`, `yields_to` and `lane_mapping` are dropped for a
-/// different reason: **nothing draws them.** They were mirrored while Zukai
-/// still wrote this format back out, so that a round trip could survive them;
-/// with the export cut there is no round trip, and a schematic shows *that* a
-/// turn is permitted rather than which lane feeds which.
+/// real geometry and Zukai's radii are schematic fictions. `to_lanes`,
+/// `priority`, `yields_to` and `lane_mapping` are dropped for a different
+/// reason: **nothing draws them.** They were mirrored while Zukai still wrote
+/// this format back out, so that a round trip could survive them; with the
+/// export cut there is no round trip, and a schematic shows *that* a turn is
+/// permitted rather than which lane feeds which.
 ///
 /// Dropping them is safe on the read side — serde ignores unknown keys unless
-/// told otherwise, so a real `network.yaml` carrying all five still parses.
+/// told otherwise, so a real `network.yaml` carrying all four still parses.
+///
+/// **`from_lanes` is the exception, and it is read rather than carried.** It
+/// says which lanes of an approach feed a turn, which is exactly what a painted
+/// lane arrow says, so `import::lane_arrows` converts it to paint on the way in
+/// and nothing stores it — the read-only mirror's cleanest case
+/// (`specs/lane_arrows_spec.md` §2.5).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NetworkMovement {
     /// Stable id, unique within the junction.
@@ -215,6 +225,20 @@ pub struct NetworkMovement {
     /// [`MovementKind`] has no default — the mirror rule, in one field.
     #[serde(default = "default_movement_kind", rename = "type")]
     pub kind: MovementKind,
+    /// Lanes of [`from_link`](Self::from_link) this turn may be taken from,
+    /// **in Assimilator's numbering** — `0` is the median lane, the opposite of
+    /// Zukai's (see `import::kerb_lane`).
+    ///
+    /// Assimilator declares this required (`network.rs:1347`) and this module's
+    /// rule is that optionality follows Assimilator's, so the `#[serde(default)]`
+    /// is a deliberate departure. That rule existed to guarantee faithful
+    /// *writing*: a movement Zukai could not reproduce byte-for-byte was a bug
+    /// while an export existed, and the export is gone. An absent key takes the
+    /// same path as an empty list — it paints nothing — and
+    /// `the_lane_and_priority_keys_are_ignored_either_way` pins that a bare
+    /// movement still parses.
+    #[serde(default)]
+    pub from_lanes: Vec<LaneIdx>,
 }
 
 /// Just enough of a `network.yaml` to read its version without committing to

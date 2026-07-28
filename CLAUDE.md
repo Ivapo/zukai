@@ -123,8 +123,9 @@ work that removes what another spec shipped.
   approach instead of arcs across the pad: a marking you can drag, a marking
   anchored to the junction end, import painting the lanes from the file's own
   lane data, and the removal of the movement arcs and the movement list
-  (**Phases 1–2 implemented**; reviewed in 2 rounds — 4 phases plus a deferred
-  Phase 5 for the junction rim)
+  (**Phases 1–3 implemented**; reviewed in 2 rounds — 4 phases plus a deferred
+  Phase 5 for the junction rim, which Phase 3's dev pass promoted from polish to
+  the thing that makes a divided junction's arrows visible)
 
 **`rules/` — current-state reference (the *what is*).** Terse, authoritative maps
 of subsystems, read on demand. Unlike specs, rules describe the code as it is now;
@@ -201,9 +202,14 @@ there's real cross-file knowledge worth extracting, not for every file.
   accepted), the four enums reused rather than redeclared and the one test that
   keeps that honest, the scale and the y that is stated as a compass bearing
   because a mirrored network is self-consistently wrong, what import discards —
-  the geometry, and now the lane and right-of-way detail as well, on the rule
-  that a field nothing draws is a field nothing carries — versus the one thing it
-  *demotes* (`point` seeds the layout, or the page renders blank), the defaults
+  the geometry, and the right-of-way detail as well, on the rule that a field
+  nothing draws is a field nothing carries — versus the one thing it *demotes*
+  (`point` seeds the layout, or the page renders blank), the one field it **reads
+  without carrying** (`from_lanes` becomes paint and reaches no struct, which is
+  what separates *mirror what is drawn* from *carry*), the two projects' opposite
+  lane numberings and the single involution that reconciles them at this boundary
+  — for both the arrows and the lane array, which carried the bug invisibly —
+  the one thing import *mints* and the opaque pad that covers it, the defaults
   seeded rather than derived, and how a network reaches the editor: Open's path
   one format over, a command that is a shell around the pure conversion, and the
   two differences that are the whole of Phase 2 (dirty and pathless, so Save

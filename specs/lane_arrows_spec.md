@@ -2,8 +2,8 @@
 status: partial
 last_updated: 2026-07-28
 note: "Lane arrows become how a junction's turns are shown — painted on the approach lanes, seeded from an imported network, and replacing the dashed arcs across the pad. Includes the two things that have to exist first: a marking you can drag, and a marking that measures from the junction end."
-implemented: ["Phase 1", "Phase 2"]
-not_implemented: ["Phase 3", "Phase 4", "Phase 5 (deferred)"]
+implemented: ["Phase 1", "Phase 2", "Phase 3"]
+not_implemented: ["Phase 4", "Phase 5 (deferred)"]
 related: [specs/road_markings_spec.md, specs/junction_semantics_spec.md, specs/network_yaml_spec.md]
 reference: "Assimilator's `MovementConfig.from_lanes` (`crates/config/src/network.rs:1334-1378`) is the only field this spec reads back out of the format — which lanes of an approach feed a given turn. Read at `../assimilator` on 2026-07-26. Nothing else is wanted from it: `lane_mapping`, `priority` and `yields_to` were dropped in `fe8b452` and stay dropped."
 ---
@@ -595,6 +595,65 @@ a junction cannot express its turns at all.
 - **Docs touched:** `rules/network-yaml.md` (the one field read back, why it is
   not a carried field, and the lane numbering the boundary now converts);
   `rules/road-markings.md`.
+- **As built (2026-07-28)** — the phase landed as scoped, and the dev pass
+  measured one thing that changes what Phase 5 is worth. Gate met: `bun run
+  build`, 389 `bun run test` (unchanged — no TypeScript), 57 `cargo test` (up 9),
+  `cargo fmt --check` and `cargo clippy --all-targets -D warnings` clean. **No
+  `SCHEMA_VERSION` move** (still 2).
+  - **`kerb_lane` returns an `Option`, which the plan did not call for.** The
+    obvious `count - 1 - index` on `usize` **underflows** on a file whose
+    `from_lanes` names a lane the link does not have — a panic in debug and a
+    wrapped index in release, from a file Assimilator would have rejected but
+    Zukai does not validate. An out-of-range index is skipped rather than clamped
+    onto a lane the file never named. `import_link`'s call cannot fail (the index
+    came from the array it is indexing) and says so with an `expect`.
+  - **The two hand-mirrors are pinned by `include_str!` of the frontend**, which
+    is one step past "write it down and keep them in step": the tests read
+    `geometry.ts` and `Inspector.tsx` at compile time and parse the value out.
+    `UNITS_PER_METRE` has had a comment asking for this since the first import
+    commit; a comment is not a test.
+  - **`ARROW_SETBACK_METRES` is spelled as its derivation**, `1.5 *
+    TURN_ARROW_LENGTH / UNITS_PER_METRE`, and the test asserts **both** that and
+    the literal `8.75`. The two together are what make a changed constant read as
+    a changed distance rather than as two expressions agreeing with each other.
+  - **Seven mutations were run**, each failing a different test: the identity lane
+    map (2 tests), copying `Lane.id` through the reversal (1), reversing the array
+    *and* copying the ids — §2.5.1's exact second-half failure, caught by the id
+    assertion while the widths still passed (1), emitting directions in encounter
+    order (1), `HashMap` for `BTreeMap` (2), a `start` anchor (1), and dropping
+    `from_lanes`' `#[serde(default)]` (2, one of them the pre-existing test §2.5
+    says must keep passing).
+  - **The dev pass ran in the real Tauri window after all**, which Phases 1–2
+    could not do — accessibility exposes the app's *menu bar* even though it
+    reports **zero windows** while a native file panel is up, and keystrokes still
+    land (Escape closes it). So the panel is drivable **blind**: `⌘⇧G`, type the
+    path, Return. Import is Tauri-only (`invoke("import_network")`), so this is
+    the only route to it. Port 1420 was held by another project again;
+    `tauri dev --config '{"build":{"devUrl":…,"beforeDevCommand":…}}'` moves both
+    halves to 1425 without touching the committed config.
+  - **`screencapture` is blocked in this shell, so the picture was read from the
+    app's own SVG export instead** — which turned out stronger than a screenshot:
+    it is measurable. Confirmed on an imported `cross-4`: eight
+    `marking-turn-arrow` groups, each spanning **15.0 → 30.0 units from its
+    junction node** on all four approaches; and the flip is right *in the
+    drawing*, not just in the importer — on eastbound `L1` the median arrow's
+    second head apexes at `y = 5.22` (north = left) and the kerb arrow's at
+    `y = 21.78` (south = right). A Save As from the same session put all eight
+    markings in a `.zkai` at `position: 8.75`, `anchor: end`.
+  - **§2.4's cost lands harder than §2.4 estimated, and it is the finding of this
+    phase.** `jn-pad` is `r = 24` on `cross-4` — not the 16.0 Round 2 computed,
+    because that assumed an *undivided* 2-lane road and every `cross-4` arm is a
+    **dual carriageway**, so `maxW` is two 18-unit carriageways plus the median.
+    The pad is an opaque `fill: var(--asphalt)` circle and the `junction` group is
+    emitted **after** the marking layer, so the arrow is not merely "drawn on
+    asphalt instead of ahead of it" (§2.4's words) — its head at 15.0 and its fork
+    at 18.8 are **painted over**, leaving about 6 units of bare shaft. On the
+    fixture §1 is written against, the imported arrows are visible but headless.
+    Nothing about the model is wrong and no test is measuring the wrong thing; the
+    end node is a stand-in for the rim, and **Phase 5 is what makes this figure
+    read**. Recorded here rather than fixed, because fixing it *is* Phase 5:
+    a larger setback would be a magic number, and §2.4's whole argument is that
+    the offset comes from the arrow's own size.
 
 ### Phase 4 — The arcs and the movement list go  (depends on Phase 3)
 
@@ -654,6 +713,13 @@ a junction cannot express its turns at all.
   refactor rather than a feature. §2.4 records what Phase 2's end-node anchor
   costs until this lands: a pad larger than ~22 units draws the arrow on asphalt
   instead of ahead of it.
+- **Phase 3 measured that cost and it is worse than "on asphalt".** The pad is
+  opaque and drawn *after* the marking layer, so an imported `cross-4` — every arm
+  a dual carriageway, `rp = 24` — has its arrows' heads and forks **painted over**,
+  leaving bare shaft. This phase is therefore not a polish pass on Phase 3's
+  output: on a divided junction it is what makes that output readable at all.
+  Worth weighing against Phase 4's ordering, since Phase 4 is a removal that
+  makes no picture better.
 - **What unblocks it:** `junctionArms` (`Diagram.tsx:357`), `interface Arm`
   (`:331`) and the pad radius `rp` (`:934`) lift out of the React render body
   into `geometry.ts`. That is the whole of the work and the whole of the risk —

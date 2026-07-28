@@ -70,15 +70,41 @@ nothing derives `deny_unknown_fields`, so serde ignores the key — and a field
 carried but never drawn is a claim the model cannot back.
 
 `NetworkMovement` is where that bites. It reads `id`, `from_link`, `to_link` and
-`type`, and drops `from_lanes`, `to_lanes`, `lane_mapping`, `priority` and
-`yields_to`. All five *were* mirrored, and the reason is worth keeping because it
-is the trap the whole read-only turn removes: while Zukai wrote the format,
+`type`, and drops `to_lanes`, `lane_mapping`, `priority` and `yields_to`. All
+five *were* mirrored, and the reason is worth keeping because it is the trap the
+whole read-only turn removes: while Zukai wrote the format,
 `MovementConfig.from_lanes` carrying no `serde(default)` meant an absent key
 failed the *whole file*, so the mirror had to declare it bare and the writer had
 to always emit it — `[]` parses, nothing does not. A rule with a test each side.
 None of it applies now, and the test that pinned it
 (`a_movement_without_from_lanes_fails_to_parse`) has been replaced by its
 inverse, `the_lane_and_priority_keys_are_ignored_either_way`.
+
+### `from_lanes` is read, and that is not the same as carried
+
+The fifth came back, because something draws it now. A movement's `from_lanes`
+says which lanes of an approach may take that turn, which is exactly the claim a
+**painted lane arrow** makes, so `lane_arrows` converts it to markings on the way
+in — and **nothing stores it.** It reaches no model struct, no `.zkai` key and no
+panel row; the paint is the whole of what survives.
+
+That is the read-only mirror at its cleanest, and it sharpens the bucket rule
+into two: *mirror a field you draw* is one thing, *carry a field* is another, and
+this field is the case that separates them.
+
+It returns with **`#[serde(default)]` against the optionality clause below**, and
+the departure is the point rather than an oversight: Assimilator declares it
+required, and the clause it violates exists to guarantee faithful **writing** —
+a movement Zukai could not reproduce byte-for-byte was a bug while an export
+existed. Nothing writes this format. An absent key and an empty list therefore
+take one path: **paint nothing**, which is also what `cross-4`'s four u-turns do
+without needing a case of their own.
+
+**Import seeds and lets go.** No arrow is bound to the movement it came from —
+re-deriving would stomp a hand edit with no way to refuse, and a simplified
+drawing may deliberately say less than the junction permits. It is
+`deriveMovements`' own posture, and `rules/road-markings.md` records the other
+half: paint now has two authors.
 
 **One direction of the old mirror rule survives**, because it is about accepting
 files rather than reproducing them: a mirror copied field-for-field from
@@ -132,6 +158,49 @@ Note what the scale means in practice: a 500 m arm arrives 1285 canvas units lon
 against a 9-unit lane. That is **true to life and wrong for a schematic**, and it
 is the intended outcome.
 
+## The two projects number lanes in opposite directions
+
+The one thing here that fails silently while looking entirely plausible.
+
+- **Assimilator counts from the median** — "0 is the leftmost/fastest lane"
+  (`crates/config/src/network.rs`).
+- **Zukai counts from the kerb** — "lane 0 is the nearside (kerb) lane", the
+  convention that makes a `shoulder` at index 0 an outside hard shoulder rather
+  than one hiding in the median (`geometry.ts`).
+
+So `kerb_lane(count, index) = count - 1 - index`, applied **once, at this
+boundary** — `rules/persistence.md`'s normalize-at-one-boundary rule arriving one
+format over. Nothing downstream knows there was ever another numbering.
+
+**One function, two callers, because `n - 1 - i` is its own inverse.**
+`import_link` maps a file index to a new array position; `lane_arrows` maps a file
+index into that already-reversed array. Applying each once is correct and they do
+not compound.
+
+Two things about the reversal are worth stating because getting either wrong
+leaves the drawing disagreeing with itself:
+
+- **Both callers, or neither.** Flipping only the arrows puts the paint right and
+  leaves the lane *widths* mirrored — a hard shoulder drawn in the median under a
+  correct arrow.
+- **It renumbers, it does not just reorder.** Each lane takes its **new position**
+  as its `Lane.id`, because that field is documented as the index and every reader
+  is positional (`Diagram.tsx`, `state.ts`). Copying the file's id through a
+  reversal leaves `lanes[0].id == 1` — the struct's own invariant broken while
+  every positional reader carries on working, a second silent failure hiding
+  inside the fix for the first.
+
+`import_link` carried the un-flipped version from the first commit and **nothing
+noticed**: `t_junction`'s links are single-lane (the reversal is a no-op),
+`cross-4`'s lanes are uniform 3.5 m, and import sets every `kind: None`. The
+array was mis-ordered and indistinguishable. `import_link_renumbers_the_lanes_from_the_kerb`
+exists because no committed fixture can catch it — it needs **distinct lane
+widths**, so it carries its own inline YAML.
+
+Nothing migrates a `.zkai` saved from an earlier import. The fix is at the import
+boundary only, and the mis-ordering is invisible for uniform-width lanes, which is
+every network imported so far.
+
 ## What import throws away, and the one thing it demotes
 
 - **`geometry` polylines are discarded.** The founding claim: a schematic
@@ -157,6 +226,68 @@ is the intended outcome.
   already reads as metric. Both halves are tested. Past that a malformed file
   yields the wrapped serde error; inventing a friendly message for a parse failure
   would be guessing.
+
+## The one thing import *mints*: a turn arrow per approach lane
+
+Everything else here is a copy, a demotion or a drop. `lane_arrows` is the
+exception — it produces `Marking`s the file has no equivalent of, and it is the
+reason the module reads `from_lanes` at all.
+
+Four steps, and each one falls out rather than being decided:
+
+1. Group movements by `from_link`. **Approach links only, for free** — a
+   movement's `from_link` *is* the road arriving, so there is no exit link to
+   filter out.
+2. Translate every `from_lanes` index through `kerb_lane`.
+3. `MovementKind` → `TurnDirection`, four onto four. The two vocabularies are
+   separated by one hyphen (`u-turn` on the wire, `u_turn` in paint) and the two
+   slight turns have no movement kind to come from.
+4. One `turn_arrow` per lane holding at least one direction. A lane serving
+   several turns gets **one** arrow with several branches; a lane with none gets
+   no paint at all, rather than a symbol Zukai would be inventing.
+
+**The `BTreeMap`s are load-bearing.** Two imports of one file must produce
+identical documents, ids included, and a `HashMap` costs exactly that — its
+iteration order shuffles the marking sequence and therefore the minted ids.
+`two_imports_of_one_file_paint_identically` is the test; the direction order
+inside each arrow is `CANONICAL_TURN_DIRECTIONS`.
+
+**Two constants are hand-mirrors of TypeScript**, joining `UNITS_PER_METRE`:
+`TURN_ARROW_LENGTH` (`geometry.ts`) and `CANONICAL_TURN_DIRECTIONS`
+(`TURN_DIRECTIONS` in `Inspector.tsx`, a module-private const). Both are pinned by
+tests that `include_str!` the frontend file and parse the value out of it, so
+drift fails here rather than showing up as arrows in the wrong place.
+
+Ids are minted `M1`, `M2`, … — `nextId(…, "M")`'s own scheme, so the first
+marking a human places after an import lands one past the last minted rather than
+colliding with it.
+
+### Where the arrow sits, and what the pad does to it
+
+`position` is `1.5 × TURN_ARROW_LENGTH / UNITS_PER_METRE` = **8.75 m**, with
+`anchor: end`. Neither number is chosen: links are not to scale, so the offset is
+derived from the arrow's own drawn size — one arrow-length of clear road ahead of
+the junction — and the `1.5` is a conversion, because the canvas centres the shaft
+on `position`. The `end` anchor is the whole reason `Marking.anchor` exists: an
+imported arm is over a thousand units long and is about to be dragged into shape.
+
+**Measured on an imported `cross-4`, via the app's own SVG export:** every arrow
+occupies 15.0 → 30.0 units from its junction node, on all four approaches, on both
+lanes, with the left-turn branch on the median lane and the right-turn branch on
+the kerb lane — the flip, confirmed in the drawing rather than only in the
+importer.
+
+And the pad covers it. `jn-pad` is an **opaque** `fill: var(--asphalt)` circle
+drawn *after* the marking layer, at `rp = max((maxW × 0.62 + 3) × scale, reach)`.
+`cross-4`'s arms are **dual carriageways**, so `maxW` is two 18-unit carriageways
+plus the median and `rp = 24` — against an arrow whose head sits at 15.0. Only the
+outer ~6 units of bare shaft survive; the heads and the fork are painted over.
+
+This is the cost lane arrows §2.4 recorded, arriving harder than its estimate
+(which assumed an undivided 2-lane road at `rp = 16`). It is not a correctness
+bug and nothing about the model is wrong — **the end node is a stand-in for the
+junction's rim**, and the rim is what both this arrow and the stop bar actually
+want. A narrower junction clears the pad today; a divided one does not.
 
 ## The four fields that failed quietly, and why they no longer can
 
@@ -222,7 +353,9 @@ differences** — both following from the file belonging to another program:
 | `NetworkFile` + the eight mirror structs | `src-tauri/src/network/mod.rs` |
 | `ASSIMILATOR_SCHEMA_VERSION`, `UNITS_PER_METRE` | `src-tauri/src/network/mod.rs` |
 | `VersionProbe`, `parse_network`, `metres_to_canvas` | `src-tauri/src/network/mod.rs` |
-| `network_to_document` and its three helpers | `src-tauri/src/network/import.rs` |
+| `network_to_document` and its helpers | `src-tauri/src/network/import.rs` |
+| `lane_arrows`, `kerb_lane`, `turn_direction` | `src-tauri/src/network/import.rs` |
+| `TURN_ARROW_LENGTH`, `CANONICAL_TURN_DIRECTIONS`, `ARROW_SETBACK_METRES` | `src-tauri/src/network/import.rs` |
 | `import_network`, the command around it | `src-tauri/src/network/import.rs` |
 | `importNetwork` (dialog + IPC), the `.yaml` filter | `src/editor/files.ts` |
 | the `importDocument` case and the `install` helper | `src/editor/state.ts` |
