@@ -3,7 +3,7 @@ status: partial
 last_updated: 2026-07-28
 note: "Lane arrows become how a junction's turns are shown — painted on the approach lanes, seeded from an imported network, and replacing the dashed arcs across the pad. Includes the two things that have to exist first: a marking you can drag, and a marking that measures from the junction end."
 implemented: ["Phase 1", "Phase 2", "Phase 3"]
-not_implemented: ["Phase 4", "Phase 5 (deferred)"]
+not_implemented: ["Phase 5 (next)", "Phase 4 (last)"]
 related: [specs/road_markings_spec.md, specs/junction_semantics_spec.md, specs/network_yaml_spec.md]
 reference: "Assimilator's `MovementConfig.from_lanes` (`crates/config/src/network.rs:1334-1378`) is the only field this spec reads back out of the format — which lanes of an approach feed a given turn. Read at `../assimilator` on 2026-07-26. Nothing else is wanted from it: `lane_mapping`, `priority` and `yields_to` were dropped in `fe8b452` and stay dropped."
 ---
@@ -379,7 +379,10 @@ making a three-branch arrow legible is a geometry pass on `markingArrow`.
 Strictly sequential; each is one plan-mode pass with a concrete exit gate.
 
 **The order is the point.** The removal is last, so there is never a commit where
-a junction cannot express its turns at all.
+a junction cannot express its turns at all. **Phase 5 was resequenced ahead of
+Phase 4 on 2026-07-28** — that rule is what decides it, once Phase 3 measured
+that the arrows it paints are covered by the junction pad: removing the arcs
+before the paint is legible would break the rule this order exists to keep.
 
 ### Phase 1 — A marking you can drag
 
@@ -707,7 +710,7 @@ a junction cannot express its turns at all.
   `specs/junction_semantics_spec.md` gets a §0 closing note marking Phases 2–4
   cut, on `signal_plans_spec.md`'s model; `CLAUDE.md`; the project-memory roadmap.
 
-### Phase 5 — The anchor finds the rim  (depends on Phase 4; deferred)
+### Phase 5 — The anchor finds the rim  (depends on Phase 3; built before Phase 4)
 
 - **Why it is separate:** OQ-1's better answer, held back because it is a
   refactor rather than a feature. §2.4 records what Phase 2's end-node anchor
@@ -720,15 +723,31 @@ a junction cannot express its turns at all.
   output: on a divided junction it is what makes that output readable at all.
   Worth weighing against Phase 4's ordering, since Phase 4 is a removal that
   makes no picture better.
+- **Resequenced ahead of Phase 4 (2026-07-28), and the old header was wrong
+  rather than overruled.** "Depends on Phase 4" was sequencing, not a dependency:
+  nothing this phase lifts is created, deleted or reshaped by Phase 4, and the
+  build is green in either order. What Phase 4 would have done is make the lift
+  *smaller* — it deletes `MovementShape`, one of `Arm`'s consumers — which is a
+  convenience, not a precondition, and not worth leaving Phase 3's output
+  unreadable to collect. Nothing is renumbered (`spec-authoring.md` §6.1); only
+  the order the phases are built in moves, and no phase's own scope changes, so
+  no further review round is owed.
+- **One hand-off Phase 4 must not lose.** Phase 4's scope removes `Diagram.tsx`'s
+  `pad` gate (`:949`) as movement-arc machinery. This phase makes that gate load-
+  bearing for something else — it names the glyphs with no rim to measure to — so
+  the lift gives the exclusion a home in `geometry.ts` and Phase 4 removes only
+  the arc that consulted it.
 - **What unblocks it:** `junctionArms` (`Diagram.tsx:357`), `interface Arm`
-  (`:331`) and the pad radius `rp` (`:934`) lift out of the React render body
+  (`:331`) and the pad radius `rp` (`:938`) lift out of the React render body
   into `geometry.ts`. That is the whole of the work and the whole of the risk —
   `Diagram.test.tsx` rides on all three.
 - **Scope:** the lift, then `markingAnchor` resolves an `end` anchor through
   `rayCircleExit` against the pad, **with a fallback to the end node** where the
   end node carries no pad (an `endpoint`, a roundabout, a gore — `Diagram.tsx`'s
   own `pad` gate names the exclusions). The stop bar and the arrow then measure
-  from one expression, which is §2.4's original argument.
+  from one expression, which is §2.4's original argument — and `rayCircleExit`
+  is **already imported into `Diagram.tsx`** (`:63`) for the stop bar (`:1031`),
+  so what moves is where it is called from, not what it computes.
 - **Exit gate:** `bun run build` + `bun run test` + `cargo test` green.
   - `geometry.test.ts`: an `end`-anchored marking holds its clearance from the
     **rim** while the junction's Size stepper changes the pad radius — the check
@@ -737,8 +756,10 @@ a junction cannot express its turns at all.
     is unchanged from Phase 2.
   - Every `Diagram.test.tsx` assertion passes untouched across the lift.
 - **Docs touched:** `rules/road-markings.md`; `rules/junctions.md` (the pad
-  geometry acquires a second caller); markings OQ-5 closes for auto-placed paint;
-  mark this spec `implemented`.
+  geometry acquires a second caller, and leaves the render body); markings OQ-5
+  closes for auto-placed paint. **This spec stays `partial`** — the resequence
+  means Phase 4 is now the last one, and it is what moves the status to
+  `implemented`.
 
 ## 5. Review log
 
