@@ -1,9 +1,9 @@
 ---
-status: reviewed
-last_updated: 2026-07-27
+status: partial
+last_updated: 2026-07-28
 note: "Lane arrows become how a junction's turns are shown — painted on the approach lanes, seeded from an imported network, and replacing the dashed arcs across the pad. Includes the two things that have to exist first: a marking you can drag, and a marking that measures from the junction end."
-implemented: []
-not_implemented: ["Phase 1", "Phase 2", "Phase 3", "Phase 4", "Phase 5 (deferred)"]
+implemented: ["Phase 1"]
+not_implemented: ["Phase 2", "Phase 3", "Phase 4", "Phase 5 (deferred)"]
 related: [specs/road_markings_spec.md, specs/junction_semantics_spec.md, specs/network_yaml_spec.md]
 reference: "Assimilator's `MovementConfig.from_lanes` (`crates/config/src/network.rs:1334-1378`) is the only field this spec reads back out of the format — which lanes of an approach feed a given turn. Read at `../assimilator` on 2026-07-26. Nothing else is wanted from it: `lane_mapping`, `priority` and `yields_to` were dropped in `fe8b452` and stay dropped."
 ---
@@ -408,6 +408,53 @@ a junction cannot express its turns at all.
 - **Docs touched:** `rules/road-markings.md` (a marking gains a position of its
   own to drag, which its sign counterpart's text explicitly said it lacked);
   `rules/history.md` (the third drag key).
+- **As built (2026-07-28)** — the phase landed as scoped, plus one addition the
+  plan did not have and two things the dev pass measured. Gate met: `bun run
+  build`, 372 `bun run test` (up 20), 45 `cargo test` unchanged — no Rust, no
+  `SCHEMA_VERSION` move.
+  - **`boundaryAt` was the addition, and §2.2's "a drag writes both fields" is
+    what made it necessary.** A `lane_line`'s `lane` names one of `n-1`
+    **boundaries**, but the projection §2.2 reuses matches `n` **lane bands** — so
+    a lane line dragged into the outermost band takes index `n-1`, for which
+    `boundaryOffset` returns `undefined`, `markingForm` returns `undefined`, and
+    `MarkingShape` renders **nothing**: an invisible, unselectable marking, undo
+    the only way back. Exactly the failure markings Phase 2 named, and the
+    Inspector already withholds `lane_line` at `lane ≥ n-1` to avoid it. Fixed by
+    a boundary-projection counterpart to `bandAt` (both in `geometry.ts`, both
+    exported because `Canvas.tsx` has no test file), with the kind branch in the
+    **canvas** beside the Inspector's other kind-aware rules and never in the
+    reducer — `setMarkingLane`'s posture.
+  - **The `Drag` arm carries no grab offset, and that is a decision.** `moveNode`
+    and `moveSign` remember where inside themselves the pointer landed; a marking
+    re-projects **absolutely**, costing a jump of up to half the 12-unit hit strip
+    on pick-up. It buys the case §2.3 predicts: a marking whose metres exceed its
+    drawn road is clamped to the end by `pointAlongPolyline`, and an
+    offset-preserving drag would carry the overshoot along and never reach the
+    road. Verified in the app — a stop line stored at **213.9 m on a 150-unit
+    road**, drawn piled at the end, came back to **11.7 m** in one drag.
+  - **`onMarkingPointerDown` gained the `e.button === 1` pan guard** the node and
+    sign handlers already had. It did not matter while a marking only selected;
+    with a drag arm a middle-click drags paint instead of panning, and this
+    handler's unconditional `stopPropagation` means the `<svg>` never gets its
+    chance.
+  - **OQ-5 answered, and the answer is worse than "a click near the junction is
+    refused": the disc is a one-way door.** Dragging paint *into* `jn-hit` works —
+    the `<svg>` holds pointer capture, so the disc never sees the moves — but the
+    marking parked there **cannot be picked up again** (a click on it selects the
+    junction node), and the marking tool cannot place there either. Measured at
+    `r = 23.6` on a 3-lane arterial. Not a blocker: recovery is undo, and Phase 5
+    moves *auto-placed* paint out from under it. A hand-drag can still park one
+    there, which no phase in this spec fixes.
+  - **Four mutations were run** rather than trusting a green first pass, each
+    failing a different test: dropping the same-place identity return, dropping the
+    `markingDrag` coalesce key (2 tests), implementing `boundaryAt` as `bandAt`
+    (3 tests), and storing an absent lane as an explicit `undefined`.
+  - The dev pass ran against the Vite frontend in a real browser rather than the
+    Tauri window — accessibility could not enumerate that window in this shell, and
+    the whole of this phase is frontend. Confirmed there: 77.8 m lane 0 → 175.0 m
+    lane 2 in one drag across two dividers; one undo takes the whole drag and a
+    second takes the placement; a lane line drags `0|1` ↔ `1|2` and stays drawn and
+    selectable even dragged far off the road.
 
 ### Phase 2 — A marking anchored to the end of its road  (depends on Phase 1)
 

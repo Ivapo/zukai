@@ -912,6 +912,54 @@ export function pointAlongPolyline(
   };
 }
 
+/**
+ * The lane band a **signed lateral offset** falls in, or `undefined` for none.
+ *
+ * The other half of a click on a road: {@link nearestOnPolyline} answers *how far
+ * along*, and this answers *which lane* from the same hit's `offset`. Outside
+ * every band — the casing lip, or the fat invisible hit path either side of the
+ * road — means the whole carriageway, which is what an absent `lane` says.
+ */
+export function bandAt(bands: LaneBand[], offset: number): LaneIdx | undefined {
+  const i = bands.findIndex((b) => Math.abs(offset - b.offset) <= b.width / 2);
+  return i < 0 ? undefined : i;
+}
+
+/**
+ * The lane **boundary** nearest a signed lateral offset, or `undefined` when the
+ * road has none.
+ *
+ * {@link bandAt}'s counterpart for the one kind whose `lane` names a boundary
+ * rather than a lane, and the reason it exists is that the two indexes are *not*
+ * interchangeable: a road with `n` lanes has `n-1` boundaries, so a band index
+ * can land on `n-1`, for which {@link boundaryOffset} returns `undefined` and the
+ * marking is **not drawn at all** — invisible, unselectable, and recoverable only
+ * by undo (lane arrows Phase 1; the Inspector's Span control withholds the same
+ * index for the same reason).
+ *
+ * *Nearest*, not *containing*: boundaries are lines rather than strips, so there
+ * is nothing to be inside of and every offset has an answer. A single-lane road
+ * has no boundary to name and returns `undefined`, which {@link boundaryOffset}
+ * reads as the centreline — the only place such a line can go.
+ */
+export function boundaryAt(
+  bands: LaneBand[],
+  offset: number,
+): LaneIdx | undefined {
+  let best: LaneIdx | undefined;
+  let bestDist = Infinity;
+  for (let i = 0; i < bands.length - 1; i++) {
+    const at = boundaryOffset(bands, i);
+    if (at === undefined) continue;
+    const dist = Math.abs(offset - at);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = i;
+    }
+  }
+  return best;
+}
+
 /** Everything a marking is drawn from: a point, a direction, and a span. */
 export interface MarkingAnchor extends PolylinePoint {
   /**

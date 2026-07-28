@@ -930,6 +930,140 @@ describe("markings", () => {
       );
     });
   });
+
+  /**
+   * The missing verb (lane arrows §2.2): a marking could be created, repainted,
+   * re-spanned and deleted, and not **moved**. The canvas projects the pointer
+   * onto the road and dispatches the result, so what is asserted here is what the
+   * reducer owes that gesture.
+   */
+  describe("dragging a marking", () => {
+    it("writes both where it sits and what it spans", () => {
+      const moved = reducer(painted(3, 0), {
+        type: "moveMarking",
+        id: "M1",
+        position: 42,
+        lane: 2,
+      });
+
+      expect(moved.doc.markings[0]).toEqual({
+        id: "M1",
+        link: "L1",
+        position: 42,
+        lane: 2,
+        kind: { type: "stop_line" },
+      });
+      expect(moved.dirty).toBe(true);
+    });
+
+    /**
+     * Dragging out onto the casing lip widens the marking to the whole
+     * carriageway, and stores that as an **absent key** — `setMarkingLane`'s
+     * shape, not an explicit `undefined` that saves to the same bytes and differs
+     * by document identity.
+     */
+    it("drops the lane key when a drag lands on no lane", () => {
+      const wide = reducer(painted(3, 1), {
+        type: "moveMarking",
+        id: "M1",
+        position: 25,
+        lane: undefined,
+      });
+
+      expect("lane" in wide.doc.markings[0]).toBe(false);
+      expect(wide.doc.markings[0].position).toBe(25);
+    });
+
+    /**
+     * **The identity return `moveNode` and `moveSign` do not have.** Both of those
+     * rebuild unconditionally; a drag dispatches on every pointer-move, including
+     * the ones that resolve to the place the marking already occupies, and without
+     * this the document is dirtied and a snapshot pushed for a gesture that
+     * changed nothing.
+     */
+    it("is a no-op, by identity, on a drag that lands where it already is", () => {
+      const start: EditorState = { ...painted(3, 1), dirty: false, past: [] };
+      const next = reducer(start, {
+        type: "moveMarking",
+        id: "M1",
+        position: 20,
+        lane: 1,
+      });
+
+      expect(next.doc).toBe(start.doc);
+      expect(next.dirty).toBe(false);
+      expect(next.past).toEqual([]);
+    });
+
+    it("is a no-op, by identity, on a marking that is not there", () => {
+      const start = painted();
+      const next = reducer(start, {
+        type: "moveMarking",
+        id: "M9",
+        position: 5,
+        lane: 0,
+      });
+
+      expect(next.doc).toBe(start.doc);
+      expect(next.dirty).toBe(start.dirty);
+    });
+
+    /**
+     * The third drag key, `markingDrag:<id>` (`rules/history.md`). A drag is one
+     * gesture and must undo as one, and **the leading `select` is what opens it**:
+     * `onMarkingPointerDown` dispatches it on pointer-down, which leaves `doc`
+     * alone and so resets `coalesceKey`, making move #1 push and #2…N replace.
+     */
+    it("collapses a run of drags into one undo step", () => {
+      const dragged = run(
+        painted(3, 0),
+        { type: "select", selection: { kind: "marking", id: "M1" } },
+        { type: "moveMarking", id: "M1", position: 21, lane: 0 },
+        { type: "moveMarking", id: "M1", position: 24, lane: 1 },
+        { type: "moveMarking", id: "M1", position: 30, lane: 2 },
+      );
+
+      expect(dragged.doc.markings[0].position).toBe(30);
+      expect(dragged.doc.markings[0].lane).toBe(2);
+
+      // One undo gets back the whole drag, not its last pointer-move.
+      const undone = reducer(dragged, { type: "undo" });
+      expect(undone.doc.markings[0].position).toBe(20);
+      expect(undone.doc.markings[0].lane).toBe(0);
+    });
+
+    it("keeps two drags separate when a select comes between them", () => {
+      const dragged = run(
+        painted(3, 0),
+        { type: "moveMarking", id: "M1", position: 21, lane: 0 },
+        { type: "moveMarking", id: "M1", position: 24, lane: 0 },
+        { type: "select", selection: { kind: "marking", id: "M1" } },
+        { type: "moveMarking", id: "M1", position: 30, lane: 0 },
+        { type: "moveMarking", id: "M1", position: 33, lane: 0 },
+      );
+
+      const once = reducer(dragged, { type: "undo" });
+      expect(once.doc.markings[0].position).toBe(24);
+
+      const twice = reducer(once, { type: "undo" });
+      expect(twice.doc.markings[0].position).toBe(20);
+    });
+
+    /**
+     * A drag never re-homes a marking to another road — the action carries no
+     * `link`, and the canvas projects onto the one the marking already names.
+     */
+    it("leaves the road it is painted on alone", () => {
+      const start = painted(3, 0);
+      const moved = reducer(start, { type: "moveMarking", id: "M1", position: 42 });
+
+      expect(moved.doc.markings[0].link).toBe("L1");
+      // The road and its layout are untouched, by reference: a drag moves paint,
+      // never the road under it (markings spec OQ-6 stays open either way).
+      expect(moved.doc.links).toBe(start.doc.links);
+      expect(moved.doc.layout).toBe(start.doc.layout);
+    });
+  });
 });
 
 describe("signs", () => {

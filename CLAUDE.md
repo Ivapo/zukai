@@ -123,8 +123,8 @@ work that removes what another spec shipped.
   approach instead of arcs across the pad: a marking you can drag, a marking
   anchored to the junction end, import painting the lanes from the file's own
   lane data, and the removal of the movement arcs and the movement list
-  (**reviewed** — converged in 2 rounds; 4 phases plus a deferred Phase 5 for
-  the junction rim)
+  (**Phase 1 implemented**; reviewed in 2 rounds — 4 phases plus a deferred
+  Phase 5 for the junction rim)
 
 **`rules/` — current-state reference (the *what is*).** Terse, authoritative maps
 of subsystems, read on demand. Unlike specs, rules describe the code as it is now;

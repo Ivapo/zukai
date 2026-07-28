@@ -36,9 +36,10 @@ decides history and `dirty` in one pass:
 
 A node drag dispatches one `moveNode` per pointer-move (`onPointerMove`,
 `src/components/Canvas.tsx`); pointer-up dispatches nothing. So `coalesceKeyFor`
-gives `moveNode` the key `"moveNode:<id>"` — and `moveSign` the key
-`"moveSign:<id>"`, the second drag and the only other one, since a marking has no
-position of its own to drag (`rules/signs.md`) — and every other edit `null`:
+gives `moveNode` the key `"moveNode:<id>"`, `moveSign` the key `"moveSign:<id>"`
+and `moveMarking` the key `"markingDrag:<id>"` — **three drags**, the third since
+lane arrows Phase 1 gave a marking a position of its own to move — and every
+other edit `null`:
 
 - key non-null **and** equal to `state.coalesceKey` → the gesture is still open:
   update `doc`, leave `past` alone.
@@ -52,12 +53,20 @@ would silently merge with the previous one; that is the point to add an explicit
 end-of-gesture action (spec OQ-2). Consequence worth knowing: a wheel-zoom mid-drag
 dispatches `setView`, which also resets the key, so one drag becomes two undo steps.
 
+**The third drag is the one whose reducer has to refuse a no-op**, and it is the
+odd one out. `moveNode`/`moveSign` rebuild `doc` unconditionally, so a pointer-move
+that resolves to the same place still pushes; that is harmless for them because a
+pixel of pointer travel is a new position. `moveMarking` re-projects onto a road,
+where many neighbouring pixels resolve to the same `(position, lane)` — so it
+returns `state` by identity when nothing changed, and `state.test.ts` pins it.
+
 Discrete clicks never coalesce. The Lanes and junction Size steppers are ±1 /
 ±0.25 per click, so N clicks are N undo steps — deliberate, since this design has
-no time or focus boundary that could close such a gesture. The marking actions are
-discrete on the same terms: placing three stop lines across a carriageway is three
-undo steps, and repainting one as a crossing and then widening it to the whole
-carriageway is two more, which is the honest reading of five deliberate clicks.
+no time or focus boundary that could close such a gesture. The **other** marking
+actions are discrete on the same terms: placing three stop lines across a
+carriageway is three undo steps, and repainting one as a crossing and then widening
+it to the whole carriageway is two more, which is the honest reading of five
+deliberate clicks.
 
 **Typing is the second gesture, and the only one that is not a drag.** The
 Inspector's four text fields — a marking's **Words**, a sign's **Label**, a

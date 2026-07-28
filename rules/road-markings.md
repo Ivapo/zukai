@@ -31,9 +31,13 @@ everything below:
 The metre/unit boundary is exactly two functions, and no third site converts:
 
 ```
-placeMarking (Canvas.tsx)   world units → metres   position = along / UNITS_PER_METRE
-markingAnchor (geometry.ts) metres → world units   along    = position * UNITS_PER_METRE
+projectOntoLink (Canvas.tsx) world units → metres  position = along / UNITS_PER_METRE
+markingAnchor (geometry.ts)  metres → world units  along    = position * UNITS_PER_METRE
 ```
+
+`projectOntoLink` is what placement and dragging **share**, which is what keeps
+that count at two: `placeMarking` is two lines over it, and the drag re-runs it
+per pointer-move. Extracting it was the whole of lane arrows Phase 1's arithmetic.
 
 `markingForm(doc, marking, offsets)` is the **one call the renderer makes**, and
 it answers the only question with two answers: a marking is drawn either
@@ -98,6 +102,35 @@ that sign is the whole of which lane was clicked — lane 0 is nearside at the m
 point past either end clamps to that end, which falls out of clamping the
 projection parameter to `[0, 1]` rather than being a case of its own.
 
+## Dragging: the same projection, pointed at a marking that exists
+
+Under the select tool a marking is grabbed and slid along its road
+(`onMarkingPointerDown` → the fourth `Drag` arm → `moveMarking`). Four things
+about it are decisions rather than mechanics:
+
+- **A drag carries no grab offset**, unlike a node's or a sign's: it re-projects
+  **absolutely**, so the paint goes wherever the pointer is. The cost is a jump of
+  up to half the 12-unit hit strip on pick-up. What it buys is the case an import
+  creates — a marking whose metres exceed its drawn road is clamped to the end by
+  `pointAlongPolyline`, and only an absolute drag brings it back. Measured in the
+  app: a stop line stored at 213.9 m on a 150-unit road, drawn piled at the end,
+  came back to 11.7 m in one drag.
+- **It writes `lane` as well as `position`**, so crossing a divider moves the paint
+  to the lane under the pointer. The lane already falls out of the click for
+  placement, and a drag that crossed a divider without changing lanes would be the
+  surprising reading.
+- **The lane a drag resolves to is kind-aware, and this is the one place it is.**
+  `bandAt` answers for every kind but a `lane_line`, whose `lane` names one of the
+  road's `n-1` **boundaries**; `boundaryAt` answers for that one. Matching a lane
+  line against the bands can name `n-1`, which `boundaryOffset` refuses and
+  `markingForm` turns into *nothing rendered* — an invisible, unselectable marking
+  recoverable only by undo. That branch lives in `Canvas.tsx` with the Inspector's
+  other kind-aware rules, never in the reducer (see "Editing").
+- **`moveMarking` returns `state` by identity on a same-place drag**, which
+  `moveNode` and `moveSign` do not do. Many neighbouring pixels project to one
+  `(position, lane)`, and without it the document dirties for a gesture that
+  changed nothing.
+
 ## Editing: three controls, all kind-aware
 
 The Inspector's marking panel carries a **Kind picker** (`setMarkingKind`), a
@@ -119,7 +152,8 @@ yields one with no `lane` key. **The three payload controls are that decision
 paying off** — each is one more dispatcher of the same action, sending a whole
 `{ type, …payload }`, and none can move the marking because the action names
 nothing else. Markings Phases 3 and 4 added a control apiece and no action at
-all; so did signs Phase 1's Words field.
+all; so did signs Phase 1's Words field. **Moving one is the canvas's**, not the
+panel's — there is no Position field, and `Position` stays a readout.
 
 **The Words field is the panel's first `<input>`, and the first control that is
 not a click** — which makes it the first to touch two things every other control
@@ -544,9 +578,18 @@ one kind where that was worth confirming rather than assuming.
   `25.6`, so roughly two units of clearance on the centreline and about four in
   an outer lane (the disc is a circle, so its horizontal reach shrinks off-axis).
   Any snap design has to reckon with that disc.
+
+  **The drag measured what that disc costs, and it is a one-way door.** Dragging
+  paint *into* it works — the `<svg>` holds pointer capture for the gesture, so
+  the disc never sees the moves — but the marking parked there **cannot be picked
+  up again**: a click on it selects the junction node, and the marking tool cannot
+  place there either. Recovery is undo, or grabbing a different marking. Lane
+  arrows Phase 5 moves *auto-placed* paint out from under the disc by anchoring to
+  the rim; a hand-drag can still park one there.
 - **Markings do not follow a dragged node (spec OQ-6)** — see the first section.
   Rescaling `position` on a drag would make the stored metres a function of
-  layout, which is what keeping metres rules out.
+  layout, which is what keeping metres rules out. Dragging the **marking** is a
+  different verb and does not touch this: it moves paint, never the road under it.
 - **Link reversal (spec OQ-1).** Nothing reverses a link today, so
   `position`-from-`from_node` is unambiguous. A reverse action must remap every
   marking to `length - position`, or every stop line jumps to the wrong end.

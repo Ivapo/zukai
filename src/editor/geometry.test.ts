@@ -51,6 +51,8 @@ import {
   TurnArrow,
   UNITS_PER_METRE,
   alignmentShift,
+  bandAt,
+  boundaryAt,
   boundaryTaken,
   carriageways,
   classWidthFactor,
@@ -215,6 +217,75 @@ describe("laneBands", () => {
 
       expect(boundaries).toEqual(old);
     }
+  });
+});
+
+/**
+ * The lateral half of a click on a road (lane arrows Phase 1). Every case here
+ * uses **unequal lane widths**, because a uniform road cannot tell the two
+ * indexes apart: with equal lanes a band's centre and a boundary sit at tidy
+ * multiples of the same pitch, and an implementation that confused one for the
+ * other would still land plausibly.
+ */
+describe("bandAt and boundaryAt", () => {
+  // Bands at +13.5 / 0 / -13.5 (widths 9 / 18 / 9), so the two boundaries are
+  // at +9 and -9 — neither of which is any band's centre.
+  const bands = laneBands(widths(3.5, 7, 3.5));
+
+  it("names the band a lateral offset falls in", () => {
+    expect(bandAt(bands, 13.5)).toBe(0);
+    expect(bandAt(bands, 0)).toBe(1);
+    expect(bandAt(bands, -13.5)).toBe(2);
+    // Anywhere inside a band, not only its centre.
+    expect(bandAt(bands, 8.5)).toBe(1);
+  });
+
+  it("names no band beyond the lane region — the casing lip is carriageway-wide", () => {
+    // The road's lane region ends at ±18; the hit path is fatter than that.
+    expect(bandAt(bands, 19)).toBeUndefined();
+    expect(bandAt(bands, -25)).toBeUndefined();
+  });
+
+  /**
+   * **The assertion the helper exists for.** A road with `n` lanes has `n-1`
+   * boundaries, so a band index can be `n-1` and a boundary index cannot: that
+   * value makes `boundaryOffset` return `undefined`, `laneLine` draw nothing, and
+   * a dragged lane line vanish mid-gesture — invisible and unselectable.
+   */
+  it("never names the band index a lane line cannot be drawn at", () => {
+    for (let offset = -30; offset <= 30; offset += 0.25) {
+      const boundary = boundaryAt(bands, offset);
+      expect(boundary).not.toBeUndefined();
+      expect(boundary).toBeLessThan(bands.length - 1);
+    }
+    // Concretely: deep in the offside lane, `bandAt` says 2 and `boundaryAt`
+    // says 1 — the outermost boundary there actually is.
+    expect(bandAt(bands, -13.5)).toBe(2);
+    expect(boundaryAt(bands, -13.5)).toBe(1);
+  });
+
+  it("picks the nearest boundary, not the containing anything", () => {
+    // Boundaries are lines, so every offset has an answer and the midpoint
+    // between two is the only place the choice is arbitrary.
+    expect(boundaryAt(bands, 9)).toBe(0);
+    expect(boundaryAt(bands, -9)).toBe(1);
+    expect(boundaryAt(bands, 4)).toBe(0);
+    expect(boundaryAt(bands, -4)).toBe(1);
+    // Far outside the road on the nearside still reads as the nearside boundary.
+    expect(boundaryAt(bands, 100)).toBe(0);
+  });
+
+  /**
+   * A single-lane road has no boundary to name, and `undefined` is exactly right:
+   * `boundaryOffset` reads it as offset 0, the centreline — the only place such a
+   * line can go, and what the Span control calls it.
+   */
+  it("has no boundary to offer on a one-lane road", () => {
+    expect(boundaryAt(laneBands(defaults(1)), 3)).toBeUndefined();
+    // Two lanes have exactly one, and every click resolves to it.
+    const two = laneBands(widths(3.5, 7));
+    expect(boundaryAt(two, 10)).toBe(0);
+    expect(boundaryAt(two, -10)).toBe(0);
   });
 });
 

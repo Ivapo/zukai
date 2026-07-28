@@ -140,6 +140,11 @@ export type EditAction =
   | { type: "addMarking"; link: LinkId; position: number; lane?: LaneIdx }
   | { type: "setMarkingKind"; id: MarkingId; kind: MarkingKind }
   | { type: "setMarkingLane"; id: MarkingId; lane?: LaneIdx }
+  // Both fields at once, because a drag writes both: the lane already falls out
+  // of the click that *places* a marking, and a drag that crossed a divider
+  // without changing lanes would be the surprising reading (lane arrows §2.2).
+  // No `link` — a marking is dragged **along its own road**, never onto another.
+  | { type: "moveMarking"; id: MarkingId; position: number; lane?: LaneIdx }
   | { type: "addSign"; pos: Vec2 }
   | { type: "moveSign"; id: SignId; pos: Vec2 }
   | { type: "setSignKind"; id: SignId; kind: SignKind }
@@ -272,6 +277,11 @@ function sameList(a: string[], b: string[]): boolean {
  * per pointer-move, so those collapse per node; deliberate clicks (a ±1 lane
  * stepper, say) are separate edits and each get their own undo step.
  *
+ * **Three drags**, since lane arrows Phase 1 gave a marking a position of its own
+ * to move: `moveNode`, `moveSign` and `moveMarking`. The third is keyed
+ * `markingDrag:<id>` rather than `moveMarking:<id>` only because it is the drag
+ * and not the action a reader looks for — a marking has no other gesture.
+ *
  * **Typing is the second gesture, and the only one that is not a drag.** The
  * Inspector's four text fields — a marking's Words, a sign's Label, a warning
  * sign's Symbol and a direction sign's Destination — dispatch a whole
@@ -300,6 +310,7 @@ function sameList(a: string[], b: string[]): boolean {
 function coalesceKeyFor(action: EditAction): string | null {
   if (action.type === "moveNode") return `moveNode:${action.id}`;
   if (action.type === "moveSign") return `moveSign:${action.id}`;
+  if (action.type === "moveMarking") return `markingDrag:${action.id}`;
   if (action.type === "setMarkingKind" && action.kind.type === "text")
     return action.kind.content === "" ? null : `markingText:${action.id}`;
   if (action.type === "setSignKind" && action.kind.type === "custom")
@@ -489,6 +500,9 @@ function editReducer(state: EditorState, action: EditAction): EditorState {
 
     case "setMarkingLane":
       return setMarkingLane(state, action.id, action.lane);
+
+    case "moveMarking":
+      return moveMarking(state, action.id, action.position, action.lane);
 
     case "addSign":
       return addSign(state, action.pos);
@@ -1178,6 +1192,61 @@ function setMarkingLane(
         if (m.id !== id) return m;
         const { lane: _dropped, ...rest } = m;
         return lane === undefined ? rest : { ...rest, lane };
+      }),
+    },
+  };
+}
+
+/**
+ * Slide a marking to a new place on the road it is already painted on.
+ *
+ * **The missing verb** (lane arrows §2.2): the marking editor could create,
+ * repaint, re-span and delete, and not *move*. Auto-placed paint is what makes it
+ * load-bearing — an imported network mints an arrow per approach lane, and
+ * without a drag a single one placed wrong is delete-and-replace.
+ *
+ * **Writes both fields**, and takes them already projected: the canvas owns the
+ * pointer-to-road arithmetic (`bandAt`, `boundaryAt` in `geometry.ts`) exactly as
+ * it does for {@link addMarking}, and the kind-aware half of it — a `lane_line`'s
+ * `lane` names a boundary, not a lane — lives there with the Inspector's other
+ * kind-aware rules rather than here. So there is **no lane-range guard**, unlike
+ * {@link setMarkingLane}: a dragged lane comes from the link's own bands and is in
+ * range by construction, and a guard here would claim to police something this
+ * action cannot see.
+ *
+ * `lane` absent is stored as an **absent key**, {@link setMarkingLane}'s exact
+ * shape, so dragging paint out onto the casing lip widens it to the carriageway
+ * rather than leaving an explicit `undefined` behind.
+ *
+ * **Two identity returns, and the second is a new pattern rather than an
+ * inherited one.** An unknown marking returns `state` itself, as every marking
+ * action does. So does a drag that lands on the `(position, lane)` the marking
+ * already has — which {@link moveNode} and {@link moveSign} do *not* do, both
+ * rebuilding unconditionally. A drag dispatches on every pointer-move, including
+ * the ones that resolve to the same place, and without this {@link recordHistory}
+ * dirties the document for a gesture that changed nothing.
+ */
+function moveMarking(
+  state: EditorState,
+  id: MarkingId,
+  position: number,
+  lane: LaneIdx | undefined,
+): EditorState {
+  const { doc } = state;
+  const marking = findMarking(doc, id);
+  if (!marking) return state;
+  if (marking.position === position && marking.lane === lane) return state;
+
+  return {
+    ...state,
+    doc: {
+      ...doc,
+      markings: doc.markings.map((m) => {
+        if (m.id !== id) return m;
+        const { lane: _dropped, ...rest } = m;
+        return lane === undefined
+          ? { ...rest, position }
+          : { ...rest, position, lane };
       }),
     },
   };

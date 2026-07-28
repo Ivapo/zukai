@@ -25,7 +25,7 @@ nothing about it is derived from a road at all. Three consequences:
 | | Marking | Sign |
 |---|---|---|
 | Placement | `addMarking` — a click on a road, projected to arc-length + lane | `addSign` — a click *anywhere*, stored verbatim |
-| Dragging | none; it has no position of its own | `moveSign`, on `moveNode`'s shape (coalescing included) |
+| Dragging | `moveMarking` — re-projected onto its road, **no grab offset** | `moveSign`, on `moveNode`'s shape (coalescing included) |
 | A deleted road | drops the marking | **clears `associated_link`, keeps the sign** |
 
 `layout.signs[id]` is a **bare `Vec2`**, not the `{ pos }` wrapper `layout.nodes`
