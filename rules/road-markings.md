@@ -90,14 +90,20 @@ Four things about it:
 - **`start` takes no such term.** Nothing asked for one, and adding it would move
   the paint in every document already saved.
 
-`junctionRadius(doc, nodeId, offsets)` is where the exclusions live, and one of
-them is deliberately *not* excluded: `Diagram.tsx`'s `pad` gate skips a roundabout
-because a movement arc on one would be a chord across its own island, and an
-anchor has no such reason — a ring buries an approach arrow exactly as a pad does,
-so a roundabout measures to `ro`. What is genuinely excluded is what has no radius
-to give: a non-junction node, a `gore` (paint *between* two arms rather than a
-disc around one node), and a junction with no arms. Each returns `undefined`, the
-clearance is `0`, and the marking measures to the node exactly as it did before.
+`junctionRadius(doc, nodeId, offsets)` is where the exclusions live, and what is
+excluded is what has no radius to give: a non-junction node, a `gore` (paint
+*between* two arms rather than a disc around one node), and a junction with no
+arms. Each returns `undefined`, the clearance is `0`, and the marking measures to
+the node exactly as it did before.
+
+**A roundabout is deliberately *not* excluded**, which is worth stating because
+the obvious list to reach for excludes it. That list came from a `pad` gate in
+`Diagram.tsx` that skipped a roundabout because a drawn movement arc on one would
+be a chord across its own island — a reason an anchor never had, and one that no
+longer exists at all now the arcs are gone (`rules/junctions.md`). A ring buries an
+approach arrow exactly as a pad does, so a roundabout measures to `ro`. **A list
+copied from another feature's gate carries that feature's reasons**; check them
+against the new use before inheriting it.
 
 **Nothing tests the drag's half of it** — `Canvas.tsx` has no test file, and the
 `anchor` argument is optional, so dropping it at the call site compiles and every

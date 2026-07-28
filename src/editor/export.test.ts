@@ -500,17 +500,17 @@ describe("gores in an exported file", () => {
   });
 });
 
-describe("movements in an exported file", () => {
-  /**
-   * A signalised junction with one permitted turn through it — the semantic
-   * layer's one drawable fact, and the first thing in the file that a
-   * `network.yaml` could have put there rather than a human's pointer.
-   *
-   * `L1` arrives at N2 and `L2` leaves it, so the pair is one legal `through`;
-   * `turns: false` is the same document without it, which is what the allowance
-   * below is compared against.
-   */
-  function turning(turns = true): Document {
+/**
+ * The turn-arc vocabulary is **gone from the file**, not merely unused: a
+ * junction says which lane goes where with paint on the approach now, and the
+ * three rules that drew a dashed guide across the pad left `diagram.css` with
+ * the markup (lane arrows Phase 4).
+ *
+ * Asserted on an *exported* document because that stylesheet is inlined whole —
+ * a rule nothing emits markup for would still ship in every picture.
+ */
+describe("the turn arcs are gone from an exported file", () => {
+  function signalised(): Document {
     return run(
       initialState(),
       { type: "addNode", pos: { x: 0, y: 0 } },
@@ -524,43 +524,17 @@ describe("movements in an exported file", () => {
       { type: "setLinkLanes", id: "L2", count: 3 },
       { type: "setNodeKind", id: "N2", kind: "junction" },
       { type: "setJunctionControl", id: "N2", control: "signal" },
-      ...(turns
-        ? [{ type: "addMovement", id: "N2", from: "L1", to: "L2" } as Action]
-        : []),
     ).doc;
   }
 
-  const box = { x: 0, y: 0, width: 240, height: 40 };
+  it("emits no jn-movement markup and ships no rule for it", () => {
+    const svg = diagramSvg(signalised(), { x: 0, y: 0, width: 240, height: 40 });
 
-  it("carries the arc and its arrowhead, paint and all", () => {
-    const svg = diagramSvg(turning(), box);
-    const css = embeddedCss(svg);
-
-    expect(svg).toContain('<g class="jn-movement">');
-    expect(svg).toMatch(/class="jn-movement-line" d="M [-\d.]+ [-\d.]+ C /);
-    expect(svg).toContain('class="jn-movement-head" points=');
-    // The dashes and the opacity are paint, so they travel as rules rather than
-    // as attributes — the canvas and the file cannot disagree about either.
-    expect(css).toContain(".jn-movement-line");
-    expect(css).toContain(".jn-movement-head");
-    expect(css).toMatch(/\.jn-movement \{[^}]*opacity/);
-    expectSelfContained(svg);
-    expect(svg).not.toMatch(CHROME);
-    expect(svg).not.toMatch(/vector-effect/);
-    // A cubic is the file's one curve command; nothing else here emits one.
-    expect(svg).not.toMatch(/NaN|undefined|Infinity/);
-  });
-
-  /**
-   * Same conclusion as the wedge and the gore, and this time it was predicted:
-   * an arc is drawn *inside* the junction pad, which is already inside the frame,
-   * so `getBBox` has it and no stroke of it hangs past anything (junction
-   * semantics §2.7). Asserted rather than assumed, on every prior phase's
-   * precedent for saying the same.
-   */
-  it("needs no allowance of its own", () => {
-    expect(strokeAllowance(turning())).toBe(strokeAllowance(turning(false)));
-    expect(strokeAllowance(turning())).toBe(strokeAllowance(road(3)));
+    expect(svg).not.toContain("jn-movement");
+    expect(embeddedCss(svg)).not.toContain("jn-movement");
+    // The glyph itself is unchanged: the pad and its stop bars still ship.
+    expect(svg).toContain('class="jn-pad"');
+    expect(svg).toContain('class="jn-stopbar"');
   });
 });
 

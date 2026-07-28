@@ -340,36 +340,6 @@
   stroke-linecap: butt;
 }
 
-/* A permitted turn through the junction, drawn as a guide arc on the pad - the
-   paint a real intersection uses to take a driver across it, which is why the
-   semantic layer's one drawable fact reads as road paint rather than as an
-   overlay on top of one.
-
-   Dashed, because solid is taken: the stop bar is solid white at four units and
-   the edge lines are solid at one and a half, and a turn guide has to be legible
-   as the lighter of the three. The pitch is `.road-divider`'s halved and then
-   some - an arc runs ten to thirty units, where a divider runs the length of a
-   road, so 7 7 would put one dash on a tight right turn.
-
-   The opacity is on the group rather than on the two children: the head overlaps
-   the last few units of the line, and two translucent fills would composite there
-   into a darker spot exactly where the eye is meant to land. */
-.jn-movement {
-  opacity: 0.7;
-}
-
-.jn-movement-line {
-  fill: none;
-  stroke: var(--paint-white);
-  stroke-width: 1.2;
-  stroke-dasharray: 3 3;
-  stroke-linecap: round;
-}
-
-.jn-movement-head {
-  fill: var(--paint-white);
-}
-
 .jn-priority {
   fill: var(--paint-yellow);
   stroke: var(--ink);

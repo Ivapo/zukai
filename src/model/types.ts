@@ -12,8 +12,6 @@
 export type NodeId = string;
 /** Stable id of a link. */
 export type LinkId = string;
-/** Stable id of a turn movement. */
-export type MovementId = string;
 /** Stable id of a sign. */
 export type SignId = string;
 /** Stable id of a marking. */
@@ -59,31 +57,20 @@ export type JunctionControl = "signal" | "unsignalized";
 /** Right-of-way rule for an unsignalized junction. */
 export type UnsignalizedRule = "priority" | "priority_right" | "all_way_stop";
 
-/** Turn category of a movement. */
-export type MovementKind = "through" | "left" | "right" | "u-turn";
-
 /**
- * A permitted turn from one approach link to one exit link.
+ * The intersection attached to a junction-kind node.
  *
- * **Lane detail is deliberately absent.** `from_lanes`, `to_lanes`, `priority`,
- * `yields_to` and `lane_mapping` were mirrored here so an imported
- * `network.yaml` could be written back out unchanged; Zukai no longer writes
- * that format, and none of the five was ever read or drawn — a schematic shows
- * *that* a turn is permitted, not which lane pairs with which.
+ * **Which turns it permits is not recorded here.** A junction's turns are said
+ * with paint on the approach — a `turn_arrow` marking per lane — rather than
+ * with a relation in the model, because an arrow is what the road tells a
+ * driver and it is the only one of the two that prints (lane arrows §2.1). The
+ * `movements` field that used to sit here is gone, and an older `.zkai`
+ * carrying one still loads: serde ignores the key.
  */
-export interface Movement {
-  id: MovementId;
-  from_link: LinkId;
-  to_link: LinkId;
-  type: MovementKind;
-}
-
-/** The intersection attached to a junction-kind node. */
 export interface Junction {
   node_id: NodeId;
   control: JunctionControl;
   rule?: UnsignalizedRule;
-  movements?: Movement[];
 }
 
 // ----- decorations (Zukai-native, never exported) -----

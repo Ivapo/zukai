@@ -1,8 +1,8 @@
 //! The semantic road graph — the part of a Zukai document that maps directly
 //! to and from Assimilator's `network.yaml` (`nodes`, `links`, `junctions`).
 //!
-//! This layer is deliberately **geometry-free**: it records topology, lane
-//! counts and turn movements, but no coordinates or polylines.
+//! This layer is deliberately **geometry-free**: it records topology and lane
+//! counts, but no coordinates or polylines.
 //! On import from Assimilator the literal geometry is discarded; on export it
 //! is synthesized from the [`Layout`](super::layout::Layout). Presentation
 //! (where a node sits on the canvas, how a junction is drawn) lives entirely in
@@ -16,7 +16,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::ids::{LaneIdx, LinkId, MovementId, NodeId};
+use super::ids::{LaneIdx, LinkId, NodeId};
 
 /// A point in the network graph: a road end, a junction, or a mid-road shape
 /// change. Matches Assimilator's node `type`.
@@ -100,6 +100,14 @@ pub enum LaneKind {
 }
 
 /// The intersection attached to a [`NodeKind::Junction`] node.
+///
+/// **Which turns it permits is not recorded here.** A junction's turns are said
+/// with paint on the approach — a `turn_arrow`
+/// [`Marking`](super::decoration::Marking) per lane — rather than with a
+/// relation in the model: an arrow is what the road tells a driver, and it is
+/// the only one of the two that prints (lane arrows §2.1). An older `.zkai`
+/// carrying a `movements:` key still loads, because nothing here derives
+/// `deny_unknown_fields`, and saving it again drops the key.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Junction {
     /// The junction node this controls.
@@ -109,9 +117,6 @@ pub struct Junction {
     /// Right-of-way rule for an unsignalized junction; `None` when signalized.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rule: Option<UnsignalizedRule>,
-    /// Permitted turning movements through the junction.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub movements: Vec<Movement>,
 }
 
 /// How a junction is controlled. Matches Assimilator's `control`.
@@ -134,42 +139,6 @@ pub enum UnsignalizedRule {
     PriorityRight,
     /// All approaches stop.
     AllWayStop,
-}
-
-/// A permitted turn from one approach link to one exit link.
-///
-/// **Lane detail is deliberately absent.** `from_lanes`, `to_lanes`,
-/// `priority`, `yields_to` and `lane_mapping` were mirrored here so an imported
-/// `network.yaml` could be written back out unchanged. Zukai no longer writes
-/// that format (the export was cut), and none of the five was ever read or
-/// drawn — a schematic shows *that* a turn is permitted, not which lane pairs
-/// with which. Import discards them.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Movement {
-    /// Stable id (e.g. `M_L1_L3`), preserved across import.
-    pub id: MovementId,
-    /// Approach link.
-    pub from_link: LinkId,
-    /// Exit link.
-    pub to_link: LinkId,
-    /// Turn category, which is what the drawn arc is classified by.
-    #[serde(rename = "type")]
-    pub kind: MovementKind,
-}
-
-/// Turn category of a [`Movement`]. Matches Assimilator's movement `type`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum MovementKind {
-    /// Straight-through movement.
-    Through,
-    /// Left turn.
-    Left,
-    /// Right turn.
-    Right,
-    /// U-turn.
-    #[serde(rename = "u-turn")]
-    UTurn,
 }
 
 fn default_median_gap() -> f64 {

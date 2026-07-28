@@ -103,9 +103,7 @@ pub struct Metadata {
 #[cfg(test)]
 mod tests {
     use super::decoration::{LinkEnd, Marking, MarkingKind, Sign, SignKind, TurnDirection};
-    use super::graph::{
-        Junction, JunctionControl, Lane, Link, Movement, MovementKind, Node, NodeKind,
-    };
+    use super::graph::{Junction, JunctionControl, Lane, Link, Node, NodeKind};
     use super::layout::{
         JunctionGlyph, JunctionView, Layout, LinkAlign, LinkStyle, LinkView, NodeView, Vec2,
     };
@@ -159,12 +157,6 @@ mod tests {
             node_id: "N2".into(),
             control: JunctionControl::Signal,
             rule: None,
-            movements: vec![Movement {
-                id: "M_L1_L2".into(),
-                from_link: "L1".into(),
-                to_link: "L2".into(),
-                kind: MovementKind::Through,
-            }],
         }];
         doc.layout = Layout {
             nodes: [
@@ -241,30 +233,42 @@ mod tests {
         assert_eq!(doc, back);
     }
 
-    /// A `.zkai` saved while the round-trip fields still existed carries them,
-    /// and must still load — serde ignores an unknown key, so removing the five
-    /// costs no [`SCHEMA_VERSION`] bump in the reading direction either. What is
-    /// lost is the data itself, which nothing read or drew.
+    /// A `.zkai` saved while [`Junction`] still recorded the turns through it
+    /// carries a `movements:` key, and must still load: nothing here derives
+    /// `deny_unknown_fields`, so serde ignores it. That is what makes removing
+    /// the field cost no [`SCHEMA_VERSION`] bump — the rule above names a new
+    /// enum *variant* as the breaking change, and a dropped field is the
+    /// reading-direction mirror of a new one.
+    ///
+    /// Asserted in **both** directions, because only the second half is a
+    /// choice: the key is not merely tolerated on the way in, it is gone on the
+    /// way back out. A junction's turns are paint on the approach now, and a
+    /// stale list nothing reads would be a ghost in every file it touched.
     #[test]
-    fn a_movement_saved_with_the_old_lane_fields_still_loads() {
+    fn a_zkai_saved_with_movements_still_loads_and_writes_none() {
         let yaml = concat!(
-            "id: M_L1_L2\nfrom_link: L1\nto_link: L2\n",
-            "from_lanes:\n- 0\nto_lanes:\n- 0\n",
-            "type: through\npriority: minor\n",
-            "yields_to:\n- M_L2_L1\nlane_mapping:\n- from: 0\n  to: 0\n",
+            "node_id: N2\ncontrol: signal\n",
+            "movements:\n",
+            "- id: M_L1_L2\n  from_link: L1\n  to_link: L2\n  type: through\n",
+            "- id: M_L1_L3\n  from_link: L1\n  to_link: L3\n  type: u-turn\n",
         );
 
-        let movement: Movement = serde_yaml::from_str(yaml).expect("deserialize");
+        let junction: Junction = serde_yaml::from_str(yaml).expect("deserialize");
 
         assert_eq!(
-            movement,
-            Movement {
-                id: "M_L1_L2".into(),
-                from_link: "L1".into(),
-                to_link: "L2".into(),
-                kind: MovementKind::Through,
+            junction,
+            Junction {
+                node_id: "N2".into(),
+                control: JunctionControl::Signal,
+                rule: None,
             }
         );
+
+        let back = serde_yaml::to_string(&junction).expect("serialize");
+        assert!(!back.contains("movements"), "{back}");
+        assert!(!back.contains("M_L1_L2"), "{back}");
+        // The schema version does not move for a dropped field.
+        assert_eq!(SCHEMA_VERSION, 2);
     }
 
     #[test]

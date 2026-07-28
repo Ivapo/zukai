@@ -10,7 +10,7 @@ A `Document` (`src-tauri/src/model/mod.rs`) has three deliberately-separated par
 
 | Part | Files | Exports to Assimilator? |
 |------|-------|------------------------|
-| **Semantic graph** | `graph.rs` — `Node`, `Link`, `Lane`, `Junction`, `Movement`, `SignalPlan`, `Phase` | ✅ yes — this is the `network.yaml`-compatible subset |
+| **Semantic graph** | `graph.rs` — `Node`, `Link`, `Lane`, `Junction` | the `network.yaml`-compatible subset in *shape*; nothing writes that format |
 | **Layout** (presentation) | `layout.rs` — `Vec2`, `NodeView`, `LinkView`, `JunctionView`, `JunctionGlyph`, `LinkStyle`, `LinkAlign` | ❌ dropped on export |
 | **Decorations** (Zukai-native) | `decoration.rs` — `Marking`, `Sign`, `LinkEnd` | ❌ never — Assimilator has no equivalent |
 
@@ -37,9 +37,16 @@ round-trip. Lane index is `u32`.
 `src/model/types.ts` is a **hand-kept mirror** of the Rust model. The Rust side is
 authoritative; keep them in sync by hand until `ts-rs` codegen is introduced.
 String-literal unions in TS match serde's `snake_case` output exactly (e.g.
-`NodeKind = "endpoint" | "junction" | "waypoint"`, `MovementKind` uses
-`"u-turn"`), so a document built in the frontend serializes to the same YAML the
-Rust side reads. When you change a Rust type, change its TS twin in the same pass.
+`NodeKind = "endpoint" | "junction" | "waypoint"`), so a document built in the
+frontend serializes to the same YAML the Rust side reads. When you change a Rust
+type, change its TS twin in the same pass.
+
+**Not every Rust type has a TS twin, and the exception is instructive.**
+`src-tauri/src/network/` mirrors a *foreign* format that only Rust reads —
+`NetworkMovement`, `MovementKind` — so it has no counterpart here and must not
+grow one. The test is whether a `Document` ever holds the value: if import reads
+it and converts it (a movement's `from_lanes` becoming a painted arrow), it never
+crosses IPC and belongs to the mirror alone (`rules/network-yaml.md`).
 
 ## Serialization
 
@@ -89,10 +96,17 @@ elides it.
 survived a round trip, with nothing in the editor creating one. `Movement` carried
 `priority`, `yields_to` and `lane_mapping` for exactly that reason and **lost all
 three in `fe8b452`**, when the export was cut: a field whose only justification is
-surviving a round trip has no justification once nothing writes the file
-(`graph.rs:142` keeps the note). `Junction.signal_plan` is the survivor of the
-pattern. The rule that outlived them: a field with no reader is not necessarily
-dead — but it needs a reason that is not the round trip.
+surviving a round trip has no justification once nothing writes the file.
+
+**`Movement` itself then went the same way** (2026-07-28), and it is the sharper
+version of the lesson: the four fields it had left were genuinely *drawn*, as
+dashed arcs across the junction pad — so the rule "a field with no reader is not
+necessarily dead" was satisfied, and the type still had to go. What killed it was
+that the drawing it fed was the **wrong drawing**: sixteen arcs webbed over one
+`cross-4` glyph, saying in the middle of a junction what a road says with paint on
+its approach. A junction's turns are `turn_arrow` markings now
+(`rules/junctions.md`). The rule that outlived both: a field needs a reason that is
+not the round trip, **and the reason has to be a picture somebody wants**.
 
 On-disk files use the **`.zkai`** extension and are read/written by the
 `save_document` / `load_document` Tauri commands in `src-tauri/src/persist.rs`.

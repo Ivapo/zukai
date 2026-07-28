@@ -53,7 +53,15 @@ string_id!(
     LinkId
 );
 string_id!(
-    /// Identifies a [`Movement`](super::graph::Movement) within a junction.
+    /// Identifies a [`NetworkMovement`](crate::network::NetworkMovement) within
+    /// a junction of an Assimilator `network.yaml`.
+    ///
+    /// The one id here that names nothing in a Zukai document: a junction's
+    /// turns are paint on the approach rather than records in the model (lane
+    /// arrows Phase 4), so this is read on import and never stored. It stays in
+    /// this file because [`string_id!`] is not exported and an id is not a turn
+    /// vocabulary — unlike `MovementKind`, which moved to the mirror with the
+    /// format it belongs to.
     MovementId
 );
 string_id!(

@@ -25,8 +25,9 @@ schematic draws something from it, and dropped otherwise — where before, every
 field an imported file carried had to survive so a round trip could reproduce it.
 `Movement` lost all five of its round-trip fields (`from_lanes`, `to_lanes`,
 `priority`, `yields_to`, `lane_mapping`) with the export, on both sides of the
-mirror. `Junction.signal_plan` is the one carried field left, and only because
-the Inspector shows it.
+mirror — and then, on 2026-07-28, **lost the model side entirely**: a junction's
+turns are paint on the approach now, so `graph.rs` has no `Movement` at all. The
+mirror's `NetworkMovement` survives because the paint is derived from it.
 
 ## Two formats, two owners, and that is why this is not `persist.rs`
 
@@ -69,10 +70,17 @@ from it; drop it otherwise.** A dropped field costs nothing on the read side —
 nothing derives `deny_unknown_fields`, so serde ignores the key — and a field
 carried but never drawn is a claim the model cannot back.
 
-`NetworkMovement` is where that bites. It reads `id`, `from_link`, `to_link` and
-`type`, and drops `to_lanes`, `lane_mapping`, `priority` and `yields_to`. All
-five *were* mirrored, and the reason is worth keeping because it is the trap the
-whole read-only turn removes: while Zukai wrote the format,
+`NetworkMovement` is where that bites, and since 2026-07-28 it is the sharpest
+case in the module: **the whole struct is read and none of it is carried.** A
+junction's turns are paint on the approach now, so `graph.rs` has no `Movement`
+type and `Junction` has no `movements` field — the movement block is parsed,
+handed to `lane_arrows`, and dropped. `import_junction` builds three fields and
+stops.
+
+It reads `id`, `from_link`, `to_link`, `type` and `from_lanes`, and drops
+`to_lanes`, `lane_mapping`, `priority` and `yields_to`. All five of those *were*
+mirrored, and the reason is worth keeping because it is the trap the whole
+read-only turn removes: while Zukai wrote the format,
 `MovementConfig.from_lanes` carrying no `serde(default)` meant an absent key
 failed the *whole file*, so the mirror had to declare it bare and the writer had
 to always emit it — `[]` parses, nothing does not. A rule with a test each side.
@@ -82,7 +90,7 @@ inverse, `the_lane_and_priority_keys_are_ignored_either_way`.
 
 ### `from_lanes` is read, and that is not the same as carried
 
-The fifth came back, because something draws it now. A movement's `from_lanes`
+It came back, because something draws it now. A movement's `from_lanes`
 says which lanes of an approach may take that turn, which is exactly the claim a
 **painted lane arrow** makes, so `lane_arrows` converts it to markings on the way
 in — and **nothing stores it.** It reaches no model struct, no `.zkai` key and no
@@ -102,38 +110,53 @@ without needing a case of their own.
 
 **Import seeds and lets go.** No arrow is bound to the movement it came from —
 re-deriving would stomp a hand edit with no way to refuse, and a simplified
-drawing may deliberately say less than the junction permits. It is
-`deriveMovements`' own posture, and `rules/road-markings.md` records the other
-half: paint now has two authors.
+drawing may deliberately say less than the junction permits.
+`rules/road-markings.md` records the other half: paint now has two authors.
 
 **One direction of the old mirror rule survives**, because it is about accepting
-files rather than reproducing them: a mirror copied field-for-field from
-`graph.rs` would **reject legal files**. `MovementConfig.movement_type` is
-`#[serde(default, rename = "type")]` in Assimilator while Zukai's `Movement.kind`
-has no default, so a movement omitting `type:` parses there and would have failed
-here. Neither fixture catches it — both write `type:` on every movement — so
-`a_movement_without_a_type_reads_as_through` exists instead. **Optionality on a
-field we keep still follows Assimilator's source, not Zukai's model.**
+files rather than reproducing them: a mirror copied field-for-field from a Zukai
+model type would **reject legal files**. `MovementConfig.movement_type` is
+`#[serde(default, rename = "type")]` in Assimilator, so a movement omitting
+`type:` parses there; the mirror's `kind` therefore carries
+`default_movement_kind`. Neither fixture catches it — both write `type:` on every
+movement — so `a_movement_without_a_type_reads_as_through` exists instead.
+**Optionality on a field we keep still follows Assimilator's source, not Zukai's
+model.**
 
-## The enums are shared, and one test is what keeps that honest
+## Three enums are shared, one is the mirror's own, and a test keeps both honest
 
-`NodeKind`, `JunctionControl`, `UnsignalizedRule` and `MovementKind` are **Zukai's
-own, reused rather than redeclared** — every variant already produces
-Assimilator's exact wire spelling, checked value by value. So the importer has no
-match arms at all. (`MovementPriority` and `LaneMappingEntry` were shared the same
-way and are gone with the fields that used them.)
+`NodeKind`, `JunctionControl` and `UnsignalizedRule` are **Zukai's own, reused
+rather than redeclared** — every variant already produces Assimilator's exact wire
+spelling, checked value by value. So the importer has no match arms for them at
+all. (`MovementPriority` and `LaneMappingEntry` were shared the same way and are
+gone with the fields that used them.)
 
-That reuse is a coupling, so it is pinned:
-`the_shared_enums_spell_what_assimilator_spells` asserts each spelling against a
-literal lifted from the fixture, plus the three variants no fixture exercises
-(`priority_right`, `all_way_stop`, `waypoint`). Drift on either side fails a test
-instead of silently writing a foreign file.
+**`MovementKind` is the fourth, and since 2026-07-28 it is declared *here*** —
+`network/mod.rs`, beside `NetworkMovement`. It was a model type while a `Junction`
+recorded the turns through it; those are paint now, so the only thing left that
+names a turn this way is the file being read, and the vocabulary belongs to the
+mirror that reads it. That is the shape of the coupling rather than an exception
+to it: a type that mirrors nothing on the Zukai side has no business in
+`model::graph`.
+
+Two things follow, and both are the point:
+
+- **The hyphen stops being a hazard and becomes simply correct.** `u-turn` is
+  Assimilator's spelling; `TurnDirection`'s `u_turn` is Zukai's, and there is now
+  exactly one turn enum on each side of the boundary instead of two in one model
+  (`rules/junctions.md`). `import::turn_direction` is the whole of the crossing —
+  four kinds onto four of the six directions, and `MovementKind` does not exist
+  past that function.
+- **The coupling is still pinned.** `the_shared_enums_spell_what_assimilator_spells`
+  needed no edit across the move (it has always asserted through `parse_network`
+  rather than through a model type), and it still bites: dropping the
+  `#[serde(rename = "u-turn")]` fails six tests, so the relocation did not take the
+  coverage with it.
 
 One inert difference, recorded so nobody "fixes" it: Assimilator's `MovementType`
-is `rename_all = "lowercase"` and Zukai's `MovementKind` is `snake_case`. Every
-variant is one word and `UTurn` is explicitly renamed on both sides, so the wire
-spellings are identical. **`u-turn`'s hyphen is Assimilator's and must never
-become `u_turn`** — that spelling belongs to `TurnDirection`, which is paint.
+is `rename_all = "lowercase"` and this one is `snake_case`. Every variant is one
+word and `UTurn` is explicitly renamed on both sides, so the wire spellings are
+identical.
 
 ## The scale, and the y that is a compass bearing
 
@@ -359,8 +382,7 @@ differences** — both following from the file belonging to another program:
 | `import_network`, the command around it | `src-tauri/src/network/import.rs` |
 | `importNetwork` (dialog + IPC), the `.yaml` filter | `src/editor/files.ts` |
 | the `importDocument` case and the `install` helper | `src/editor/state.ts` |
-| `Movement` (four fields: two links, an id, a turn kind) | `src-tauri/src/model/graph.rs` |
-| the TypeScript mirror of it | `src/model/types.ts` |
+| `NetworkMovement` and `MovementKind` — read, never carried, so **no model or TypeScript mirror** | `src-tauri/src/network/mod.rs` |
 | the two fixtures + their provenance | `src-tauri/tests/fixtures/network/` |
 
 `import.rs` holds both the pure conversion and the I/O shell, and the module doc

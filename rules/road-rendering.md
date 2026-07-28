@@ -140,19 +140,18 @@ exactly what it used to compute in its own body and the drawing is byte-identica
 across the move — asserted by `Diagram.test.tsx` passing untouched, which is the
 whole gate on a lift like this.
 
-`id` was `gorePair`'s tie-break alone until movements shipped; it is now also
-**how a movement finds its two arms**, since `dir` points away from the node
-whichever way traffic runs and so cannot say which arm a turn arrives on
-(`rules/junctions.md`).
+`id` is **`gorePair`'s tie-break**, and since 2026-07-28 that is again all it is:
+it was briefly also how a drawn movement arc found its two arms, and the arcs are
+gone (`rules/junctions.md`). Keep the field — a gore still needs it, and `dir`
+cannot substitute, since it points away from the node whichever way traffic runs.
+
+Two things measure to the rim these arms size, and it matters that they use one
+expression:
 
 - **A stop bar starts from its own carriageway**, at `(origin - center) + dir *
   (rayCircleExit(origin - center, dir, rp) + 4)`. `rayCircleExit` returns
   *exactly* `rp` from the centre, so an undivided junction draws byte-identically
   to the centre-derived code this replaced — pinned in `Diagram.test.tsx`.
-- **A movement arc runs rim to rim**, from the same `rayCircleExit` with no `+ 4`,
-  so an arc and a stop bar on one arm cannot disagree about where the road meets
-  the glyph. Drawn *after* the pad, because the pad is opaque
-  (`rules/junctions.md`), and only on the four glyphs that paint one.
 - **An `end`-anchored marking clears the rim by the same expression** —
   `rimClearance` in `geometry.ts`, `rayCircleExit(origin - center, dir, radius)`
   with no constant at all, since the marking supplies its own `position` past it.

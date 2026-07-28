@@ -1,14 +1,67 @@
 ---
-status: implemented — all 4 phases shipped 2026-07-26 (reviewed, converged in 2 rounds)
-last_updated: 2026-07-26
-note: Make a junction *mean* something — control, right-of-way rule, and the turn movements through it. The semantic half of the thing the glyph has been drawing since the first commit.
-implemented: ["Phase 1", "Phase 2", "Phase 3", "Phase 4"]
+status: partial (all 4 phases shipped 2026-07-26; Phases 2–4 cut 2026-07-28 — read §0)
+last_updated: 2026-07-28
+note: Make a junction *mean* something — control, right-of-way rule, and the turn movements through it. **Phase 1 stands; the movements — Phases 2, 3 and 4 — were shipped and then removed**, replaced by paint on the approach (`specs/lane_arrows_spec.md` Phase 4). Read §0 before anything below.
+implemented: ["Phase 1"]
+cut: ["Phase 2", "Phase 3", "Phase 4"]
 not_implemented: []
-related: [specs/ramps_and_tapers_spec.md, specs/road_markings_spec.md, specs/signs_and_text_spec.md]
+related: [specs/lane_arrows_spec.md, specs/ramps_and_tapers_spec.md, specs/road_markings_spec.md, specs/signs_and_text_spec.md]
 reference: "Assimilator's `network.yaml` `junctions` block — `control`, `rule`, `movements`, `signal_plan` — which `graph.rs` already mirrors field for field. Explicitly *not* Assimilator's simulation-only per-junction detail (`conflict_pairs`, `collision_avoidance`, `gap_acceptance`), which `graph.rs:11-15` records as deliberately omitted."
 ---
 
 # Junction Semantics Spec
+
+## 0. Closing note — Phases 2–4 are cut (2026-07-28)
+
+**Phase 1 stands and is live.** `Junction.control` and `Junction.rule`, the
+Control and Rule rows, and the glyph nudge are all in the app and are what
+`rules/junctions.md` documents. Everything this spec says about **movements** —
+Phase 2 (the model relation and the panel), Phase 3 (the drawn arcs), Phase 4
+(Derive) — shipped on 2026-07-26 and was **removed on 2026-07-28** by
+`specs/lane_arrows_spec.md` Phase 4. Read the sections below as the record of a
+design that was built, used, and replaced.
+
+**What replaced it, and why it is not a reversal of judgement about *this*
+spec.** The question "which turns does this junction permit?" was answered here
+correctly and drawn in the wrong place. `MovementShape` put the answer in the
+**middle of the junction**, one dashed arc per turn: an imported `cross-4` drew
+**sixteen** of them over a single pad. A real road puts that answer on the
+**approach**, one arrow per lane, which is where a driver reads it and where it
+survives a junction with sixteen turns. Zukai could already draw exactly that —
+`MarkingKind.turn_arrow` — and what it could not do was place them without a
+human placing every one. Lane arrows Phases 1–3 and 5 built that; Phase 4 removed
+what it superseded.
+
+**Three things this spec settled that outlived it**, and are worth reading §2 for:
+
+- **The glyph and the control are two different questions**, and the traffic
+  between them runs one way. That is Phase 1 and it is untouched.
+- **The topological u-turn test runs first**, so the angular bands need no
+  `left`/`u-turn` boundary. `movementKind` is gone, but the shape of that argument
+  is the one to reuse if anything ever classifies a turn again.
+- **Positive cross product is a *right* turn**, because SVG's y grows downward —
+  the same handedness trap `DRIVE_SIDE` carries in the marking code, and the one
+  that is self-consistently invertible and so passes a test written from the same
+  wrong premise.
+
+**What the removal cost, recorded rather than rediscovered.** An arrow says *you
+may turn left from this lane*; it does not say **which road** that left leads to,
+where an arc named an exit link. At an orthogonal cross that is no loss; at a
+five-arm junction with two possible lefts the drawing is ambiguous where it was
+not. Real signage has the same limitation and answers it with a destination
+plate, which Zukai has. Accepted at the time and recorded here.
+
+**One vocabulary survived the removal**, in a new home: `MovementKind` — the
+hyphenated `u-turn` that is Assimilator's wire spelling — now lives in
+`src-tauri/src/network/mod.rs`, because the only thing left that names a turn that
+way is a `network.yaml` being read (`rules/network-yaml.md`).
+
+**The lesson, which is `signal_plans_spec.md`'s with one turn of the screw.**
+That spec was cut for having no phase that produced a picture. This one *did*
+produce a picture, passed two review rounds and four exit gates, and was still
+replaced — because the picture it produced was not the one a reader of a figure
+wants. "Which phase produces the picture?" is necessary and not sufficient; the
+follow-up is **"and is that the picture?"**
 
 ## 1. Goal
 

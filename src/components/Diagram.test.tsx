@@ -819,8 +819,15 @@ describe("junction interiors", () => {
     // Stop bars 4 units beyond the pad, half a road plus 1 wide either side.
     expect(svg).toContain('x1="-20.02" y1="11.5" x2="-20.02" y2="-11.5"');
     expect(svg).toContain('x1="20.02" y1="-11.5" x2="20.02" y2="11.5"');
-    // …and a junction with no movement pays nothing for the ability to draw one.
+    // Nothing is drawn between the pad and its stop bars any more. The dashed
+    // turn arcs used to sit exactly there, and a junction's turns are paint on
+    // the approach now (lane arrows Phase 4) — so the pad's own tag is the last
+    // thing before the first bar, and `jn-movement` is not in the file at all.
     expect(svg).not.toContain("jn-movement");
+    expect(svg.indexOf("jn-pad")).toBeLessThan(svg.indexOf("jn-stopbar"));
+    expect(
+      svg.slice(svg.indexOf("jn-pad"), svg.indexOf("jn-stopbar")),
+    ).toMatch(/^jn-pad" r="16\.02"><\/circle><line class="$/);
   });
 
   /**
@@ -925,88 +932,6 @@ describe("junction interiors", () => {
     // 2 lanes: max(20, 28.35) unfloored, against a 24-unit reach.
     expect(ring(round())).toBeCloseTo(28.35);
     expect(ring(round(0.5))).toBeCloseTo(24);
-  });
-
-  /**
-   * `crossroad()` runs west to east through N2, so `L1` arrives there and `L2`
-   * leaves — one legal `through`, which is all these need.
-   */
-  function turning(...extra: Action[]): Document {
-    return run(
-      { ...initialState(), doc: crossroad() },
-      { type: "addMovement", id: "N2", from: "L1", to: "L2" },
-      ...extra,
-    ).doc;
-  }
-
-  it("draws one arc and one arrowhead for a permitted turn", () => {
-    const svg = renderToStaticMarkup(<Diagram doc={turning()} />);
-
-    expect(svg.match(/class="jn-movement"/g)).toHaveLength(1);
-    expect(svg.match(/class="jn-movement-line"/g)).toHaveLength(1);
-    expect(svg.match(/class="jn-movement-head"/g)).toHaveLength(1);
-    // One cubic, from the pad's west rim to its east one.
-    expect(svg).toContain('class="jn-movement-line" d="M -16.02 0 C');
-  });
-
-  /**
-   * **The assertion that catches the invisible arc.** `.jn-pad` is opaque
-   * asphalt, so an arc drawn as a top-level sibling layer — before the node map,
-   * where the markings go — is painted over completely, and a test asserting only
-   * "before the stop bars" passes just as happily while nothing is visible
-   * (junction semantics §2.7). *After the pad* is the half that has to be pinned.
-   */
-  it("draws the arc after the pad it is painted on and before the stop bars", () => {
-    const svg = renderToStaticMarkup(<Diagram doc={turning()} />);
-
-    expect(svg.indexOf("jn-pad")).toBeLessThan(svg.indexOf("jn-movement"));
-    expect(svg.indexOf("jn-movement")).toBeLessThan(svg.indexOf("jn-stopbar"));
-  });
-
-  /**
-   * A movement is white paint on an asphalt pad, and two of the six glyphs paint
-   * no pad: a roundabout's arcs would be chords across its own island, and a gore
-   * has nothing at the node to read them against. Behavioural only here — no
-   * other assertion in this file would notice the arcs coming back.
-   */
-  it("paints no arc on a glyph that has no pad", () => {
-    for (const glyph of ["roundabout", "gore"] as const) {
-      const doc = turning({ type: "setJunctionGlyph", id: "N2", glyph });
-
-      expect(renderToStaticMarkup(<Diagram doc={doc} />)).not.toContain(
-        "jn-movement",
-      );
-    }
-    // …and the movement is still in the document, so the glyph is what withheld
-    // it rather than a cascade having quietly dropped it.
-    expect(
-      turning({ type: "setJunctionGlyph", id: "N2", glyph: "roundabout" })
-        .junctions[0].movements,
-    ).toHaveLength(1);
-  });
-
-  /**
-   * The hand-edited document: a movement naming a link that does not touch this
-   * node has no arm to start or end on. The drawing says nothing about it, which
-   * is the node layer's own silence for a node with no position.
-   */
-  it("skips a movement whose links have no arm here", () => {
-    const doc = turning();
-    const stray: Document = {
-      ...doc,
-      junctions: [
-        {
-          ...doc.junctions[0],
-          movements: [
-            { id: "M_L9_L2", from_link: "L9", to_link: "L2", type: "through" },
-          ],
-        },
-      ],
-    };
-
-    expect(renderToStaticMarkup(<Diagram doc={stray} />)).not.toContain(
-      "jn-movement",
-    );
   });
 });
 

@@ -13,8 +13,8 @@
 //! (`crates/config/src/network.rs`). **Every field's optionality follows
 //! Assimilator's source, not Zukai's model** — the two disagree, and copying the
 //! wrong one rejects legal files. `MovementConfig.movement_type` is
-//! `#[serde(default, rename = "type")]` there while [`Movement::kind`] has no
-//! default, so a movement omitting `type:` must still parse here.
+//! `#[serde(default, rename = "type")]` there, so a movement omitting `type:`
+//! must still parse here.
 //!
 //! [`NetworkMovement::from_lanes`] is the one deliberate departure, and its own
 //! doc comment says why: the rule was there to guarantee faithful *writing*, and
@@ -26,17 +26,24 @@
 //! through the reader untouched and unstored. See `specs/network_yaml_spec.md`
 //! §2.8 for the full list and §2.3.3 for the field-by-field audit.
 //!
-//! # The enums are shared, and that is checked
+//! # Three of the enums are shared, and that is checked
 //!
-//! [`NodeKind`], [`JunctionControl`], [`UnsignalizedRule`] and [`MovementKind`]
-//! are Zukai's own, reused rather than redeclared: every variant produces
-//! Assimilator's exact wire spelling, verified value by value (spec §2.1).
+//! [`NodeKind`], [`JunctionControl`] and [`UnsignalizedRule`] are Zukai's own,
+//! reused rather than redeclared: every variant produces Assimilator's exact
+//! wire spelling, verified value by value (spec §2.1).
 //! `the_shared_enums_spell_what_assimilator_spells` is what keeps that true —
 //! drift on either side fails a test rather than silently writing a foreign file.
+//!
+//! [`MovementKind`] is the fourth and is **declared here**, which is the shape
+//! of the coupling rather than an exception to it. It was a model type while a
+//! `Junction` recorded the turns through it; a junction says its turns with
+//! paint on the approach now (lane arrows Phase 4), so the only thing left that
+//! names a turn this way is the file being read, and the vocabulary belongs to
+//! the mirror that reads it.
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::graph::{JunctionControl, MovementKind, NodeKind, UnsignalizedRule};
+use crate::model::graph::{JunctionControl, NodeKind, UnsignalizedRule};
 use crate::model::ids::{LaneIdx, LinkId, MovementId, NodeId};
 use crate::model::layout::Vec2;
 
@@ -221,8 +228,8 @@ pub struct NetworkMovement {
     pub from_link: LinkId,
     /// Exit link; its `from_node` is the junction node.
     pub to_link: LinkId,
-    /// Turn category. Defaults to `through` **here** even though Zukai's own
-    /// [`MovementKind`] has no default — the mirror rule, in one field.
+    /// Turn category. Defaults to `through`, which is Assimilator's shape and
+    /// not [`MovementKind`]'s own — the mirror rule, in one field.
     #[serde(default = "default_movement_kind", rename = "type")]
     pub kind: MovementKind,
     /// Lanes of [`from_link`](Self::from_link) this turn may be taken from,
@@ -239,6 +246,37 @@ pub struct NetworkMovement {
     /// movement still parses.
     #[serde(default)]
     pub from_lanes: Vec<LaneIdx>,
+}
+
+/// Turn category of a [`NetworkMovement`]. Matches Assimilator's movement
+/// `type`.
+///
+/// **This lives here rather than in `model::graph` because it is the file's
+/// vocabulary, not the document's.** It was a model type while a `Junction`
+/// recorded the turns through it; those are paint now (lane arrows Phase 4), so
+/// the only thing that still names a turn this way is a `network.yaml` being
+/// read. It reaches no `.zkai`, and `import::turn_direction` is the one place it
+/// crosses into Zukai's own vocabulary.
+///
+/// **`u-turn`'s hyphen is Assimilator's spelling and must never be "fixed".**
+/// The underscore belongs to
+/// [`TurnDirection`](crate::model::decoration::TurnDirection), which is paint
+/// and carries two slight-turn values this has no room for. One hyphen is the
+/// whole difference on the wire, which is why
+/// `the_shared_enums_spell_what_assimilator_spells` asserts it against a literal
+/// lifted from the fixture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MovementKind {
+    /// Straight-through movement.
+    Through,
+    /// Left turn.
+    Left,
+    /// Right turn.
+    Right,
+    /// U-turn.
+    #[serde(rename = "u-turn")]
+    UTurn,
 }
 
 /// Just enough of a `network.yaml` to read its version without committing to

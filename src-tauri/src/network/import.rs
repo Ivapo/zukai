@@ -28,13 +28,13 @@ use std::collections::BTreeMap;
 use std::fs;
 
 use crate::model::decoration::{LinkEnd, Marking, MarkingKind, TurnDirection};
-use crate::model::graph::{Junction, Lane, Link, Movement, MovementKind, Node, NodeKind};
+use crate::model::graph::{Junction, Lane, Link, Node, NodeKind};
 use crate::model::ids::{LaneIdx, LinkId};
 use crate::model::layout::{JunctionView, LinkAlign, LinkStyle, LinkView, NodeView};
 use crate::model::Document;
 
 use super::{
-    metres_to_canvas, parse_network, NetworkFile, NetworkJunction, NetworkLink, NetworkMovement,
+    metres_to_canvas, parse_network, MovementKind, NetworkFile, NetworkJunction, NetworkLink,
     UNITS_PER_METRE,
 };
 
@@ -204,8 +204,13 @@ fn kerb_lane(lane_count: usize, index: usize) -> Option<LaneIdx> {
     LaneIdx::try_from(flipped).ok()
 }
 
-/// A junction arrives as its control, its right-of-way rule and the turns it
-/// permits.
+/// A junction arrives as its control and its right-of-way rule, and nothing else.
+///
+/// **The `movements` block is read and not carried**, which is the sharpest case
+/// of this module's mirror-what-is-drawn rule: it is what [`lane_arrows`] paints
+/// the approach from, and then it stops. No `Junction` field holds it, no `.zkai`
+/// key records it and no panel row edits it — the paint is the whole of what
+/// survives (lane arrows §2.1).
 ///
 /// **`signal_plan` is discarded**, alongside the ten simulation-only fields the
 /// mirror never read. A fixed-time plan is a table of stage timings; nothing in
@@ -217,28 +222,6 @@ fn import_junction(junction: NetworkJunction) -> Junction {
         node_id: junction.node_id,
         control: junction.control,
         rule: junction.rule,
-        movements: junction
-            .movements
-            .into_iter()
-            .map(import_movement)
-            .collect(),
-    }
-}
-
-/// A turn arrives as the pair of links it joins and the category of turn it is —
-/// which is all the schematic draws it from.
-///
-/// The file's lane detail (`from_lanes`, `to_lanes`, `lane_mapping`) and its
-/// right-of-way detail (`priority`, `yields_to`) are **discarded**, alongside the
-/// polyline geometry. They were once carried so an imported network could be
-/// written back out unchanged; nothing writes that format now, and a schematic
-/// says *that* a turn is permitted rather than which lane feeds which.
-fn import_movement(movement: NetworkMovement) -> Movement {
-    Movement {
-        id: movement.id,
-        from_link: movement.from_link,
-        to_link: movement.to_link,
-        kind: movement.kind,
     }
 }
 
@@ -341,6 +324,10 @@ const ARROW_SETBACK_METRES: f64 = 1.5 * TURN_ARROW_LENGTH / UNITS_PER_METRE;
 /// wire spelling (`u-turn`) and [`TurnDirection`] is the painted arrow's
 /// (`u_turn`). Four kinds map onto four of the six directions; the two slight
 /// turns have no movement kind to come from and are hand-painted only.
+///
+/// **This is the whole of the crossing between them**, and since Phase 4 it is
+/// also the boundary between the file's model and Zukai's: `MovementKind` does
+/// not exist past this function.
 fn turn_direction(kind: MovementKind) -> TurnDirection {
     match kind {
         MovementKind::Through => TurnDirection::Through,
@@ -415,15 +402,12 @@ mod tests {
         assert_eq!(doc.nodes.len(), 4);
         assert_eq!(doc.links.len(), 3);
         assert_eq!(doc.junctions.len(), 1);
-        assert_eq!(doc.junctions[0].movements.len(), 2);
 
         let ids: Vec<_> = doc.nodes.iter().map(|n| n.id.as_str()).collect();
         assert_eq!(ids, ["W", "J", "E", "S"]);
         let ids: Vec<_> = doc.links.iter().map(|l| l.id.as_str()).collect();
         assert_eq!(ids, ["L_W_J", "L_J_E", "L_S_J"]);
         assert_eq!(doc.junctions[0].node_id.as_str(), "J");
-        assert_eq!(doc.junctions[0].movements[0].id.as_str(), "M_major_thru");
-        assert_eq!(doc.junctions[0].movements[1].id.as_str(), "M_minor_left");
 
         assert_eq!(doc.metadata.name, "Editor Network");
         assert_eq!(doc.junctions[0].control, JunctionControl::Unsignalized);
@@ -499,72 +483,35 @@ mod tests {
         assert_eq!(view.scale, 1.0);
     }
 
-    /// A movement arrives as the two links it joins and the kind of turn it is,
-    /// and **nothing else** — the whole-struct comparison is the assertion, so a
-    /// field re-added to the model fails here rather than quietly reappearing.
-    ///
-    /// `t_junction.yaml`'s movements carry `from_lanes`, `to_lanes`,
-    /// `lane_mapping`, `priority` and `yields_to`, and the second half of this
-    /// test is that those keys being present is **harmless**: serde ignores an
-    /// unknown key, so dropping them from the mirror cannot make a real network
-    /// fail to parse. Importing this file at all is that assertion.
-    #[test]
-    fn a_movement_arrives_as_two_links_and_a_turn() {
-        let doc = import(T_JUNCTION);
-        let movements = &doc.junctions[0].movements;
-
-        assert_eq!(
-            movements[0],
-            Movement {
-                id: "M_major_thru".into(),
-                from_link: "L_W_J".into(),
-                to_link: "L_J_E".into(),
-                kind: MovementKind::Through,
-            }
-        );
-
-        // Its `type` is `right`, not `left` — the id names the road, the kind
-        // names the turn, and the mirror carries the file's word for it.
-        assert_eq!(movements[1].id.as_str(), "M_minor_left");
-        assert_eq!(movements[1].kind, MovementKind::Right);
-    }
-
     /// `cross-4` is `control: signal` **with** a 60 s plan in the file, and the
     /// import keeps the control and drops the plan. A fixed-time plan is a table
     /// of stage timings; nothing draws one, and Zukai does not write this format
     /// back out, so carrying it would be carrying data for no reader.
     ///
-    /// The whole-junction comparison is the assertion — a field re-added to the
-    /// model fails here rather than silently reappearing.
+    /// The **whole-junction** comparison is the assertion, and it is what makes
+    /// this the test that catches a field creeping back into the model: the
+    /// file's sixteen movements and its plan both have to leave no trace, not
+    /// merely arrive with the count the reader expected.
     #[test]
-    fn cross_4_keeps_its_control_and_drops_its_signal_plan() {
+    fn cross_4_keeps_its_control_and_drops_everything_else() {
         let doc = import(CROSS_4);
-        let junction = &doc.junctions[0];
 
-        assert_eq!(junction.control, JunctionControl::Signal);
-        assert_eq!(junction.rule, None);
-        assert_eq!(junction.movements.len(), 16);
+        assert_eq!(
+            doc.junctions,
+            vec![Junction {
+                node_id: "N5".into(),
+                control: JunctionControl::Signal,
+                rule: None,
+            }]
+        );
         assert!(
             CROSS_4.contains("signal_plan:"),
             "the fixture must still have one"
         );
-    }
-
-    /// The u-turn is the one kind `derivableMovements` never mints, so an
-    /// imported junction is the only place the drawing meets one — and
-    /// `cross-4` has four. The kind is the whole of what survives import, and
-    /// it is what the arc is drawn from.
-    #[test]
-    fn cross_4_keeps_its_four_u_turns() {
-        let doc = import(CROSS_4);
-
-        let u_turns = doc.junctions[0]
-            .movements
-            .iter()
-            .filter(|m| m.kind == MovementKind::UTurn)
-            .count();
-
-        assert_eq!(u_turns, 4);
+        assert!(
+            CROSS_4.contains("movements:"),
+            "the fixture must still have them - they are what the arrows come from"
+        );
     }
 
     /// **The one test that fails under an identity lane map**, which is the whole
@@ -643,14 +590,21 @@ mod tests {
 
     /// A u-turn contributes nothing, and it needs no special case to: `cross-4`'s
     /// four carry `from_lanes: []`, so no lane ever claims them.
+    ///
+    /// The precondition is read off the **parsed file** rather than off the
+    /// document, because the document no longer records a junction's turns at
+    /// all — which is precisely why "the fixture must still have them" needs
+    /// saying out loud here.
     #[test]
     fn the_u_turns_paint_nothing() {
         let doc = import(CROSS_4);
 
         assert_eq!(
-            doc.junctions[0]
-                .movements
+            parse_network(CROSS_4)
+                .expect("parse")
+                .junctions
                 .iter()
+                .flat_map(|j| &j.movements)
                 .filter(|m| m.kind == MovementKind::UTurn)
                 .count(),
             4,
@@ -693,7 +647,10 @@ mod tests {
 
         let doc = import(yaml);
 
-        assert_eq!(doc.junctions[0].movements.len(), 1);
+        // The movement parsed — it is the junction being imported at all that
+        // says so, since nothing in the document records one — and painted
+        // nothing.
+        assert_eq!(doc.junctions.len(), 1);
         assert!(doc.markings.is_empty(), "{:?}", doc.markings);
     }
 

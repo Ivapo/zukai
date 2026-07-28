@@ -1,9 +1,9 @@
 ---
-status: partial
+status: implemented — all 5 phases shipped 2026-07-28 (reviewed, converged in 2 rounds; Phase 5 built before Phase 4)
 last_updated: 2026-07-28
 note: "Lane arrows become how a junction's turns are shown — painted on the approach lanes, seeded from an imported network, and replacing the dashed arcs across the pad. Includes the two things that have to exist first: a marking you can drag, and a marking that measures from the junction end."
-implemented: ["Phase 1", "Phase 2", "Phase 3", "Phase 5"]
-not_implemented: ["Phase 4 (last)"]
+implemented: ["Phase 1", "Phase 2", "Phase 3", "Phase 5", "Phase 4"]
+not_implemented: []
 related: [specs/road_markings_spec.md, specs/junction_semantics_spec.md, specs/network_yaml_spec.md]
 reference: "Assimilator's `MovementConfig.from_lanes` (`crates/config/src/network.rs:1334-1378`) is the only field this spec reads back out of the format — which lanes of an approach feed a given turn. Read at `../assimilator` on 2026-07-26. Nothing else is wanted from it: `lane_mapping`, `priority` and `yields_to` were dropped in `fe8b452` and stay dropped."
 ---
@@ -364,7 +364,13 @@ making a three-branch arrow legible is a geometry pass on `markingArrow`.
   project's own test it is a cut candidate. Unlike `movements` it costs almost
   nothing to leave, and unlike `movements` it has a panel row a human uses.
   Proposed: **leave it**, and revisit only if it is still unread a spec later.
-  (design-call.)
+  **RESOLVED as proposed — left in place** (Phase 4, 2026-07-28). The
+  discriminator that decided it, worth keeping because it is not the one the
+  question implies: `movements` was cut for drawing the *wrong picture in the
+  wrong place*, not for being undrawn. `rule` draws nothing at all, which is a
+  weaker case for removal rather than a stronger one — there is no bad figure to
+  fix, only a two-line field with a panel row somebody uses. It stays until
+  something asks for its space. (design-call.)
 - **OQ-5** — **Does the junction hit disc block picking up an arrow?** `jn-hit`
   is `r = outerR + 2` and sits above the marking layer (`Diagram.tsx:972`), so
   paint parked near a junction cannot be grabbed — markings OQ-5 already measured
@@ -709,6 +715,76 @@ before the paint is legible would break the rule this order exists to keep.
   mentions across 456 lines — a rewrite, not a trim);
   `specs/junction_semantics_spec.md` gets a §0 closing note marking Phases 2–4
   cut, on `signal_plans_spec.md`'s model; `CLAUDE.md`; the project-memory roadmap.
+- **As built (2026-07-28)** — the phase landed as scoped, in one commit rather
+  than the two the language-boundary split held in reserve. Gate met: `bun run
+  build`, **361** `bun run test` (down 36), **55** `cargo test` (down 2), `cargo
+  fmt --check` and `cargo clippy --all-targets -D warnings` clean. **No
+  `SCHEMA_VERSION` move** (still 2), asserted rather than assumed.
+  - **The removal was 16 files and cost the build nothing**, which is what the
+    ordering bought: Phase 3 had already put the replacement on the canvas, so no
+    commit ever left a junction unable to express its turns.
+  - **`useState` became unused in `Inspector.tsx`, and `noUnusedLocals` is what
+    caught it.** `MovementAdd` held the panel's only local state — a fact
+    `rules/junctions.md` recorded as a curiosity and which turned into a compile
+    error the moment it went. Two other imports went the same way
+    (`findJunction` in `Diagram.tsx`, `NodeId` in `Inspector.tsx`); a removal
+    this size is exactly where that flag pays for itself.
+  - **The link arm's cascade did not need replacing, it needed deleting.**
+    `dropMovements` had a pre-check purely to return `doc.junctions` by identity
+    when nothing was stranded; the arm now omits `junctions:` entirely, so the
+    identity holds by construction. The node arm keeps its
+    `filter(j => j.node_id !== id)` — that removes the deleted node's *own*
+    record and is not cascade machinery. `rules/junctions.md` is down to **two**
+    cascade answers from three.
+  - **`Junction` gets `deny_unknown_fields`'s absence as a real guarantee, so it
+    is asserted.** `a_zkai_saved_with_movements_still_loads_and_writes_none`
+    replaces the old five-lane-fields test and checks **both** directions: the
+    key is tolerated on the way in *and* gone on the way out. Only the second is
+    a choice — a stale list nothing reads would be a ghost in every file it
+    touched.
+  - **`MovementKind` moved and kept its coverage**, which is the check a
+    relocation owes. `the_shared_enums_spell_what_assimilator_spells` needed **no
+    edit at all** — it has always asserted through `parse_network` rather than
+    through a model type — and dropping the `#[serde(rename = "u-turn")]` in its
+    new home still fails six tests. `MovementId` stayed in `ids.rs` as the review
+    predicted; `NetworkMovement.id` keeps it live, so no `dead_code` question
+    arises.
+  - **The gate's "nothing between `jn-pad` and `jn-stopbar`" is asserted as a
+    literal slice, not an index comparison.** `indexOf(a) < indexOf(b)` was true
+    *before* this phase too, with sixteen arcs in between — the assertion that
+    bites is that the string from one to the other is exactly
+    `jn-pad" r="16.02"></circle><line class="`. Proved by mutation: inserting one
+    `<circle>` there fails it.
+  - **Four mutations were run**, each caught by a different test: a `.jn-movement`
+    rule left in `diagram.css` (the export gate), `deny_unknown_fields` on
+    `Junction` (the new round-trip test), the dropped `u-turn` rename (six
+    import/parse tests), and an element drawn between the pad and the stop bars
+    (the adjacency slice). Re-adding `Junction.movements` outright is caught
+    harder still — by the compiler, at five initializers.
+  - **The dev pass ran in two halves, and the second is the one worth reusing.**
+    The junction panel was driven in Playwright against Vite (port 1431; 1420 and
+    1425 were both held): Type → Control → Rule → Glyph → Size render with no gap,
+    no `movement` markup survives in the panel's HTML, a link delete drops its
+    paint and leaves the junction, and a node delete takes its two roads and its
+    junction record with one undo restoring all three.
+    For the imported picture, **the Tauri file panel was skipped entirely**: an
+    `#[ignore]`d test dumped `network_to_document(cross-4)` to YAML, and a
+    throwaway vitest rendered it through the real `diagramSvg` and measured it —
+    deterministic, scriptable, and no blind keystrokes. Both scaffolds were
+    deleted afterwards.
+  - **Measured on that export, and it is the phase's own proof.** The imported
+    `cross-4` junction group is now **exactly one element**:
+    `<circle class="jn-pad" r="24"></circle>`, where before it carried that circle
+    plus sixteen `<g class="jn-movement">`. Every other number is **unchanged from
+    Phase 5**: eight `marking-turn-arrow` groups, pad `r = 24`, nearest arrow point
+    **35.99** units from the junction node, clearing the rim by **11.99**. The
+    removal took the arcs and moved nothing else.
+  - One thing the harness surfaced that is *not* a defect: a document read
+    straight from Rust has no `signs`/`markings` keys (serde elides empty vecs),
+    and `needsText` reads `doc.signs.length`. The app is safe because
+    `normalizeDocument` fills them at the one boundary
+    (`rules/persistence.md`) — but any future tool that renders a Rust-produced
+    document without going through it will hit this.
 
 ### Phase 5 — The anchor finds the rim  (depends on Phase 3; built before Phase 4)
 

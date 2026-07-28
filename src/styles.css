@@ -464,11 +464,8 @@ body {
   color: var(--chrome-text);
 }
 
-/* Shared with the movement rows, which make the same statement about two ends —
-   there it separates two link ids rather than two node ids. */
-.direction .arrow,
-.movement-pair .arrow,
-.movement-add-row .arrow {
+/* The separator between a link's two node ids. */
+.direction .arrow {
   color: var(--paint-yellow);
   margin: 0 4px;
 }
@@ -567,118 +564,6 @@ body {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--chrome-dim);
-}
-
-/* The turns a junction permits: one row each, then the pair of pickers that mints
-   another. `.lane-kinds`' column, for the same reason - a list of rows in the
-   panel, chrome only, nothing here reaches an exported picture. */
-
-.movements {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.movement-row,
-.movement-add-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-/* Link ids, in the drawing's own face - the treatment `.direction` gives the two
-   node ids of a link, since a movement is the same kind of statement about two
-   ends. Fixed-width so the dropdowns below it line up whatever the ids are. */
-.movement-pair {
-  width: 62px;
-  flex-shrink: 0;
-  font-family: "Overpass Mono", monospace;
-  font-size: 12px;
-  color: var(--chrome-text);
-}
-
-.movement-kind-select,
-.movement-link-select {
-  flex: 1;
-  min-width: 0;
-  padding: 5px 7px;
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  background: var(--desk-2);
-  color: var(--chrome-text);
-  font-family: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.movement-kind-select:hover,
-.movement-link-select:hover:not(:disabled) {
-  border-color: var(--chrome-dim);
-}
-
-.movement-link-select:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-/* Withdrawing one turn is not deleting the junction, so this is not `.danger`:
-   it is the smallest control in the panel, and it only colours on hover. */
-.movement-del {
-  flex-shrink: 0;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--chrome-dim);
-  font-size: 15px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.movement-del:hover {
-  border-color: #e8837a;
-  color: #e8837a;
-}
-
-.movement-add {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-/* Derive is the same control as Add, so it is the same button: one mints a turn a
-   human named, the other every turn the junction can legally carry. A comma says
-   they are one thing more honestly than a copy of the four declarations would. */
-.movement-add-btn,
-.movement-derive-btn {
-  width: 100%;
-  padding: 7px;
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  background: transparent;
-  color: var(--chrome-text);
-  font-family: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.movement-add-btn:hover:not(:disabled),
-.movement-derive-btn:hover:not(:disabled) {
-  border-color: var(--paint-yellow);
-}
-
-.movement-add-btn:disabled,
-.movement-derive-btn:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-
-/* This one shares its field with the rows above it - `.movement-add` supplies its
-   own column gap, and a lone button in a block `.field` has nothing to sit off. */
-.movement-derive-btn {
-  margin-top: 7px;
 }
 
 /* The one thing in the panel a human types into: what a text marking says.

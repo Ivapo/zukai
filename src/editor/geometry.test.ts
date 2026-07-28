@@ -41,8 +41,6 @@ import {
   MARKING_PITCH,
   MIN_ROAD_WIDTH,
   MarkingAnchor,
-  MovementArc,
-  MovementEnd,
   PLATE_PAD,
   ROAD_MARGIN,
   SCHEMATIC_MEDIAN,
@@ -61,7 +59,6 @@ import {
   boundaryTaken,
   carriageways,
   classWidthFactor,
-  derivableMovements,
   distance,
   drawnPolyline,
   gore,
@@ -70,16 +67,11 @@ import {
   laneBands,
   laneLine,
   laneLineOffsets,
-  legalMovements,
   markingAnchor,
   markingArrow,
   markingTeeth,
   markingText,
   markingZebra,
-  movementArc,
-  movementId,
-  movementKind,
-  movementPath,
   nearestOnPolyline,
   offsetPolyline,
   pointAlongPolyline,
@@ -2198,11 +2190,9 @@ describe("markingAnchor at a junction rim", () => {
   });
 
   /**
-   * A **roundabout is not excluded**, though `Diagram.tsx`'s `pad` gate excludes
-   * it: that gate is about movement arcs, which on a roundabout would be chords
-   * across its own island. An anchor has no such reason, and a ring buries an
-   * approach arrow exactly as a pad does — so the rim is `ro`, which is the
-   * larger radius for the same arms.
+   * A **roundabout is not excluded**, which is the one exclusion worth a test of
+   * its own: a ring buries an approach arrow exactly as a pad does, so the rim is
+   * `ro` — the larger radius for the same arms — rather than the node.
    */
   it("measures to a roundabout's ring rather than to its node", () => {
     const ring = back(road("junction", { glyph: "roundabout" }));
@@ -2486,305 +2476,5 @@ describe("laneLine and laneLineOffsets", () => {
   it("collects nothing from a document with no lane line", () => {
     expect(laneLineOffsets(road(4))).toEqual({});
     expect(laneLineOffsets(road(4, { ...line(1), kind: { type: "stop_line" } }))).toEqual({});
-  });
-});
-
-describe("movements through a junction", () => {
-  /**
-   * The junction semantics spec's own fixture: a **two-way** T, which is what
-   * Assimilator's model makes of one — every arm is an opposing *pair* of links,
-   * because "a two-way street is two links with opposite `from_node`/`to_node`".
-   *
-   * ```
-   *       N1 ⇄ N2 ⇄ N3     west arm   L1 (N1→N2) in,  L2 (N2→N1) out
-   *            ⇅           east arm   L3 (N2→N3) out, L4 (N3→N2) in
-   *            N4          south arm  L5 (N2→N4) out, L6 (N4→N2) in
-   * ```
-   *
-   * `N4` is at **`+y`**, which is south: SVG's y axis points down. All three arms
-   * are reversed pairs, so `carriageways` genuinely offsets every polyline here —
-   * a lateral step, which is why the bearings below are still exact.
-   */
-  const POS: Record<NodeId, Vec2> = {
-    N1: { x: -100, y: 0 },
-    N2: { x: 0, y: 0 },
-    N3: { x: 100, y: 0 },
-    N4: { x: 0, y: 100 },
-  };
-  const ENDS: [LinkId, NodeId, NodeId][] = [
-    ["L1", "N1", "N2"],
-    ["L2", "N2", "N1"],
-    ["L3", "N2", "N3"],
-    ["L4", "N3", "N2"],
-    ["L5", "N2", "N4"],
-    ["L6", "N4", "N2"],
-  ];
-
-  /** The T, with only `placed` given a canvas position (all four by default). */
-  function tee(placed: NodeId[] = ["N1", "N2", "N3", "N4"]): Document {
-    const base = emptyDocument("T");
-    const nodes: Record<NodeId, { pos: Vec2 }> = {};
-    for (const id of placed) nodes[id] = { pos: POS[id] };
-    return {
-      ...base,
-      nodes: [
-        { id: "N1", type: "endpoint" },
-        { id: "N2", type: "junction" },
-        { id: "N3", type: "endpoint" },
-        { id: "N4", type: "endpoint" },
-      ],
-      links: ENDS.map(([id, from, to]) => ({
-        id,
-        from_node: from,
-        to_node: to,
-        lanes: defaults(2),
-        median_gap: DEFAULT_MEDIAN_GAP,
-      })),
-      junctions: [{ node_id: "N2", control: "unsignalized" }],
-      layout: { ...base.layout, nodes },
-    };
-  }
-
-  /**
-   * **A named turn on a named bearing**, and both are load-bearing: the handedness
-   * of §2.4's cross product is self-consistently invertible, so a test asserting
-   * only "one left and one right" passes just as happily written backwards. SVG's
-   * y axis points down, which is what makes a positive cross product a *right*
-   * turn — `DRIVE_SIDE`'s trap in the other subsystem.
-   */
-  it("classifies a turn by the bearing it is actually drawn on", () => {
-    const t = tee();
-
-    // Arriving from the west on L1, so travelling east.
-    expect(movementKind(t, "N2", "L1", "L5")).toBe("right"); // into the south arm
-    expect(movementKind(t, "N2", "L1", "L3")).toBe("through"); // straight on, east
-  });
-
-  /** The same rule on a different axis, so nothing about it is axis-specific. */
-  it("classifies an approach from the south the other way round", () => {
-    const t = tee();
-
-    // Arriving from the south on L6, so travelling north.
-    expect(movementKind(t, "N2", "L6", "L2")).toBe("left"); // into the west arm
-    expect(movementKind(t, "N2", "L6", "L3")).toBe("right"); // into the east arm
-  });
-
-  /**
-   * A u-turn is **topology, not angle**: `from.from_node === to.to_node` is exactly
-   * "leaves back down the road it arrived on". Running it first is what spares the
-   * angular bands a `left`/`u-turn` boundary — a ~180° pair either is one of these
-   * or genuinely is not a u-turn at all.
-   */
-  it("reads the three u-turns off the topology", () => {
-    const t = tee();
-
-    expect(movementKind(t, "N2", "L1", "L2")).toBe("u-turn");
-    expect(movementKind(t, "N2", "L4", "L3")).toBe("u-turn");
-    expect(movementKind(t, "N2", "L6", "L5")).toBe("u-turn");
-  });
-
-  /** The hand-edited document, and `setMovementKind` is the repair for it. */
-  it("falls back to through for a link it cannot measure", () => {
-    // L5's far node has no position, so the link is not drawn at all.
-    expect(movementKind(tee(["N1", "N2", "N3"]), "N2", "L1", "L5")).toBe("through");
-    expect(movementKind(tee(), "N2", "L1", "L9")).toBe("through");
-    // A link that does not touch the node cannot be measured against it either:
-    // neither of these two meets N1, so neither has an arm there.
-    expect(movementKind(tee(), "N1", "L3", "L5")).toBe("through");
-  });
-
-  it("spells a movement's id as the ordered pair it is", () => {
-    expect(movementId("L1", "L3")).toBe("M_L1_L3");
-    expect(movementId("L1", "L3")).not.toBe(movementId("L3", "L1"));
-  });
-
-  /**
-   * 3 arriving × 3 leaving = **9** ordered pairs, the three u-turns among them:
-   * the picker offers everything the model can express, and it is Phase 4's Derive
-   * that will decline to mint a u-turn (§2.4's deliberate split).
-   */
-  it("offers every ordered arriving→leaving pair, u-turns included", () => {
-    const pairs = legalMovements(tee(), "N2");
-
-    expect(pairs).toHaveLength(9);
-    for (const u of [["L1", "L2"], ["L4", "L3"], ["L6", "L5"]]) {
-      expect(pairs).toContainEqual({ from: u[0], to: u[1] });
-    }
-  });
-
-  /** Direction is real: an arriving link is never an exit, whatever it pairs with. */
-  it("never offers an arriving link as an exit", () => {
-    const pairs = legalMovements(tee(), "N2");
-
-    expect([...new Set(pairs.map((p) => p.from))].sort()).toEqual(["L1", "L4", "L6"]);
-    expect([...new Set(pairs.map((p) => p.to))].sort()).toEqual(["L2", "L3", "L5"]);
-  });
-
-  /**
-   * A road that only leaves, or only arrives, is no turn at all — and neither is a
-   * link paired with itself, the self-loop only a hand-edited file can hold
-   * (`carriageways` excludes the same degenerate link from a carriageway pair).
-   */
-  it("offers nothing at a node with one link", () => {
-    const base = emptyDocument("one");
-    const doc: Document = {
-      ...base,
-      nodes: [
-        { id: "N1", type: "junction" },
-        { id: "N2", type: "junction" },
-      ],
-      links: [
-        {
-          id: "L1",
-          from_node: "N1",
-          to_node: "N2",
-          lanes: defaults(2),
-          median_gap: DEFAULT_MEDIAN_GAP,
-        },
-      ],
-      layout: {
-        ...base.layout,
-        nodes: { N1: { pos: { x: 0, y: 0 } }, N2: { pos: { x: 100, y: 0 } } },
-      },
-    };
-
-    expect(legalMovements(doc, "N1")).toEqual([]);
-    expect(legalMovements(doc, "N2")).toEqual([]);
-  });
-
-  /** A link with no drawable polyline is skipped, so the picker never offers one. */
-  it("skips a link whose node has no layout entry", () => {
-    const pairs = legalMovements(tee(["N1", "N2", "N3"]), "N2");
-
-    expect(pairs).toHaveLength(4);
-    expect(pairs.some((p) => p.from === "L6" || p.to === "L5")).toBe(false);
-  });
-
-  /**
-   * The other half of §2.4's split, and the whole of what Derive is: the same 9
-   * pairs **less the 3 u-turns**. A u-turn stays a permission a human asks for by
-   * name, so the picker offers one and the button never mints one.
-   */
-  it("derives the six pairs that are not u-turns", () => {
-    const pairs = derivableMovements(tee(), "N2");
-
-    // Spelled out rather than counted: the three that are gone are exactly the
-    // three that leave back down the road they arrived on.
-    expect(pairs.map((p) => `${p.from}→${p.to}`)).toEqual([
-      "L1→L3",
-      "L1→L5",
-      "L4→L2",
-      "L4→L5",
-      "L6→L2",
-      "L6→L3",
-    ]);
-  });
-});
-
-describe("a movement drawn across the pad", () => {
-  /**
-   * The same T, but as `junctionArms` hands it to the glyph: **in the glyph's own
-   * frame**, which is translated to N2, and one arm per link. Its three arms are
-   * all divided pairs, so every carriageway sits 13.5 off its centreline
-   * (`roadWidth(2) / 2 + SCHEMATIC_MEDIAN / 2`), and the pad radius is the arms'
-   * own reach, 13.5 + 21 / 2 = 24.
-   *
-   * Every `away` points **out** of the junction, whichever way its traffic runs —
-   * which is exactly why the arriving arms below are indistinguishable from the
-   * leaving ones here, and why direction has to come from the model.
-   */
-  const R = 24;
-  /** How far out along an arm the pad's rim is: `sqrt(R² - 13.5²)`. */
-  const RIM = Math.sqrt(R * R - 13.5 * 13.5);
-
-  const WEST_IN: MovementEnd = { at: { x: 0, y: 13.5 }, away: { x: -1, y: 0 } }; // L1
-  const WEST_OUT: MovementEnd = { at: { x: 0, y: -13.5 }, away: { x: -1, y: 0 } }; // L2
-  const EAST_OUT: MovementEnd = { at: { x: 0, y: 13.5 }, away: { x: 1, y: 0 } }; // L3
-  const SOUTH_OUT: MovementEnd = { at: { x: -13.5, y: 0 }, away: { x: 0, y: 1 } }; // L5
-  const SOUTH_IN: MovementEnd = { at: { x: 13.5, y: 0 }, away: { x: 0, y: 1 } }; // L6
-
-  /** The point halfway along the curve — `(P0 + 3C1 + 3C2 + P3) / 8`. */
-  function curveMid(arc: MovementArc): Vec2 {
-    const [c1, c2] = arc.control;
-    return {
-      x: (arc.start.x + 3 * c1.x + 3 * c2.x + arc.end.x) / 8,
-      y: (arc.start.y + 3 * c1.y + 3 * c2.y + arc.end.y) / 8,
-    };
-  }
-
-  /** How far the curve leaves the straight line between its own two ends. */
-  function sag(arc: MovementArc): number {
-    return distance(curveMid(arc), {
-      x: (arc.start.x + arc.end.x) / 2,
-      y: (arc.start.y + arc.end.y) / 2,
-    });
-  }
-
-  it("starts on its approach arm and ends on its exit arm", () => {
-    const arc = movementArc(WEST_IN, SOUTH_OUT, R); // L1 to L5, a right turn.
-
-    // Both ends on the pad's rim, where the stop bar would sit four units later.
-    expect(distance({ x: 0, y: 0 }, arc.start)).toBeCloseTo(R);
-    expect(distance({ x: 0, y: 0 }, arc.end)).toBeCloseTo(R);
-    // Each out along its **own** carriageway, not along the node's centre: the
-    // arc starts on the road it arrives on and ends on the road it leaves by.
-    expect(arc.start).toEqual({ x: -RIM, y: 13.5 });
-    expect(arc.end).toEqual({ x: -13.5, y: RIM });
-    // And the arrowhead points the way the exit road runs.
-    expect(arc.dir).toEqual(SOUTH_OUT.away);
-  });
-
-  /**
-   * **The gate's shape test**, and it has to be a shape one: a magnitude test
-   * ("the curve is 40 units long") passes for any curve at all, including the
-   * straight line a broken through would draw and the stub a broken u-turn would.
-   *
-   * A `through` is straight because the cubic's four points come out collinear —
-   * not because anything special-cases it.
-   */
-  it("draws a through straight and a left as a curve", () => {
-    const through = movementArc(WEST_IN, EAST_OUT, R); // L1 to L3
-    const left = movementArc(SOUTH_IN, WEST_OUT, R); // L6 to L2
-
-    expect(sag(through)).toBeCloseTo(0);
-    // Pinned rather than bounded: a flat `k = chord / 3` draws this same left at
-    // 8.34, which is still comfortably "more than the through" and still wrong.
-    expect(sag(left)).toBeCloseTo(9.766, 2);
-    expect(sag(through)).toBeLessThan(sag(left));
-
-    // The left swings *into* the junction before it turns — north-east of the
-    // node, arriving northbound and leaving westbound.
-    expect(curveMid(left).x).toBeGreaterThan(0);
-    expect(curveMid(left).y).toBeLessThan(0);
-  });
-
-  /**
-   * Beyond the gate, and the assertion that pins the arc constant rather than
-   * merely the ordering above: a u-turn's apex sits **exactly** the median's
-   * half-width beyond its own arm, which is a true semicircle across the median.
-   *
-   * A flat `k = chord / 3` draws that as a shallow stub — 6.75 rather than 13.5 —
-   * while still passing every "straighter than" assertion ever written.
-   */
-  it("hooks a u-turn around the median rather than flattening it", () => {
-    const arc = movementArc(WEST_IN, WEST_OUT, R); // L1 to L2
-
-    expect(curveMid(arc).x - arc.start.x).toBeCloseTo(13.5);
-    expect(curveMid(arc).y).toBeCloseTo(0);
-    // Both ends on the west arm, one carriageway either side of its centreline.
-    expect(arc.start).toEqual({ x: -RIM, y: 13.5 });
-    expect(arc.end).toEqual({ x: -RIM, y: -13.5 });
-  });
-
-  /** One cubic, ending where the arc ends — the file's only non-`M`/`L` command. */
-  it("spells the arc as a single cubic", () => {
-    const d = movementPath(movementArc(WEST_IN, SOUTH_OUT, R));
-    const arc = movementArc(WEST_IN, SOUTH_OUT, R);
-
-    expect(d).toMatch(
-      /^M [-\d.]+ [-\d.]+ C [-\d.]+ [-\d.]+ [-\d.]+ [-\d.]+ [-\d.]+ [-\d.]+$/,
-    );
-    expect(d).toContain(`M ${arc.start.x} ${arc.start.y} C`);
-    expect(d.endsWith(`${arc.end.x} ${arc.end.y}`)).toBe(true);
   });
 });

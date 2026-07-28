@@ -27,18 +27,18 @@ Three things follow, and they are the difference between building this well and 
 Zukai is developed fully independently from `../assimilator` (a separate, partly-private repo under active development) — no shared Cargo workspace, no shared build, no code dependency in either direction. The coupling is **one-way**: Zukai reads the `network.yaml` file format Assimilator uses for its to-scale, geometry-precise road networks.
 
 - **Import** (Assimilator → Zukai), and *only* import: read a `network.yaml`'s topology — nodes, links, lanes, junctions, and which turns a junction permits — and discard everything else, starting with its literal polyline/coordinate geometry. A schematic intentionally distorts real geometry for clarity rather than reusing it. Import earns its keep by getting a real network onto the canvas quickly, to be schematised by hand.
-- **Import reads only what the schematic draws.** A movement is the two links it joins and the kind of turn it is; the file's lane detail (`from_lanes`, `to_lanes`, `lane_mapping`) and right-of-way detail (`priority`, `yields_to`) are dropped on the way in. If a field is not drawn, it is not carried.
+- **Import reads only what the schematic draws — and *reading* is not *carrying*.** The file's `movements` block is the clean case of the distinction: every one is parsed, its `from_lanes` becomes a painted turn arrow on the approach, and **none of it is stored**. There is no `Movement` in the model. The file's remaining lane detail (`to_lanes`, `lane_mapping`) and right-of-way detail (`priority`, `yields_to`) are not even read. If a field is not drawn, it is not carried; if it is drawn as something else, only the something else survives.
 - **Zukai does not write `network.yaml`, and this is a decision rather than a gap.** An export shipped and was reverted (`979a60d`). It synthesized placeholder geometry — which is not a substitute for surveyed geometry, as its own documentation conceded — so its only use was simulating one junction in isolation. A network you want to simulate is authored in Assimilator, where the geometry is real. **Do not rebuild it**, and do not add a model field whose only justification is surviving a round trip.
 - Zukai owns its own small `serde` structs for the `network.yaml` shape rather than depending on Assimilator's `crates/config`/`crates/network` Rust types, which are still actively changing. The coupling point is the documented, `schema_version`-keyed file format, not Assimilator's internal code.
 - Zukai represents **parts** of networks (a single interchange, one roundabout), not full networks. This mirrors how Assimilator's own example scenarios already work (small, hand-placed-coordinate configs), and Assimilator's `endpoint` node type already models dangling link ends for exactly this kind of fragment.
 
-**The two things this narrowing has already cut**, recorded so they are not re-derived: the `network.yaml` **export** (above), and **signal plans** past Phase 1 — a fixed-time plan is a table, its only drawable form is a stage diagram, and a stage diagram is not the figure this project is for.
+**The three things this narrowing has already cut**, recorded so they are not re-derived: the `network.yaml` **export** (above); **signal plans** past Phase 1 — a fixed-time plan is a table, its only drawable form is a stage diagram, and a stage diagram is not the figure this project is for; and the **turn movements** (`junction_semantics_spec.md` §0), which are the instructive one because they *did* draw something. Sixteen dashed arcs webbed across one junction pad is a picture; it is not the picture a reader of a figure wants, and a road answers the same question with paint on the approach. So "which phase produces the picture?" is necessary and not sufficient — the follow-up is **"and is that the picture?"**
 
 ## Key Design Decisions
 
-- **Two-layer schema**: a semantic layer (nodes, links, lanes-per-link, junction/movement/signal data — conceptually a subset of Assimilator's model, plus schematic-only extras like paint markings and sign types) and a presentation layer (glyph type, canvas position, connector bend points). The split is about what each layer *means*, not about a round trip: both are Zukai's own and neither leaves for Assimilator.
+- **Two-layer schema**: a semantic layer (nodes, links, lanes-per-link, junction control and right-of-way rule — conceptually a subset of Assimilator's model, plus schematic-only extras like paint markings and sign types) and a presentation layer (glyph type, canvas position, connector bend points). The split is about what each layer *means*, not about a round trip: both are Zukai's own and neither leaves for Assimilator.
 - **Rendering: SVG, not Canvas/WebGL.** Unlike Assimilator's frontend (thousands of moving vehicles, needs Canvas/WebGL), Zukai draws a bounded number of draggable symbols and needs easy hit-testing/hover/selection — SVG's DOM-based interactivity fits a diagram editor better, and the scale that would justify Canvas doesn't apply to network fragments.
-- **Layout is semi-automatic, not auto-layout.** Importing a network auto-populates parametrized glyphs (roundabout-N-arms, junction-with-N-lanes, motorway-segment-with-ramp) from lane/movement data, but a human positions and connects them on canvas. Fully automatic schematization (clean orthogonal/octilinear layout from arbitrary topology) is out of scope — it's a hard, open-ended algorithm problem, and manual placement leans on the human aesthetic judgment that makes schematics like metro maps legible.
+- **Layout is semi-automatic, not auto-layout.** Importing a network auto-populates parametrized glyphs (roundabout-N-arms, junction-with-N-lanes, motorway-segment-with-ramp) and the turn arrows on each approach lane, but a human positions and connects them on canvas. Fully automatic schematization (clean orthogonal/octilinear layout from arbitrary topology) is out of scope — it's a hard, open-ended algorithm problem, and manual placement leans on the human aesthetic judgment that makes schematics like metro maps legible.
 
 ## Commands
 
@@ -110,8 +110,10 @@ work that removes what another spec shipped.
   example of `spec-authoring.md` §6.1.
 - `specs/signs_and_text_spec.md` — letters in the drawing: the embedded font,
   painted road text, and roadside signs (implemented; 4 phases)
-- `specs/junction_semantics_spec.md` — what a junction *means*: control,
-  right-of-way rule, and the turn movements through it (implemented; 4 phases)
+- `specs/junction_semantics_spec.md` — what a junction *means*: control and
+  right-of-way rule (**Phase 1 implemented; Phases 2–4, the turn movements, were
+  shipped and then cut** on 2026-07-28 — see its §0. The turns a junction permits
+  are paint on the approach now, not a relation in the model)
 - `specs/network_yaml_spec.md` — import and export Assimilator's `network.yaml`:
   the serde mirror, the two directions and their asymmetry, and the four
   `#[serde(default)]` fields that fail silently (**Phases 1–2 implemented;
@@ -123,9 +125,11 @@ work that removes what another spec shipped.
   approach instead of arcs across the pad: a marking you can drag, a marking
   anchored to the junction end, import painting the lanes from the file's own
   lane data, and the removal of the movement arcs and the movement list
-  (**Phases 1–3 and 5 implemented; Phase 4 is all that is left** — Phase 5 was
-  resequenced ahead of it once Phase 3's dev pass measured that the junction pad
-  painted over the arrows it had just placed; reviewed in 2 rounds)
+  (implemented; 5 phases, built 1–3, 5, 4 — Phase 5 was resequenced ahead of
+  Phase 4 once Phase 3's dev pass measured that the junction pad painted over the
+  arrows it had just placed; reviewed in 2 rounds). **It removes what
+  `junction_semantics_spec.md` shipped**, which is why it is its own spec rather
+  than a phase of that one (`spec-authoring.md` §6.1).
 
 **`rules/` — current-state reference (the *what is*).** Terse, authoritative maps
 of subsystems, read on demand. Unlike specs, rules describe the code as it is now;
@@ -173,44 +177,41 @@ there's real cross-file knowledge worth extracting, not for every file.
   box the chrome is grown from whatever a kind paints, the roundel's ring that is
   fat because the type size is fixed, and the one place that ordering runs out:
   the destination panel, which colour has to separate because shape cannot
-- `rules/junctions.md` — what a junction *means* rather than looks like: the three
-  records keyed by one `NodeId` and which of them a hand-edited file may omit, the
-  glyph/control split and the one-way traffic between them, the nudge and its
-  "only from the default glyph" clause, why clearing `rule` belongs to the control
-  action but guarding it does not, the two identity returns no behavioural test
-  sees — and the movements: why one is a relation rather than an object on the
-  canvas (no tool, no `Selection` arm, delete is a per-row button), the id that
-  **is** the ordered pair and the three things that fall out of it, the
-  topological u-turn test that runs first so the angular bands need no boundary,
-  the y-down handedness that makes a positive cross product a *right* turn, the
-  third cascade answer and why it is `clearSignLinks`' shape wearing
-  `keepMarkings`' meaning, the empty list stored as an absent key, and the two
-  turn vocabularies separated by one hyphen — and the drawn arc: why it is a child
-  of the glyph rather than a layer (the pad is opaque, and a sibling would be
-  invisible while passing every source-order assertion), the two of six glyphs that
-  paint none, the arms found by link id because an arm carries no direction, the
-  cubic whose second control point is the whole reason a `through` and a `u-turn`
-  need no special case, and the arc constant a flat `chord/3` fails while still
-  passing the gate — and Derive: the u-turn subtraction that goes through
-  `movementKind` rather than through a second copy of the topological test, the
-  merge that is the third thing the id-*is*-the-pair rule pays for, why the
-  remainder is exported rather than inlined (the button must be dead exactly when
-  the action would be), and the one panel row shown when spent rather than hidden
+- `rules/junctions.md` — what a junction *means* rather than looks like: **which
+  turns it permits is not recorded there**, and that absence is the largest thing
+  in the file (the turns are `turn_arrow` paint on the approach, there is no
+  relation in the model and nothing derives one, the `MovementKind` vocabulary
+  left for the mirror, and what the change cost — an arrow names no exit road,
+  which a destination plate answers); the three records keyed by one `NodeId` and
+  which of them a hand-edited file may omit; the glyph/control split and the
+  one-way traffic between them; the nudge and its "only from the default glyph"
+  clause; why clearing `rule` belongs to the control action but guarding it does
+  not; the two identity returns no behavioural test sees; the **two** cascade
+  answers left now that a `Junction` needs none (and why its link arm's identity
+  holds by construction rather than by a pre-check); the glyph's own drawing, with
+  nothing between the pad and the stop bars — pinned as a literal slice, because
+  an index comparison passed while sixteen arcs sat there; and the one turn
+  vocabulary left in the model, which is a grep rather than a test
 - `rules/network-yaml.md` — the format Zukai reads but does not own **and does
   not write**: two formats with two owners and why the module is not
   `persist.rs`, the `schema_version` header that is real *and* not a struct field
   (read above serde, so the probe takes an `Option` and an absent one must be
-  accepted), the four enums reused rather than redeclared and the one test that
-  keeps that honest, the scale and the y that is stated as a compass bearing
+  accepted), the **three** enums reused rather than redeclared and the fourth
+  that is now declared *here* — `MovementKind` moved in when a junction's turns
+  became paint, because the only thing left that names a turn that way is the
+  file being read, which also retires the hyphen as a hazard — and the one test
+  that keeps all four honest across the move, the scale and the y that is stated
+  as a compass bearing
   because a mirrored network is self-consistently wrong, what import discards —
   the geometry, and the right-of-way detail as well, on the rule that a field
   nothing draws is a field nothing carries — versus the one thing it *demotes*
-  (`point` seeds the layout, or the page renders blank), the one field it **reads
-  without carrying** (`from_lanes` becomes paint and reaches no struct, which is
-  what separates *mirror what is drawn* from *carry*), the two projects' opposite
+  (`point` seeds the layout, or the page renders blank), the whole **struct** it
+  now reads without carrying (`NetworkMovement` is parsed, becomes paint, and
+  reaches no model type at all — which is what separates *mirror what is drawn*
+  from *carry*, in its sharpest form), the two projects' opposite
   lane numberings and the single involution that reconciles them at this boundary
   — for both the arrows and the lane array, which carried the bug invisibly —
-  the one thing import *mints* and the opaque pad that covers it, the defaults
+  the one thing import *mints*, the defaults
   seeded rather than derived, and how a network reaches the editor: Open's path
   one format over, a command that is a shell around the pure conversion, and the
   two differences that are the whole of Phase 2 (dirty and pathless, so Save
