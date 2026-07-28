@@ -123,9 +123,9 @@ work that removes what another spec shipped.
   approach instead of arcs across the pad: a marking you can drag, a marking
   anchored to the junction end, import painting the lanes from the file's own
   lane data, and the removal of the movement arcs and the movement list
-  (**Phases 1–3 implemented**; reviewed in 2 rounds — 4 phases plus a deferred
-  Phase 5 for the junction rim, which Phase 3's dev pass promoted from polish to
-  the thing that makes a divided junction's arrows visible)
+  (**Phases 1–3 and 5 implemented; Phase 4 is all that is left** — Phase 5 was
+  resequenced ahead of it once Phase 3's dev pass measured that the junction pad
+  painted over the arrows it had just placed; reviewed in 2 rounds)
 
 **`rules/` — current-state reference (the *what is*).** Terse, authoritative maps
 of subsystems, read on demand. Unlike specs, rules describe the code as it is now;
@@ -148,8 +148,9 @@ there's real cross-file knowledge worth extracting, not for every file.
   derivation everything descends from, class-as-token, the carriageway pairing
   rule and its positive-offset trap, lane kinds, the one hatch `<pattern>` that
   cannot be a CSS rule, the junction arms that carry their own position, the
-  three tests a joint passes before it tapers, and the arm pair a gore is drawn
-  between
+  three tests a joint passes before it tapers, the arm pair a gore is drawn
+  between, and the arms and radii that left the render body once a marking needed
+  to measure to the rim they size
 - `rules/road-markings.md` — the paint a human places: the one metre/unit
   boundary, the lane that falls out of the click, the kind-aware Inspector
   controls, why the marking layer is a sibling and not a child of the road, the

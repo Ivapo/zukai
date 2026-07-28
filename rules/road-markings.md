@@ -60,6 +60,45 @@ than `SAME_EDGE`, and that is what makes the drag's round trip exact rather than
 approximate. It was private to that walk until an anchor needed to measure back
 from it.
 
+### The far end is the glyph's rim, not the node
+
+An `end`-anchored marking measures to `rimClearance(doc, link, offsets)` past the
+polyline's end, not to the end itself. The node is *inside* the junction it names,
+and the pad drawn around it is opaque and painted **over** this layer — so paint
+measured to the node is paint measured to somewhere it cannot be seen. Measured
+on an imported `cross-4`: every arrow's head sat 17.5 units from the node against
+a pad of `r = 24`, and after the rim, 36.0 — one arrow-length of clear road beyond
+the rim, which is what the setback was derived to mean.
+
+Four things about it:
+
+- **It is the same expression the glyph's own stop bar is placed with** —
+  `rayCircleExit(origin - center, dir, radius)`. That was the argument for the rim
+  over the node from the start (lane arrows §2.4): the paint a human puts at a
+  junction and the paint a glyph draws itself can no longer come to disagree about
+  where a road meets the glyph.
+- **The clearance is added to the distance, not subtracted from the total.** The
+  clamp then still catches an over-long marking at the polyline's *start*, which
+  is Phase 2's behaviour unchanged.
+- **It comes off the arm's own carriageway.** `Arm.origin` **is** the drawn
+  polyline's end point, which is what makes the ray distance and the arc-length
+  walked back from that end the same number — and what gives a divided approach
+  its own half's clearance, a chord rather than a diameter. An undivided arm sits
+  at `(0, 0)` relative to the node and clears exactly the radius, so it is the one
+  case that *cannot* catch a dropped translation. The test that does uses a
+  divided road.
+- **`start` takes no such term.** Nothing asked for one, and adding it would move
+  the paint in every document already saved.
+
+`junctionRadius(doc, nodeId, offsets)` is where the exclusions live, and one of
+them is deliberately *not* excluded: `Diagram.tsx`'s `pad` gate skips a roundabout
+because a movement arc on one would be a chord across its own island, and an
+anchor has no such reason — a ring buries an approach arrow exactly as a pad does,
+so a roundabout measures to `ro`. What is genuinely excluded is what has no radius
+to give: a non-junction node, a `gore` (paint *between* two arms rather than a
+disc around one node), and a junction with no arms. Each returns `undefined`, the
+clearance is `0`, and the marking measures to the node exactly as it did before.
+
 **Nothing tests the drag's half of it** — `Canvas.tsx` has no test file, and the
 `anchor` argument is optional, so dropping it at the call site compiles and every
 one of the 389 tests still passes (mutation-checked). `anchoredAlong` is unit-
@@ -637,6 +676,7 @@ two kinds whose fresh payload is empty.
 | Piece | Where | Tested by |
 |---|---|---|
 | `markingForm` — the one call the renderer makes; `nearestOnPolyline`, `pointAlongPolyline`, `polylineLength`, `anchoredAlong`, `markingAnchor` | `src/editor/geometry.ts` | `geometry.test.ts` (pure) |
+| `rimClearance` and `junctionRim` (private), `junctionRadius` — the far end an `end` anchor measures to | `src/editor/geometry.ts` | `geometry.test.ts` (pure) |
 | `markingBar`/`markingTeeth`/`markingZebra`/`markingArrow`/`markingText`, `textWidth`, `spanCells`, `polygonsPath`/`polylinesPath`, and the build constants | `src/editor/geometry.ts` | `geometry.test.ts` (pure) |
 | `laneLine`/`boundaryOffset`, and `laneLineOffsets`/`boundaryTaken` — the replacement, which is the only piece the *roads* read | `src/editor/geometry.ts` | `geometry.test.ts` (pure) |
 | `MarkingShape`, `markingPaint`, `haloWidth`, `needsText` (**exported** — its consumer is `export.tsx`), the marking layer, `Interaction.onMarkingPointerDown`; `RoadShape`'s `replaced` prop | `src/components/Diagram.tsx` | `Diagram.test.tsx` via `renderToStaticMarkup` |
@@ -659,13 +699,18 @@ one kind where that was worth confirming rather than assuming.
 
 ## Open, and deliberately
 
-- **Snapping along the road (spec OQ-5).** A stop line a human meant to put "at
-  the junction" sits a few units short of it. The obvious snap target — the pad
-  rim — is **inside the junction's own hit disc**, which renders after the marking
-  layer: measured at `r = 23.6` for a 3-lane arterial against the glyph's bar at
-  `25.6`, so roughly two units of clearance on the centreline and about four in
-  an outer lane (the disc is a circle, so its horizontal reach shrinks off-axis).
-  Any snap design has to reckon with that disc.
+- **Snapping along the road (spec OQ-5) — closed for auto-placed paint, open for
+  a hand drag.** An `end`-anchored marking now measures to the pad rim
+  (`junctionRadius`), so an imported arrow lands one arrow-length clear of the
+  glyph by construction and needs no snap at all. What is still open is the
+  gesture: a human dragging a stop line "to the junction" lands where they
+  dropped it, and the obvious snap target — the rim — is **inside the junction's
+  own hit disc**, which renders after the marking layer: measured at `r = 23.6`
+  for a 3-lane arterial against the glyph's bar at `25.6`, so roughly two units of
+  clearance on the centreline and about four in an outer lane (the disc is a
+  circle, so its horizontal reach shrinks off-axis). Any snap design has to reckon
+  with that disc. The cheaper answer now exists and is not a snap: set the
+  marking's Anchor to End, and it sits at the rim and stays there.
 
   **The drag measured what that disc costs, and it is a one-way door.** Dragging
   paint *into* it works — the `<svg>` holds pointer capture for the gesture, so

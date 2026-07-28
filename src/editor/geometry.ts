@@ -4,9 +4,11 @@ import {
   DEFAULT_LANE_WIDTH,
   DEFAULT_LINK_STYLE,
   findLink,
+  findNode,
   linkAlign,
   linkPolyline,
   linkStyle,
+  nodePos,
 } from "../model/document";
 import {
   Document,
@@ -801,6 +803,183 @@ export function lateralShift(
   );
 }
 
+/** An arm meeting a junction, as drawn. */
+export interface Arm {
+  /** The link it comes from — the tie-break when a gore has two equally close
+   *  pairs to choose between (`gorePair`). */
+  id: LinkId;
+  /** Unit direction away from the node, along the drawn carriageway. */
+  dir: Vec2;
+  /**
+   * Where that carriageway actually meets the node, in **world** units — the
+   * node position for an undivided road, stepped off it for one carriageway of a
+   * divided pair. A glyph's own group is translated to the node, so an interior
+   * detail drawn from this has to enter as `origin - center`.
+   */
+  origin: Vec2;
+  width: number;
+}
+
+/**
+ * The arms incident to a junction node, derived from the links that touch it —
+ * from each one *as drawn*, so a divided road's arms follow its carriageways,
+ * position included. The lateral position is not re-derived from `DRIVE_SIDE` or
+ * a second call to `carriageways`: it is already sitting in the drawn polyline's
+ * own end point (ramps spec §2.2, road spec OQ-6).
+ *
+ * The node *dots* still draw at the node position, so an endpoint or waypoint on
+ * a divided road sits in its median (ramps spec OQ-4, open).
+ *
+ * **Lives here rather than in `Diagram.tsx`**, where it started, for
+ * {@link drawnPolyline}'s reason one step on: an `end`-anchored marking measures
+ * to the *rim* of the glyph these arms size ({@link junctionRadius}), and that is
+ * not a render-time question. Lifting it is the whole of lane arrows Phase 5.
+ */
+export function junctionArms(
+  doc: Document,
+  nodeId: NodeId,
+  offsets: Record<LinkId, number>,
+): Arm[] {
+  const arms: Arm[] = [];
+  for (const link of doc.links) {
+    const touchesStart = link.from_node === nodeId;
+    const touchesEnd = link.to_node === nodeId;
+    if (!touchesStart && !touchesEnd) continue;
+    const poly = drawnPolyline(doc, link, offsets);
+    if (!poly || poly.length < 2) continue;
+    // Orient the polyline so the junction node is first, then step to the next
+    // point to get the direction of the approach leaving the node.
+    const [n0, n1] = touchesStart
+      ? [poly[0], poly[1]]
+      : [poly[poly.length - 1], poly[poly.length - 2]];
+    const dx = n1.x - n0.x;
+    const dy = n1.y - n0.y;
+    const len = Math.hypot(dx, dy) || 1;
+    arms.push({
+      id: link.id,
+      dir: { x: dx / len, y: dy / len },
+      origin: n0,
+      width: roadWidth(link.lanes, linkStyle(doc, link.id)),
+    });
+  }
+  return arms;
+}
+
+/**
+ * How far the outermost corner of any arm sits from the node. On an undivided
+ * junction this is just half the widest road; a divided approach adds its step
+ * off the centreline, and the glyph has to reach out to meet it.
+ *
+ * A **floor** on the size a glyph chooses, never a replacement: `0.62 w + 3 >
+ * w / 2` for every road, so substituting would shrink every undivided pad ever
+ * drawn. And the floor is unscaled world units while `scale` multiplies only the
+ * base term, so shrinking a junction can no longer pull its glyph off the
+ * carriageways it exists to join — below roughly half scale the Size control
+ * simply stops shrinking it (ramps spec §2.2).
+ */
+function armReach(arms: Arm[], center: Vec2): number {
+  return arms.length
+    ? Math.max(...arms.map((a) => distance(a.origin, center) + a.width / 2))
+    : 0;
+}
+
+/** The widest arm, or a default lane's road where a junction has none. */
+function armWidth(arms: Arm[]): number {
+  return arms.length ? Math.max(...arms.map((a) => a.width)) : MIN_ROAD_WIDTH;
+}
+
+/** The asphalt pad's radius — the five glyphs that are a paved area. */
+export function padRadius(arms: Arm[], center: Vec2, scale: number): number {
+  return Math.max((armWidth(arms) * 0.62 + 3) * scale, armReach(arms, center));
+}
+
+/** A roundabout's outer edge, which is its equivalent of the pad's rim. */
+export function ringRadius(arms: Arm[], center: Vec2, scale: number): number {
+  return Math.max(
+    Math.max(20, armWidth(arms) * 1.35) * scale,
+    armReach(arms, center),
+  );
+}
+
+/**
+ * How far the glyph at `nodeId` reaches along its arms, or `undefined` where it
+ * reaches nowhere — the radius an `end`-anchored marking measures its clearance
+ * from ({@link markingAnchor}).
+ *
+ * **The exclusions live here rather than at a call site**, because two of them
+ * are the same list `Diagram.tsx`'s `pad` gate carries for a different reason —
+ * a movement arc is white paint on a pad, so a roundabout draws none (its arcs
+ * would be chords across its own island). An *anchor* has no such reason, so a
+ * roundabout is **not** excluded here: its ring buries an approach arrow exactly
+ * as a pad does, and `ro` is as real a radius as `rp`.
+ *
+ * What is genuinely excluded is what has no radius to give: a node that is not a
+ * junction, a `gore` (paint *between* two arms rather than a disc around a node),
+ * and a junction with no arms at all. Each falls back to the node itself, which
+ * is where every marking measured before this existed.
+ */
+export function junctionRadius(
+  doc: Document,
+  nodeId: NodeId,
+  offsets: Record<LinkId, number>,
+): number | undefined {
+  return junctionRim(doc, nodeId, offsets)?.radius;
+}
+
+/** A glyph's rim and the arms it was sized from, in one pass over the links. */
+function junctionRim(
+  doc: Document,
+  nodeId: NodeId,
+  offsets: Record<LinkId, number>,
+): { radius: number; arms: Arm[]; center: Vec2 } | undefined {
+  if (findNode(doc, nodeId)?.type !== "junction") return undefined;
+  const center = nodePos(doc, nodeId);
+  if (!center) return undefined;
+  const view = doc.layout.junctions[nodeId];
+  const glyph = view?.glyph ?? "generic";
+  if (glyph === "gore") return undefined;
+  const arms = junctionArms(doc, nodeId, offsets);
+  if (!arms.length) return undefined;
+  const scale = view?.scale ?? 1;
+  const radius =
+    glyph === "roundabout"
+      ? ringRadius(arms, center, scale)
+      : padRadius(arms, center, scale);
+  return { radius, arms, center };
+}
+
+/**
+ * How far back from a link's drawn end the glyph there reaches — the clearance an
+ * `end`-anchored marking is pushed out by, so its `position` is measured from the
+ * **rim** rather than from the node buried inside it.
+ *
+ * **The same expression the stop bar is placed with** (`Diagram.tsx`'s
+ * `jn-stopbar`), which is the whole argument for routing the anchor through here:
+ * the paint a human puts at a junction and the paint the glyph draws itself can no
+ * longer disagree about where the road meets the glyph.
+ *
+ * Measured from *this link's own carriageway* rather than from the node, so a
+ * divided approach gets its own half's clearance — `Arm.origin` **is** this
+ * polyline's end point, which is what makes the ray distance and the arc-length
+ * walked back from that end the same number. `0` where there is no glyph to clear
+ * (an `endpoint` or `waypoint`, a `gore`, a junction with no arms), which is the
+ * end-node measurement every marking used before this existed.
+ */
+function rimClearance(
+  doc: Document,
+  link: Link,
+  offsets: Record<LinkId, number>,
+): number {
+  const rim = junctionRim(doc, link.to_node, offsets);
+  const arm = rim?.arms.find((a) => a.id === link.id);
+  if (!rim || !arm) return 0;
+  return rayCircleExit(
+    { x: arm.origin.x - rim.center.x, y: arm.origin.y - rim.center.y },
+    arm.dir,
+    rim.radius,
+  );
+}
+
 /** Where a point falls on a polyline: how far along it, and how far off it. */
 export interface PolylineHit {
   /** Arc-length from the polyline's start to the nearest point on it. */
@@ -1025,9 +1204,17 @@ export interface MarkingAnchor extends PolylinePoint {
  *
  * **`Marking.anchor` picks which end that distance is measured from**, through
  * {@link anchoredAlong} — an `end`-anchored marking holds its distance from the
- * link's `to_node` while the road's drawn length changes under it, which is what
+ * far end while the road's drawn length changes under it, which is what
  * auto-placed paint needs (lane arrows §2.3). It does **not** flip `dir`: an
  * arrow measured back from the junction still points the way the road runs.
+ *
+ * **That end is the glyph's rim, not the node** ({@link rimClearance}, lane
+ * arrows Phase 5). The node sits *inside* the junction it names, and the pad
+ * drawn around it is opaque and painted over this layer, so a marking measured to
+ * the node is a marking measured to somewhere it cannot be seen. The rim is also
+ * what the glyph's own stop bar measures to, so the two now share one expression.
+ * Where there is no glyph — an `endpoint`, a `gore`, a junction with no arms —
+ * the clearance is zero and this is the end-node measurement unchanged.
  *
  * **Four ways a marking is skipped rather than drawn**, all of them reachable
  * only from an imported or hand-edited document — the cascades in `state.ts`
@@ -1061,9 +1248,16 @@ export function markingAnchor(
   const points = drawnPolyline(doc, link, offsets);
   if (!points || points.length < 2) return undefined;
 
+  // An `end`-anchored marking measures from the **rim** of whatever glyph sits at
+  // the `to_node`, not from the node itself — which is inside it. The clearance
+  // is added to the stored distance rather than subtracted from the total, so the
+  // clamp below still catches an over-long marking at the polyline's start.
+  // A `start` anchor takes no such term: nothing asked for one, and adding it
+  // would move the paint in every document already saved.
   const along = anchoredAlong(
     polylineLength(points),
-    marking.position * UNITS_PER_METRE,
+    marking.position * UNITS_PER_METRE +
+      (marking.anchor === "end" ? rimClearance(doc, link, offsets) : 0),
     marking.anchor,
   );
   if (!Number.isFinite(along)) return undefined;

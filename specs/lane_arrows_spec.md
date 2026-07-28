@@ -2,8 +2,8 @@
 status: partial
 last_updated: 2026-07-28
 note: "Lane arrows become how a junction's turns are shown — painted on the approach lanes, seeded from an imported network, and replacing the dashed arcs across the pad. Includes the two things that have to exist first: a marking you can drag, and a marking that measures from the junction end."
-implemented: ["Phase 1", "Phase 2", "Phase 3"]
-not_implemented: ["Phase 5 (next)", "Phase 4 (last)"]
+implemented: ["Phase 1", "Phase 2", "Phase 3", "Phase 5"]
+not_implemented: ["Phase 4 (last)"]
 related: [specs/road_markings_spec.md, specs/junction_semantics_spec.md, specs/network_yaml_spec.md]
 reference: "Assimilator's `MovementConfig.from_lanes` (`crates/config/src/network.rs:1334-1378`) is the only field this spec reads back out of the format — which lanes of an approach feed a given turn. Read at `../assimilator` on 2026-07-26. Nothing else is wanted from it: `lane_mapping`, `priority` and `yields_to` were dropped in `fe8b452` and stay dropped."
 ---
@@ -760,6 +760,62 @@ before the paint is legible would break the rule this order exists to keep.
   closes for auto-placed paint. **This spec stays `partial`** — the resequence
   means Phase 4 is now the last one, and it is what moves the status to
   `implemented`.
+- **As built (2026-07-28)** — the phase landed as scoped and the lift cost less
+  than feared. Gate met: `bun run build`, 397 `bun run test` (up 8, and **all 389
+  existing passed untouched at every step**), 57 `cargo test` unchanged (no Rust),
+  `cargo fmt --check` and `cargo clippy --all-targets -D warnings` clean. No
+  `SCHEMA_VERSION` move and no model change of any kind.
+  - **The lift was behaviour-neutral on the first run.** `Arm`, `junctionArms` and
+    the two radii moved into `geometry.ts` with `padRadius(arms, center, scale)`
+    and `ringRadius(arms, center, scale)` as pure functions, and every one of the
+    389 tests passed before a single new one was written. Nothing `junctionArms`
+    needs was `Diagram.tsx`-only — `drawnPolyline`, `roadWidth`, `distance`,
+    `MIN_ROAD_WIDTH` and `rayCircleExit` were already in `geometry.ts`, and
+    `linkStyle` was already imported there. `MIN_ROAD_WIDTH` and `distance` then
+    became unused *in* `Diagram.tsx`, which is the tidiest possible confirmation
+    that the whole computation moved.
+  - **`center` became a parameter of both radii**, because `reach` measures
+    `distance(origin, center)` and the render body had `center` as a prop. Passing
+    it is what keeps the two functions pure rather than re-deriving a node
+    position they were handed.
+  - **`junctionRim` is private and returns `{ radius, arms, center }` together**,
+    so a marking's clearance and the radius it clears come from **one** pass over
+    the links — and cannot be computed from two different arm arrays.
+    `junctionRadius` is the exported one-line shell over it, which is what the
+    roundabout/gore tests assert against.
+  - **The roundabout is *not* excluded, which extends the scope line above rather
+    than following it.** That exclusion list was copied from `Diagram.tsx`'s `pad`
+    gate, which exists because a movement arc on a roundabout would be a chord
+    across its own island — a reason an anchor does not have. A ring buries an
+    approach arrow exactly as a pad does, so a roundabout measures to `ro`. Gore,
+    endpoint, waypoint and an armless junction still fall back to the node.
+    Decided with the user before implementing.
+  - **Six mutations were run**, each failing a different test: dropping the rim
+    from the `end` branch (4 tests), adding it to the `start` branch (1),
+    `padRadius` for a roundabout (2), dropping the `origin - center` translation
+    (1 — and only the *divided* case catches it, since an undivided arm sits at
+    `(0,0)`), measuring the rim at the `from_node` (4), and perturbing the lifted
+    pad formula from `0.62` to `0.6`, which fails **`Diagram.test.tsx`** — the
+    check that the render tests still guard the arithmetic after it moved.
+  - **One test assertion was wrong before the code was**: "a divided approach
+    clears less than an undivided one" fails, because a divided pair also has a
+    wider *reach* and therefore a bigger rim — the two effects hide each other.
+    The claim that survives is the chord: `back == CLEAR + √(r² − off²)`, strictly
+    less than `CLEAR + r`, with `off` read from `carriageways` rather than
+    hardcoded.
+  - **Measured in the app, before and after, from its own SVG export** (Phase 3's
+    instrument). On an imported `cross-4` against a pad of `r = 24`: every arrow's
+    nearest point was **17.49 and 23.43** units from the junction node — all eight
+    covered — and is now **35.99 and 39.22**, all eight clear, by 12.0 and 15.2.
+    Along the road that is the head sitting exactly one arrow-length beyond the
+    rim, which is what §2.4's setback was derived to mean.
+  - **The stop bar's own regression is covered by tests rather than by that
+    export**, and the reason is worth recording: an imported junction gets the
+    `generic` glyph (import seeds defaults, never derives), and only
+    `signalized_cross` draws stop bars — so `cross-4`'s export contains none.
+    `Diagram.test.tsx`'s "draws an undivided signalized junction exactly as it
+    always has" and "leaves a signalised junction's own stop bars exactly as they
+    were" are what pin it, and the `0.62` mutation proves the first still bites.
 
 ## 5. Review log
 

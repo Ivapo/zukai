@@ -26,12 +26,12 @@ import {
   Vec2,
 } from "../model/types";
 import {
+  Arm,
   BASELINE_DROP,
   GORE_LENGTH,
   GoreArm,
   JointEnd,
   LANE_LINE_GAP,
-  MIN_ROAD_WIDTH,
   MarkingAnchor,
   MarkingForm,
   MovementEnd,
@@ -40,11 +40,11 @@ import {
   TEXT_SIZE,
   boundaryTaken,
   carriageways,
-  distance,
   drawnPolyline,
   endDirection,
   gore,
   gorePair,
+  junctionArms,
   laneBands,
   laneLineOffsets,
   lateralShift,
@@ -57,10 +57,12 @@ import {
   movementArc,
   movementPath,
   offsetPolyline,
+  padRadius,
   polygonsPath,
   polylinePath,
   polylinesPath,
   rayCircleExit,
+  ringRadius,
   roadWidth,
   SignChrome,
   signBox,
@@ -325,61 +327,6 @@ function HatchPattern() {
  */
 function hairline(interaction?: Interaction): "non-scaling-stroke" | undefined {
   return interaction ? "non-scaling-stroke" : undefined;
-}
-
-/** An arm meeting a junction, as drawn. */
-interface Arm {
-  /** The link it comes from — the tie-break when a gore has two equally close
-   *  pairs to choose between (`gorePair`). */
-  id: LinkId;
-  /** Unit direction away from the node, along the drawn carriageway. */
-  dir: Vec2;
-  /**
-   * Where that carriageway actually meets the node, in **world** units — the
-   * node position for an undivided road, stepped off it for one carriageway of a
-   * divided pair. The glyph's own group is translated to the node, so an interior
-   * detail drawn from this has to enter as `origin - center`.
-   */
-  origin: Vec2;
-  width: number;
-}
-
-/**
- * The arms incident to a junction node, derived from the links that touch it —
- * from each one *as drawn*, so a divided road's arms follow its carriageways,
- * position included. The lateral position is not re-derived from `DRIVE_SIDE` or
- * a second call to `carriageways`: it is already sitting in the drawn polyline's
- * own end point (ramps spec §2.2, road spec OQ-6).
- *
- * The node *dots* still draw at the node position, so an endpoint or waypoint on
- * a divided road sits in its median (ramps spec OQ-4, open).
- */
-function junctionArms(
-  doc: Document,
-  nodeId: NodeId,
-  offsets: Record<LinkId, number>,
-): Arm[] {
-  const arms: Arm[] = [];
-  for (const link of doc.links) {
-    const touchesStart = link.from_node === nodeId;
-    const touchesEnd = link.to_node === nodeId;
-    if (!touchesStart && !touchesEnd) continue;
-    const poly = drawnPolyline(doc, link, offsets);
-    if (!poly || poly.length < 2) continue;
-    // Orient the polyline so the junction node is first, then step to the next
-    // point to get the direction of the approach leaving the node.
-    const [n0, n1] = touchesStart ? [poly[0], poly[1]] : [poly[poly.length - 1], poly[poly.length - 2]];
-    const dx = n1.x - n0.x;
-    const dy = n1.y - n0.y;
-    const len = Math.hypot(dx, dy) || 1;
-    arms.push({
-      id: link.id,
-      dir: { x: dx / len, y: dy / len },
-      origin: n0,
-      width: roadWidth(link.lanes, linkStyle(doc, link.id)),
-    });
-  }
-  return arms;
 }
 
 /**
@@ -914,26 +861,12 @@ function JunctionGlyphShape({
   movements: Movement[];
   interaction?: Interaction;
 }) {
-  const maxW = arms.length
-    ? Math.max(...arms.map((a) => a.width))
-    : MIN_ROAD_WIDTH;
+  // Both radii, and the arm reach that floors them, are `geometry.ts`'s — the
+  // rim they describe is where an `end`-anchored marking measures its clearance
+  // from, which is not a render-time question (lane arrows Phase 5).
+  const rp = padRadius(arms, center, scale);
 
-  // How far the outermost corner of any arm sits from the node. On an undivided
-  // junction this is just half the widest road; a divided approach adds its step
-  // off the centreline, and the glyph has to reach out to meet it.
-  //
-  // A **floor** on the size the glyph already chose, never a replacement:
-  // `0.62 w + 3 > w / 2` for every road, so substituting would shrink every
-  // undivided pad ever drawn. And the floor is unscaled world units while
-  // `scale` multiplies only the base term, so shrinking a junction can no longer
-  // pull its pad off the carriageways it exists to join — below roughly half
-  // scale the Size control simply stops shrinking the pad (ramps spec §2.2).
-  const reach = arms.length
-    ? Math.max(...arms.map((a) => distance(a.origin, center) + a.width / 2))
-    : 0;
-  const rp = Math.max((maxW * 0.62 + 3) * scale, reach);
-
-  const ro = Math.max(Math.max(20, maxW * 1.35) * scale, reach);
+  const ro = ringRadius(arms, center, scale);
   const ringT = ro * 0.42;
   const ri = ro - ringT;
 

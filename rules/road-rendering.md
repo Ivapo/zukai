@@ -130,6 +130,16 @@ offset-sign traps the section above is about. `origin` is **world** space; the
 glyph's group is translated to the node, so an interior detail enters as
 `origin - center`, which is `(0, 0)` for an undivided road.
 
+**`Arm`, `junctionArms` and both radii live in `geometry.ts`**, not in
+`Diagram.tsx` where they started — `drawnPolyline`'s move, one step on and for the
+same reason. A marking anchored to a link's far end measures its clearance from
+the **rim of the glyph these arms size**, and where a glyph reaches is not a
+render-time question. The radii are two pure functions, `padRadius(arms, center,
+scale)` and `ringRadius(arms, center, scale)`, so `JunctionGlyphShape` reads
+exactly what it used to compute in its own body and the drawing is byte-identical
+across the move — asserted by `Diagram.test.tsx` passing untouched, which is the
+whole gate on a lift like this.
+
 `id` was `gorePair`'s tie-break alone until movements shipped; it is now also
 **how a movement finds its two arms**, since `dir` points away from the node
 whichever way traffic runs and so cannot say which arm a turn arrives on
@@ -143,6 +153,13 @@ whichever way traffic runs and so cannot say which arm a turn arrives on
   so an arc and a stop bar on one arm cannot disagree about where the road meets
   the glyph. Drawn *after* the pad, because the pad is opaque
   (`rules/junctions.md`), and only on the four glyphs that paint one.
+- **An `end`-anchored marking clears the rim by the same expression** —
+  `rimClearance` in `geometry.ts`, `rayCircleExit(origin - center, dir, radius)`
+  with no constant at all, since the marking supplies its own `position` past it.
+  It is the third consumer, and the reason the arms had to leave the render body
+  (`rules/road-markings.md`). Its radius is `junctionRadius`, which differs from
+  the stop bar's `rp` in one case: a **roundabout** measures to `ro`, because a
+  ring buries an approach arrow exactly as a pad does.
 - **The arms' reach is a floor on the pad radius and the roundabout ring**, never
   a replacement: `reach = max(distance(origin, center) + width/2)`, then
   `rp = max((maxW * 0.62 + 3) * scale, reach)` and the same for `ro`. Substituting
@@ -423,8 +440,8 @@ The rest of it — the boundary rule, the styles, the paint — is
 
 | Piece | Where | Tested by |
 |---|---|---|
-| `laneBands`, `roadWidth`, `classWidthFactor`, `carriageways`, `alignmentShift`, `drawnPolyline`/`lateralShift`, `rayCircleExit`, `taperWedge`/`taperWedges`/`taperEdge`, `rayIntersection`/`gorePair`/`gore`, `UNITS_PER_METRE`, `MIN_ROAD_WIDTH`, `DRIVE_SIDE`, `SCHEMATIC_MEDIAN`, `TAPER_LENGTH`, `TAPER_MAX_BEND`, `GORE_LENGTH` | `src/editor/geometry.ts` | `geometry.test.ts` (pure) |
-| `RoadShape`, `HatchPattern`/`needsHatch`, `junctionArms`, `jointEnd`/`tapers`/`TaperShape`, `JunctionGlyphShape`/`GoreShape` | `src/components/Diagram.tsx` | `Diagram.test.tsx` via `renderToStaticMarkup` |
+| `laneBands`, `roadWidth`, `classWidthFactor`, `carriageways`, `alignmentShift`, `drawnPolyline`/`lateralShift`, `Arm`/`junctionArms`, `padRadius`/`ringRadius`/`junctionRadius`, `rayCircleExit`, `taperWedge`/`taperWedges`/`taperEdge`, `rayIntersection`/`gorePair`/`gore`, `UNITS_PER_METRE`, `MIN_ROAD_WIDTH`, `DRIVE_SIDE`, `SCHEMATIC_MEDIAN`, `TAPER_LENGTH`, `TAPER_MAX_BEND`, `GORE_LENGTH` | `src/editor/geometry.ts` | `geometry.test.ts` (pure) |
+| `RoadShape`, `HatchPattern`/`needsHatch`, `jointEnd`/`tapers`/`TaperShape`, `JunctionGlyphShape`/`GoreShape` | `src/components/Diagram.tsx` | `Diagram.test.tsx` via `renderToStaticMarkup` |
 | Colour, tints, line treatments | `src/styles/diagram.css` | `export.test.ts` — reaches exports free |
 | `setLaneKind`, `setLinkLanes`, `setLinkAlign` | `src/editor/state.ts` | `state.test.ts` |
 | `LinkAlign`/`LinkView.align` and `JunctionGlyph::Gore` — the two mirrored model additions | `src/model/types.ts` **and** `src-tauri/src/model/layout.rs`; read through `linkAlign`/`linkStyle` in `src/model/document.ts` | `layout.rs` serde tests |

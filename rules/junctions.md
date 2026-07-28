@@ -419,7 +419,7 @@ pad, which is already inside the frame.
 | `.segmented-rules`, `.movement-*` (Derive shares Add's four declarations by comma) | `src/styles.css` (chrome — **not** `src/styles/diagram.css`; nothing here reaches an export) |
 | `MovementShape`, `MOVEMENT_HEAD`, the `pad` gate and `byLink` | `src/components/Diagram.tsx` |
 | `.jn-movement`, `.jn-movement-line`, `.jn-movement-head` | `src/styles/diagram.css` (paint — it travels into every export) |
-| The glyphs themselves | `JunctionGlyphShape`, `src/components/Diagram.tsx` — see `rules/road-rendering.md` for the arms and the pad |
+| The glyphs themselves | `JunctionGlyphShape`, `src/components/Diagram.tsx` — see `rules/road-rendering.md` for the arms and the pad, which live in `geometry.ts` |
 
 ## The two turn vocabularies, and the hyphen between them
 

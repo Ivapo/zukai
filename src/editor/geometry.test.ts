@@ -8,6 +8,8 @@ import {
 } from "../model/document";
 import {
   Document,
+  JunctionGlyph,
+  JunctionView,
   Lane,
   LaneIdx,
   Link,
@@ -19,6 +21,7 @@ import {
   LinkView,
   Marking,
   NodeId,
+  NodeKind,
   SignKind,
   TurnDirection,
   Vec2,
@@ -63,6 +66,7 @@ import {
   drawnPolyline,
   gore,
   gorePair,
+  junctionRadius,
   laneBands,
   laneLine,
   laneLineOffsets,
@@ -2099,6 +2103,223 @@ describe("markingAnchor, and the end it measures from", () => {
         markingAnchor(road(stop(anchor)), road(stop(anchor)).markings[0], {})!.dir,
       ).toEqual({ x: 1, y: 0 });
     }
+  });
+});
+
+/**
+ * The end node was only ever a **stand-in for the junction's rim** — the thing
+ * both an approach arrow and the glyph's own stop bar actually want to measure
+ * from (lane arrows §2.4, Phase 5). The node is *inside* the glyph, so paint
+ * measured to it is paint under an opaque pad.
+ *
+ * Every road below runs **due east** from the origin, so a marking's distance
+ * back from the junction reads straight off `120 - at.x`.
+ */
+describe("markingAnchor at a junction rim", () => {
+  /** `N1 → N2` 120 units east, with whatever `N2` turns out to be. */
+  function road(
+    n2: NodeKind,
+    view?: Partial<JunctionView>,
+    extra: Link[] = [],
+    anchor: LinkEnd = "end",
+  ): Document {
+    const base = emptyDocument("rim");
+    return {
+      ...base,
+      nodes: [
+        { id: "N1", type: "endpoint" },
+        { id: "N2", type: n2 },
+      ],
+      links: [
+        {
+          id: "L1",
+          from_node: "N1",
+          to_node: "N2",
+          lanes: defaults(2),
+          median_gap: DEFAULT_MEDIAN_GAP,
+        },
+        ...extra,
+      ],
+      layout: {
+        ...base.layout,
+        nodes: { N1: { pos: { x: 0, y: 0 } }, N2: { pos: { x: 120, y: 0 } } },
+        junctions: view
+          ? { N2: { glyph: "generic", rotation: 0, scale: 1, ...view } }
+          : {},
+      },
+      markings: [
+        {
+          id: "M1",
+          link: "L1",
+          position: 8.75,
+          anchor,
+          kind: { type: "turn_arrow", directions: ["through"] },
+        },
+      ],
+    };
+  }
+
+  const CLEAR = 8.75 * UNITS_PER_METRE; // 22.5 units — the importer's own setback
+
+  /** How far back from `N2` the marking sits. */
+  function back(doc: Document): number {
+    return 120 - markingAnchor(doc, doc.markings[0], carriageways(doc))!.at.x;
+  }
+
+  /**
+   * **The check the end-node anchor cannot pass** — asserted by turning the Size
+   * stepper, which moves the rim while the node stays exactly where it is. The
+   * clearance is what has to hold constant; the marking's own position must move
+   * with the glyph, or the first assertion is passing on a coincidence.
+   */
+  it("holds its clearance from the rim while Size changes the pad", () => {
+    const seen = new Set<number>();
+    for (const scale of [1, 1.5, 2]) {
+      const doc = road("junction", { scale });
+      const radius = junctionRadius(doc, "N2", carriageways(doc))!;
+      expect(back(doc) - radius).toBeCloseTo(CLEAR);
+      seen.add(Math.round(back(doc) * 1000));
+    }
+    expect(seen.size).toBe(3);
+  });
+
+  /**
+   * The fallback, which is the whole of what a marking did before this: a node
+   * with no glyph on it has no rim to clear, so the distance is the stored one
+   * and nothing about Phase 2's behaviour moves.
+   */
+  it("falls back to the node where there is no glyph to clear", () => {
+    // An endpoint — no junction record at all.
+    expect(back(road("endpoint"))).toBeCloseTo(CLEAR);
+    // A gore, which is paint *between* two arms rather than a disc around a node.
+    expect(back(road("junction", { glyph: "gore" }))).toBeCloseTo(CLEAR);
+    // ...and a junction that is one, so the two really are different answers.
+    expect(back(road("junction"))).toBeGreaterThan(CLEAR);
+  });
+
+  /**
+   * A **roundabout is not excluded**, though `Diagram.tsx`'s `pad` gate excludes
+   * it: that gate is about movement arcs, which on a roundabout would be chords
+   * across its own island. An anchor has no such reason, and a ring buries an
+   * approach arrow exactly as a pad does — so the rim is `ro`, which is the
+   * larger radius for the same arms.
+   */
+  it("measures to a roundabout's ring rather than to its node", () => {
+    const ring = back(road("junction", { glyph: "roundabout" }));
+
+    expect(ring).toBeGreaterThan(back(road("junction", { glyph: "generic" })));
+    expect(ring).toBeGreaterThan(CLEAR);
+  });
+
+  /**
+   * The clearance comes off **this link's own carriageway**, not off the node:
+   * `Arm.origin` is the drawn polyline's own end point, so a divided approach
+   * leaves the rim along a **chord** rather than a diameter and clears less than
+   * the full radius. An undivided arm sits at `(0, 0)` relative to the node and
+   * clears exactly the radius — which is why it cannot catch a missing
+   * translation, and why this case exists.
+   *
+   * Not asserted by comparing the two documents: a divided pair also has a wider
+   * *reach*, so it has a bigger rim as well as an off-centre approach, and the
+   * two effects would hide each other.
+   */
+  it("clears the rim from the arm's own carriageway on a divided road", () => {
+    const twin: Link = {
+      id: "L2",
+      from_node: "N2",
+      to_node: "N1",
+      lanes: defaults(2),
+      median_gap: DEFAULT_MEDIAN_GAP,
+    };
+    const divided = road("junction", {}, [twin]);
+    const undivided = road("junction");
+
+    // Undivided: the ray leaves along a diameter, so the whole radius clears.
+    const straight = junctionRadius(undivided, "N2", carriageways(undivided))!;
+    expect(back(undivided)).toBeCloseTo(CLEAR + straight);
+
+    // Divided: the same ray, started `off` to the side of the node.
+    const offs = carriageways(divided);
+    const off = Math.abs(offs["L1"]);
+    const r = junctionRadius(divided, "N2", offs)!;
+    expect(off).toBeGreaterThan(0);
+    expect(back(divided)).toBeCloseTo(CLEAR + Math.sqrt(r * r - off * off));
+    expect(back(divided)).toBeLessThan(CLEAR + r);
+  });
+
+  /** A `start` anchor takes no rim term, so nothing already saved moves. */
+  it("leaves a start-anchored marking measuring from its own end", () => {
+    const doc = road("junction", {}, [], "start");
+
+    expect(markingAnchor(doc, doc.markings[0], carriageways(doc))!.at.x).toBeCloseTo(
+      CLEAR,
+    );
+  });
+});
+
+describe("junctionRadius", () => {
+  /** A junction `N2` with `arms` roads meeting it, all 2-lane arterials. */
+  function hub(glyph: JunctionGlyph, scale = 1, arms = 4): Document {
+    const base = emptyDocument("hub");
+    const around: Vec2[] = [
+      { x: 0, y: 0 },
+      { x: 240, y: 0 },
+      { x: 120, y: -120 },
+      { x: 120, y: 120 },
+    ].slice(0, arms);
+    return {
+      ...base,
+      nodes: [
+        { id: "N2", type: "junction" },
+        ...around.map((_, i) => ({ id: `A${i}`, type: "endpoint" as const })),
+      ],
+      links: around.map((_, i) => ({
+        id: `L${i}`,
+        from_node: `A${i}`,
+        to_node: "N2",
+        lanes: defaults(2),
+        median_gap: DEFAULT_MEDIAN_GAP,
+      })),
+      layout: {
+        ...base.layout,
+        nodes: {
+          N2: { pos: { x: 120, y: 0 } },
+          ...Object.fromEntries(around.map((pos, i) => [`A${i}`, { pos }])),
+        },
+        junctions: { N2: { glyph, rotation: 0, scale } },
+      },
+    };
+  }
+
+  it("gives a pad glyph its pad and a roundabout its ring", () => {
+    const pad = junctionRadius(hub("generic"), "N2", {})!;
+    const ring = junctionRadius(hub("roundabout"), "N2", {})!;
+
+    expect(pad).toBeGreaterThan(0);
+    // The ring is the larger of the two for the same arms — which is the reason
+    // a roundabout needs its own radius here rather than the pad's.
+    expect(ring).toBeGreaterThan(pad);
+    // Every glyph that paints a pad gets the same one.
+    for (const glyph of ["signalized_cross", "priority_cross", "t_junction"] as const) {
+      expect(junctionRadius(hub(glyph), "N2", {})).toBeCloseTo(pad);
+    }
+  });
+
+  it("grows with Size, as the drawn glyph does", () => {
+    expect(junctionRadius(hub("generic", 2), "N2", {})!).toBeGreaterThan(
+      junctionRadius(hub("generic", 1), "N2", {})!,
+    );
+  });
+
+  /** Three ways a node reaches nowhere, and each falls back to the node itself. */
+  it("gives nothing where there is no glyph to measure to", () => {
+    expect(junctionRadius(hub("gore"), "N2", {})).toBeUndefined();
+    // A junction with no arms — every link removed.
+    const bare = { ...hub("generic"), links: [] };
+    expect(junctionRadius(bare, "N2", {})).toBeUndefined();
+    // And a node that is not a junction at all.
+    expect(junctionRadius(hub("generic"), "A0", {})).toBeUndefined();
+    expect(junctionRadius(hub("generic"), "nowhere", {})).toBeUndefined();
   });
 });
 
