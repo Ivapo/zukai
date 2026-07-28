@@ -83,8 +83,17 @@ explicit plan steps, (1) a **commit plan** (what gets committed, the message,
 whether to push) and (2) a **reconciliation step** (which `rules/`, `CLAUDE.md`, or
 project-memory roadmap entries the phase changes — or "none needed"). These are
 default steps, not things to request each time. And **never plan or implement a
-phase from a spec still `status: draft`** — it must pass the review loop
-(`specs/spec-authoring.md §7`) first.
+phase that has not passed the review loop** (`specs/spec-authoring.md §7`) —
+which means `status: draft` blocks the whole spec, *and* a phase added to an
+already-shipped spec (§6.1) is blocked until its own scoped round says
+`reviewed`, even though that spec is at `partial` rather than `draft`. The gate
+is on the phase, not the document.
+
+**Additions go in the spec that owns the subject** (`spec-authoring.md §6.1`).
+An implemented spec can be reopened to `partial` and given a new phase; starting
+a second spec to avoid touching a finished one is how two documents end up
+designing one subsystem. A new spec is for work spanning several subsystems, or
+work that removes what another spec shipped.
 
 - `specs/spec-authoring.md` — how to write specs (read before drafting one)
 - `specs/_template.md` — copy this to start a new spec
@@ -96,7 +105,9 @@ phase from a spec still `status: draft`** — it must pass the review loop
 - `specs/ramps_and_tapers_spec.md` — the joins between roads: arm positions, link
   alignment, lane-drop tapers, gores (implemented; 4 phases)
 - `specs/road_markings_spec.md` — the paint on the road: stop and give-way lines,
-  crossings, lane arrows, lane lines (implemented; 4 phases)
+  crossings, lane arrows, lane lines (Phases 1–4 implemented; **reopened** for
+  Phase 5, the two-headed arrow — added 2026-07-28, review pending). The worked
+  example of `spec-authoring.md` §6.1.
 - `specs/signs_and_text_spec.md` — letters in the drawing: the embedded font,
   painted road text, and roadside signs (implemented; 4 phases)
 - `specs/junction_semantics_spec.md` — what a junction *means*: control,
@@ -112,7 +123,8 @@ phase from a spec still `status: draft`** — it must pass the review loop
   approach instead of arcs across the pad: a marking you can drag, a marking
   anchored to the junction end, import painting the lanes from the file's own
   lane data, and the removal of the movement arcs and the movement list
-  (**draft — not reviewed**; 4 phases)
+  (**reviewed** — converged in 2 rounds; 4 phases plus a deferred Phase 5 for
+  the junction rim)
 
 **`rules/` — current-state reference (the *what is*).** Terse, authoritative maps
 of subsystems, read on demand. Unlike specs, rules describe the code as it is now;

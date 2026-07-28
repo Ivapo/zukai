@@ -1,10 +1,10 @@
 ---
-status: implemented (all 4 phases shipped 2026-07-25; reviewed in 3 rounds)
-last_updated: 2026-07-25
-note: Render and place road-surface markings — stop and give-way lines, crossings, lane arrows, lane lines. Paint only; signs and any painted text wait on font embedding.
+status: partial (Phases 1–4 shipped 2026-07-25, reviewed in 3 rounds; Phase 5 added 2026-07-28, NOT YET REVIEWED — not cleared to implement)
+last_updated: 2026-07-28
+note: Render and place road-surface markings — stop and give-way lines, crossings, lane arrows, lane lines. Paint only; signs and any painted text wait on font embedding. Reopened 2026-07-28 for the two-headed arrow (§2.11, Phase 5).
 implemented: ["Phase 1", "Phase 2", "Phase 3", "Phase 4"]
-not_implemented: []
-related: [specs/road_rendering_spec.md, specs/ramps_and_tapers_spec.md, specs/diagram_export_spec.md]
+not_implemented: ["Phase 5"]
+related: [specs/road_rendering_spec.md, specs/ramps_and_tapers_spec.md, specs/diagram_export_spec.md, specs/lane_arrows_spec.md]
 reference: "Road-atlas marking convention — a transverse bar where traffic stops, a triangle line where it gives way, a zebra where people cross, destination arrows in the lane they belong to, and a longitudinal line whose style says whether you may cross it. Not to-scale marking dimensions (that is Assimilator's business, and it has no markings anyway), and not signage, which is textual."
 ---
 
@@ -460,6 +460,59 @@ discipline to observe and no `cargo` gate beyond the pre-commit hook's.
   than pre-emptively widening it — the same expected-no-change check ramps §2.7
   recorded, which held.
 
+### 2.11 The two-headed arrow (added 2026-07-28, reopening — Phase 5)
+
+Everything above this line shipped on 2026-07-25 and is left as it shipped
+(`spec-authoring.md §6.1`). This section is the reopening, and it adds one thing
+§2.7's table cannot express: **an arrow with a head at each end**, for a lane
+carrying traffic both ways.
+
+The case that makes it worth having is the **two-way left-turn lane** — the
+shared centre lane, entered from both directions, marked with a left-turn head at
+each end. A plain two-way single-track lane is the same glyph with `through` at
+both ends.
+
+**Nothing can import it, and that is structural rather than a gap.** Assimilator
+has no per-lane direction at all: `LinkConfig` is `from_node` → `to_node`
+(`crates/config/src/network.rs:779-785`), and its own `median_gap` doc defines a
+two-way road as a **bidirectional *pair* of links**. So a lane there is
+one-directional by construction, and this joins `Lane.kind` in the category
+`import.rs:123` already names — "schematic-only, so nothing in the file can
+supply it". `lane_arrows_spec.md` Phase 3 paints from `from_lanes` and will never
+paint one of these.
+
+#### It is a field, not a variant, and that is a `SCHEMA_VERSION` decision
+
+`MarkingKind::TurnArrow` gains an optional `back?: TurnDirection[]` — the
+directions painted at the *upstream* end, pointing upstream. Absent means today's
+single-headed arrow, byte-identical for every existing document.
+
+**The rejected alternative is the expensive one.** Adding `back_left` and friends
+to `TurnDirection` (`decoration.rs:61-74`) is a **new variant of an existing
+enum**, which `model/mod.rs:29-42` is explicit costs a `SCHEMA_VERSION` bump — an
+older build fails to deserialize the whole document. A new optional *field* on an
+existing struct variant costs nothing, because nothing derives
+`deny_unknown_fields`. Same feature, opposite cost, decided entirely by where the
+change lands in the type. `Marking.anchor` (`lane_arrows_spec.md` §2.3.1) is the
+precedent.
+
+#### The trap: `back`'s directions are in the oncoming driver's frame
+
+`markingArrow` builds every branch from `fork = TURN_ARROW_LENGTH / 2 - reach`
+and `at(across, along)` (`geometry.ts:1215-1283`), so a second head is a
+reflection of code that already exists — `fork → -fork`, with `dl` negated.
+
+**But `across` reflects too.** A back branch labelled `left` is left *for the
+driver it faces*, which is the opposite side of the road. Reflect `along` only,
+and a two-way left-turn lane draws with both heads swinging the same way — a
+drawing that looks entirely plausible and is wrong. That is the same silent-mirror
+failure class as `lane_arrows_spec.md` §2.5.1's lane numbering, and it earns the
+same treatment: **one explicit frame flip**, applied once, rather than two sign
+changes distributed through `stub()` and `hook()`.
+
+The shaft also shortens. Today it runs `-L/2 → fork`; two-headed it runs
+`-fork → fork`, symmetric, which is what makes the reflection exact.
+
 ## 3. Open questions
 
 - **OQ-1** — **Does a marking need to survive a link reversal?** Nothing reverses
@@ -502,6 +555,11 @@ discipline to observe and no `cargo` gate beyond the pre-commit hook's.
   at `rp + 4` — placeable, with roughly two units of clearance, and no more. Any
   snap-to-rim design has to reckon with that disc. (design-call; does not block
   Phase 1, but Phase 1's `bun run dev` pass is where the clearance first shows.)
+  **Half-answered elsewhere (2026-07-28):** `lane_arrows_spec.md` §2.3.1 adds
+  `Marking.anchor` so *auto-placed* paint measures from the junction end, and its
+  Phase 5 moves that anchor to the rim proper. Neither gives a **human** a snap —
+  dragged paint still lands where it was dropped — so this stays open in its
+  general form. That spec's own OQ-5 records the dead zone above, still unfixed.
 - **OQ-6** — **Should a marking follow the road when a node is dragged?** §2.2
   settles what happens to the *stored* number (nothing — metres are absolute, and
   a marking past the drawn end clamps to it), but not whether that is what a user
@@ -510,6 +568,12 @@ discipline to observe and no `cargo` gate beyond the pre-commit hook's.
   makes the stored metres a function of layout, which §2.2 rejected. (design-call;
   proposed: leave it, and revisit only if it reads badly in the Phase 1 `bun run
   dev` pass. Does not block any phase.)
+  **Answered elsewhere (2026-07-28):** it did not read badly by hand — the
+  pressure came from `lane_arrows_spec.md` §2.3 instead, where *imported* paint
+  is minted on 1285-unit arms nobody has schematised yet, so every arrow needs
+  re-dragging the moment a node moves. `Marking.anchor` is the fix, and it takes
+  neither option here: metres stay absolute (§2.2 holds) and the **end** they are
+  measured from becomes selectable.
 
 ## 4. Implementation phases
 
@@ -781,6 +845,42 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
     to an action that names nothing but the kind; the Span control shows the new
     reading immediately. Recorded rather than engineered around.
 
+### Phase 5 — The two-headed arrow  (added 2026-07-28; **not yet reviewed**)
+
+Added by reopening (`spec-authoring.md §6.1`). Phases 1–4 are untouched and this
+depends on all of them. **It is not cleared to implement until its own scoped
+review round lands** (§7's phase-level gate) — the spec being `partial` rather
+than `draft` does not clear it.
+
+- **Scope:** §2.11 — `MarkingKind::TurnArrow` gains `back?: TurnDirection[]`.
+  - `decoration.rs` / `types.ts` — the optional field. **No `SCHEMA_VERSION`
+    move** (§2.11), asserted rather than assumed.
+  - `geometry.ts` — `markingArrow` (`:1215`) grows the second head: the shaft
+    becomes symmetric (`-fork → fork`) and back branches are built through **one
+    frame flip** negating both `along` and `across`, not per-branch sign changes.
+    `stub()` and `hook()` are reused unchanged through that flip.
+  - `Inspector.tsx` — a second direction multi-select, shown only for
+    `turn_arrow`, on the existing one's shape. `setMarkingKind` carries the whole
+    tagged `MarkingKind`, so this is a fifth panel control and **no new action** —
+    the same payoff Phase 4 recorded.
+- **Exit gate:** `bun run build` + `bun run test` + `cargo test` green.
+  - `geometry.test.ts`: a `back: ["left"]` arrow puts its rear head on the
+    **opposite side of the band** from a forward `["left"]` — the assertion that
+    catches the §2.11 frame trap, and the one that passes if only `along` is
+    reflected must be shown to fail. A two-way left-turn lane
+    (`directions: ["left"], back: ["left"]`) is symmetric under a 180° rotation
+    about the marking's own point. A `back` u-turn hook stays inside the band, as
+    Phase 3's containment rule requires of all six directions.
+  - `model/mod.rs`: a `.zkai` with no `back` loads as a single-headed arrow, and
+    one saved without it writes **no key**.
+  - **Every existing arrow test still passes untouched** — the assertion that
+    absent-means-today is real.
+  - A `bun run dev` pass: paint a two-way left-turn lane and confirm it reads as
+    one marking rather than two arrows fighting.
+- **Docs touched:** `rules/road-markings.md` (the arrow gains a second head and
+  the frame flip that keeps it honest); this spec's frontmatter to
+  `implemented`.
+
 ## 5. Review log
 
 ### Round 1 — 2026-07-25 — `VERDICT: NOT READY` (4 blocking)
@@ -891,3 +991,22 @@ records a real consequence a reader would otherwise hit at run time:
 
 Converged in three rounds. `status` moves `draft` → `reviewed`; the spec is
 cleared for implementation, Phase 1 first.
+
+### Reopened — 2026-07-28 — Phase 5 added, **review pending**
+
+The first use of `spec-authoring.md` §6.1. All four phases had shipped and the
+spec was `implemented`; a two-headed turn arrow is squarely this spec's subject
+(§2.7's vocabulary, Phase 3's geometry), so it is added here as **Phase 5**
+rather than given a spec of its own. Nothing above §2.11 was renumbered,
+rewritten, or removed, and Rounds 1–3 stand as they were.
+
+`status` moves `implemented` → `partial`. **Phase 5 has not been reviewed**, and
+under §7's phase-level gate that blocks it independently of the document's
+status — the next entry here should be `Round 1 — Phase 5 only`, judging that
+phase alone.
+
+Why the addition was worth the reopening rather than a deferral: the alternative
+model — new `TurnDirection` variants — costs a `SCHEMA_VERSION` bump, and the
+cheap route is only obvious while the reasoning for `Marking.anchor`'s
+field-not-variant decision is fresh. Recorded now so it is not re-derived
+expensively later.

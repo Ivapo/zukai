@@ -99,11 +99,68 @@ current as phases land. When a shipped phase changes what a rule documents, upda
 that `rules/` file (and the roadmap in project memory) in the same pass — that's
 the close-out habit.
 
+**That arrow is the usual path, not a one-way door.**
+
+### 6.1 Reopening an implemented spec
+
+**A feature belongs in the spec that owns its subject, even if that spec has
+shipped.** A new turn-arrow direction belongs in `road_markings_spec.md`; a new
+junction control belongs in `junction_semantics_spec.md`. Starting a second spec
+to avoid touching a finished one is how the corpus turns into sprawl — two
+documents design the same subsystem and neither is the place to look.
+
+To reopen: move `status` back to `partial` with a **prose status** carrying both
+dates (§1 already allows prose), add the new phase numbered **after** the last
+existing one, and list it in `not_implemented`. Nothing already shipped is
+renumbered, rewritten, or removed.
+
+```yaml
+status: partial (Phases 1–4 shipped 2026-07-25; Phase 5 added 2026-07-27, reviewed)
+implemented: ["Phase 1", "Phase 2", "Phase 3", "Phase 4"]
+not_implemented: ["Phase 5"]
+```
+
+- **Don't renumber, don't rewrite history.** Old phases stay as they shipped even
+  where the code has since moved — they are the record of what was decided then.
+  The Review log is append-only for the same reason.
+- **Fix a stale citation only in a section the new phase touches.** A reopened
+  spec's older sections will cite code that has moved; chasing all of them is a
+  different job from adding a phase, and `rules/` is authoritative for current
+  state anyway.
+- **Reopen for an addition, not for a reversal.** Cutting or undoing shipped work
+  is a `§0` closing note (`signal_plans_spec.md`'s model) or a superseding spec —
+  not a phase, because a phase that removes another phase reads as if the
+  original was never built.
+- **A cross-cutting feature still gets its own spec.** If the work spans several
+  subsystems and its unifying thread is a *goal* rather than a subject — or if it
+  deletes another spec's shipped features — it is a new spec.
+  `lane_arrows_spec.md` is the worked example: its first two phases would have
+  been at home as `road_markings_spec.md` Phases 5–6, but its fourth removes what
+  `junction_semantics_spec.md` shipped, and no subject spec has standing to do
+  that.
+
 ## 7. Review process
 
 A spec passes a review loop before it is built. **Don't plan or implement a phase
 from a spec still `status: draft`** — review is the gate between drafting and
 building. (Validated on `save_load_spec.md`, which converged in two rounds.)
+
+**The gate is on the phase, not on the document.** `status` answers "how far has
+this shipped", which is a different question from "has this phase been reviewed",
+and §6.1 is where the two come apart: a Phase 5 added to a spec at `partial` has
+never been reviewed while the spec is not `draft`, so a gate keyed only on
+`status` waves it through. So:
+
+- **A phase added to a shipped spec gets its own review round**, scoped to that
+  phase. The reviewer reads the whole spec for context but judges **only the new
+  phase** — the shipped ones are not up for re-litigation, and saying so in the
+  prompt is what stops the loop rediscovering four-month-old decisions.
+- **Log it as a scoped round** — `### Round 1 — Phase 5 only — YYYY-MM-DD` —
+  appended below the existing rounds, which stay untouched.
+- **The prose `status` records it**, so the gate is checkable by reading one
+  line: `partial (Phases 1–4 shipped 2026-07-25; Phase 5 added 2026-07-27,
+  reviewed)`. A phase whose status line does not say `reviewed` is not cleared,
+  whatever the document's overall state.
 
 1. **Round 1 — fresh reviewer with repo access.** Spawn a clean-context agent that
    can **read the repo**, not just the spec text — its highest-value job is catching
