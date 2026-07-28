@@ -6,9 +6,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Zukai is a schematic road network editor — it draws roundabouts, junctions, and motorway segments (onramps/offramps, lane counts, road markings, signage) as clean diagrams that are not necessarily to scale, the way a metro map represents a transit network rather than a surveyed one. Tauri 2 app: Rust backend, React + TypeScript frontend, Bun as the package manager.
 
-**What it is for, and the test every feature has to pass.** Zukai exists to produce **readable figures for a paper**. A feature earns its place if it makes the drawn network clearer, or makes drawing it faster. That is the whole scope, and it is deliberately narrower than "a road network editor" — a distinction that has already cost this project real work, twice (see below).
+**Zukai is a road *drawing* app.** It draws road networks so they can go in a paper as readable figures, and it can *also* read Assimilator's networks and draw those. That is the whole scope, and it is deliberately narrower than "a road network editor" — a distinction that has already cost this project real work, twice (see below).
 
-So, before planning anything, ask: **which phase of this produces the picture?** A phase whose output is a panel, a table, or a file no reader ever sees is a phase to argue for explicitly, not to assume.
+### The shrunk-down road, and the one idea everything follows from
+
+Assimilator holds a network at **real scale with real geometry**. Zukai holds **the same network shrunk down to represent it** — the drawing is a diagram of the road, not a measurement of it.
+
+So the drawing and the facts about the road are **deliberately decoupled**, and the worked example is the whole idea in one line:
+
+> A link can carry text reading **`1800m`**, meaning *this road is 1800 metres long*. Change the text to `1500m` and **the drawing does not move.** The label is the truth about the world; the picture is a diagram.
+
+Three things follow, and they are the difference between building this well and re-deriving it badly:
+
+- **A number is an annotation, not a measurement of the drawing.** Nothing should compute a real-world quantity *from* canvas geometry, and nothing should resize the canvas to honour a real-world quantity. They are two independent records of the same road.
+- **Import lays out for legibility, not for fidelity.** The file's coordinates say where things are in metres; the canvas says where they read well. Real lengths come across as *labels*, not as distances. (This is the answer to `network_yaml_spec.md` OQ-2, which had been stuck looking for a scale factor — the honest answer is that there is no right one, because scale is not what the drawing is carrying.)
+- **A feature earns its place if it makes the drawn network clearer, or makes drawing it faster.** Before planning anything, ask: **which phase of this produces the picture?** A phase whose output is a panel, a table, or a file no reader ever sees is a phase to argue for explicitly, not to assume.
 
 ## Relationship to Assimilator
 
