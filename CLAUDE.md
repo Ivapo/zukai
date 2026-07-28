@@ -94,9 +94,8 @@ phase from a spec still `status: draft`** — it must pass the review loop
   `#[serde(default)]` fields that fail silently (**Phases 1–2 implemented;
   Phases 3–4 cut** — Zukai does not write `network.yaml`, see below)
 - `specs/signal_plans_spec.md` — the stages a signalized junction cycles
-  through: the derived cycle time that makes an invalid plan unrepresentable
-  (**Phase 1 implemented; Phases 2–4 cut** — a plan is a table, and this project
-  prints pictures)
+  through (**all 4 phases cut** — a plan is a table, and this project prints
+  pictures; kept only as the record of why)
 
 **`rules/` — current-state reference (the *what is*).** Terse, authoritative maps
 of subsystems, read on demand. Unlike specs, rules describe the code as it is now;
@@ -140,8 +139,7 @@ there's real cross-file knowledge worth extracting, not for every file.
   box the chrome is grown from whatever a kind paints, the roundel's ring that is
   fat because the type size is fixed, and the one place that ordering runs out:
   the destination panel, which colour has to separate because shape cannot
-- `rules/junctions.md` — what a junction *means* rather than looks like, signal
-  plans included from their Phase 1: the three
+- `rules/junctions.md` — what a junction *means* rather than looks like: the three
   records keyed by one `NodeId` and which of them a hand-edited file may omit, the
   glyph/control split and the one-way traffic between them, the nudge and its
   "only from the default glyph" clause, why clearing `rule` belongs to the control
@@ -164,12 +162,6 @@ there's real cross-file knowledge worth extracting, not for every file.
   merge that is the third thing the id-*is*-the-pair rule pays for, why the
   remainder is exported rather than inlined (the button must be dead exactly when
   the action would be), and the one panel row shown when spent rather than hidden
-  — and the signal plan: the cycle time that is derived by a plan *constructor*
-  rather than queried, so the one caller whose stages did not change still
-  recomputes; the absent-key rule that stops at the plan and does not reach
-  `phases: []`; the seed that is an all-red frame because a plausible plan would
-  lie; the guard on `control` that departs from `setJunctionRule` because a stray
-  rule is inert and a stray plan is validated; and why nothing is clamped
 - `rules/network-yaml.md` — the format Zukai reads but does not own **and does
   not write**: two formats with two owners and why the module is not
   `persist.rs`, the `schema_version` header that is real *and* not a struct field

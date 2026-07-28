@@ -104,8 +104,7 @@ pub struct Metadata {
 mod tests {
     use super::decoration::{Marking, MarkingKind, Sign, SignKind, TurnDirection};
     use super::graph::{
-        Junction, JunctionControl, Lane, Link, Movement, MovementKind, Node, NodeKind, Phase,
-        SignalPlan,
+        Junction, JunctionControl, Lane, Link, Movement, MovementKind, Node, NodeKind,
     };
     use super::layout::{
         JunctionGlyph, JunctionView, Layout, LinkAlign, LinkStyle, LinkView, NodeView, Vec2,
@@ -166,18 +165,6 @@ mod tests {
                 to_link: "L2".into(),
                 kind: MovementKind::Through,
             }],
-            signal_plan: Some(SignalPlan {
-                cycle_time: 60.0,
-                offset: 0.0,
-                phases: vec![Phase {
-                    id: "P1".into(),
-                    duration: 25.0,
-                    green_movements: vec!["M_L1_L2".into()],
-                    permitted_movements: vec![],
-                    amber_time: 3.0,
-                    all_red_time: 2.0,
-                }],
-            }),
         }];
         doc.layout = Layout {
             nodes: [

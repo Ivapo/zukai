@@ -14,8 +14,6 @@ export type NodeId = string;
 export type LinkId = string;
 /** Stable id of a turn movement. */
 export type MovementId = string;
-/** Stable id of a signal phase. */
-export type PhaseId = string;
 /** Stable id of a sign. */
 export type SignId = string;
 /** Stable id of a marking. */
@@ -80,30 +78,12 @@ export interface Movement {
   type: MovementKind;
 }
 
-/** One stage of a signal plan. */
-export interface Phase {
-  id: PhaseId;
-  duration: number;
-  green_movements?: MovementId[];
-  permitted_movements?: MovementId[];
-  amber_time: number;
-  all_red_time: number;
-}
-
-/** A fixed-time signal plan for a signalized junction. */
-export interface SignalPlan {
-  cycle_time: number;
-  offset: number;
-  phases: Phase[];
-}
-
 /** The intersection attached to a junction-kind node. */
 export interface Junction {
   node_id: NodeId;
   control: JunctionControl;
   rule?: UnsignalizedRule;
   movements?: Movement[];
-  signal_plan?: SignalPlan;
 }
 
 // ----- decorations (Zukai-native, never exported) -----

@@ -1,9 +1,9 @@
 ---
 status: closed
 last_updated: 2026-07-27
-note: "Fixed-time signal plans. **Phase 1 shipped; Phases 2–4 cut 2026-07-27** — a plan is a table, its only drawable form is a stage diagram, and this project prints network figures. Read §0 before planning anything from this file."
-implemented: ["Phase 1"]
-cut: ["Phase 2", "Phase 3", "Phase 4"]
+note: "Fixed-time signal plans. **All four phases cut 2026-07-27.** Phase 1 shipped and was reverted the same day; 2–4 were never started. A plan is a table, its only drawable form is a stage diagram, and this project prints network figures. Kept as the record of why — read §0 and stop there."
+implemented: []
+cut: ["Phase 1", "Phase 2", "Phase 3", "Phase 4"]
 not_implemented: []
 related: [specs/junction_semantics_spec.md, specs/network_yaml_spec.md, specs/road_markings_spec.md]
 reference: "Assimilator's `crates/config/src/network.rs` — `SignalPlanConfig` (`:1380-1393`) and `PhaseConfig` (`:1395-1421`) — plus `crates/network/src/validation.rs`, whose rule 4 (`:14`, computed at `:425-436`, tolerance `CYCLE_TIME_TOLERANCE = 0.01` at `:30`) and dangling-movement check (`:437-457`, `UnknownGreenMovement`) are the two things an editor here can break. Read at `../assimilator` on 2026-07-27. Explicitly *not* in scope from it: actuated and adaptive control, `detectors`, the per-junction `b_amber`/`enforce_entry_guards` simulation fields, and corridor coordination beyond carrying `offset`."
@@ -11,12 +11,12 @@ reference: "Assimilator's `crates/config/src/network.rs` — `SignalPlanConfig` 
 
 # Signal Plans Spec
 
-## 0. Closing note — Phases 2–4 are cut (2026-07-27)
+## 0. Closing note — the whole spec is cut (2026-07-27)
 
-**Read this before taking anything below as a plan.** Phase 1 shipped and stands.
-Phases 2, 3 and 4 are **cut by decision**, and the design below still argues for
-them; it is kept as the record of a well-reviewed spec that was aimed at the
-wrong target.
+**Read this and stop.** All four phases are gone. Phase 1 shipped in the morning
+and was reverted the same day; 2, 3 and 4 were never started. Everything below is
+kept as the record of a well-reviewed spec that was aimed at the wrong target,
+and it still argues for building all of it. It is not a plan.
 
 **The question that ended it**, asked by the user and correct: *what use are the
 signal phases when they are not shown in a figure?* Zukai exists to produce
@@ -37,16 +37,16 @@ as one figure. That *is* the conventional form and it *would* print. The user
 declined it: the goal is drawing road networks that fit in a figure, not
 publishing signal phasing. Recorded here so it is not proposed a second time.
 
-**Phase 1 stands on its own** and is not left behind: it fixed a live bug where
-`setJunctionControl`'s unsignalized branch kept a `signal_plan` that should not
-exist. The panel it added is small and harmless.
+**Why Phase 1 went too, having been kept for a day.** It was spared at first
+because it fixed a real bug — `setJunctionControl`'s unsignalized branch kept a
+`signal_plan` that should not exist. But the bug only existed *because* the field
+did. With `Junction.signal_plan` gone from both mirrors there is nothing to leave
+behind, so the fix is not lost, it is unnecessary. What remained was a panel
+editing stage timings for a cycle that could not say what ran in it.
 
-**The two bugs Phase 2 was going to fix are still live**, and are now recorded in
-`rules/junctions.md` as known defects rather than scheduled work: `deleteMovement`
-and `dropMovements` purge a movement from `j.movements` and not from any stage
-naming it. **Nothing Zukai does can act on them** — the export that would have
-written a dangling id is gone, and a stale id in a `.zkai` is inert. If import
-ever grows a partner that writes, this is the first thing to fix.
+**The two bugs Phase 2 was going to fix are moot**, for the same reason: nothing
+in the model holds a movement id inside a stage any more, so `deleteMovement` and
+`dropMovements` have no stale reference to leave.
 
 **The lesson, generalised**, and it is in `CLAUDE.md` now: before planning a
 spec's phases, ask **which phase produces the picture**. A phase whose output is
@@ -473,49 +473,6 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
     anything in Zukai has displayed that data.
 - **Docs touched:** `rules/junctions.md` (whose opening still says `signal_plan`
   is a field nothing reads); the project-memory roadmap.
-
-#### As built — 2026-07-27
-
-Shipped as planned, with two deliberate departures and one thing the gate did not
-ask for.
-
-- **`cycleTime(plan)` shipped as `replan(phases, offset)`, a plan *constructor*.**
-  Every action has the *new* phases before it has a plan, so a query forces each
-  caller to build a plan carrying the **old** cycle and then patch it — the exact
-  state §2.2 exists to forbid. As a constructor, `cycle_time` is structurally
-  unwritable anywhere else. `setPlanOffset` is the caller that proves the point:
-  nothing about its stages changed, so it is the one a query would have been
-  forgotten on, and it recomputes for free while passing `plan.phases` **by
-  identity**.
-- **Nothing is clamped** (user's call). The four steppers disable at their bounds
-  and the reducer stores what it is handed — `SignKph`'s posture rather than
-  `setJunctionScale`'s, because `setPhaseTiming` carries all three of a stage's
-  numbers and a clamp would rewrite a foreign file's 200 s green on a click aimed
-  at its amber. That is OQ-1's own argument, one field over. `PHASE_GREEN`
-  (5/120/5), `PHASE_INTERGREEN` (0/10/1) and `PLAN_OFFSET` (0/240/5) therefore sit
-  beside `KPH` in `Inspector.tsx` rather than being exported from the reducer;
-  both ends of each are on the step grid, so the seeded 20 and `cross-4`'s 25 are
-  reachable.
-- **`setPhaseTiming` takes a `PhaseTiming` object, not three numbers.**
-  `amber_time` and `all_red_time` are both plausible small integers: transposed
-  positionally they type-check, run, and mean something else.
-- **Three mutations were run rather than trusting a first-run green**
-  (`network_yaml_spec` Phase 3's lesson). Reverting the `setJunctionControl` fix,
-  rebuilding untouched junctions in `withSignalPlan`, and copying `plan.phases` in
-  `setPlanOffset` each failed exactly one test, and a different one.
-- **The dev pass drove the real app** through the accessibility tree
-  (`osascript` for the File menu and the panel's buttons, a `CGEvent` helper for
-  canvas clicks — System Events' `click at` does not produce a pointer event the
-  SVG accepts). Import `cross-4` → select the junction → **cycle 60 s, offset 0 s,
-  P1 and P2 at 25/3/2**. Then, on that imported plan: flip to Unsignalized (the
-  section is withheld *and* the plan is dropped), flip back (None + Create plan),
-  two undos (the 60 s plan whole again). Then an authored junction: Create (25) →
-  Add stage (50) → green +5, amber +1, offset +5 (**56**, and the offset did not
-  move it) → delete P2 (31) → delete P1 (**cycle 0, "No stages", plan standing**)
-  → Remove plan → five undos, one step each. Bounds verified by reading
-  `enabled`: the offset's `−` at 0, amber's `−` at 0 with `+` still live, green's
-  `−` at 5. What could **not** be checked is how the panel *looks* — screen
-  capture is not permitted to this shell, so proportions are unverified.
 
 ### Phase 2 — Which movements run when  (depends on Phase 1)
 

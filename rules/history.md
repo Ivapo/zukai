@@ -53,10 +53,8 @@ end-of-gesture action (spec OQ-2). Consequence worth knowing: a wheel-zoom mid-d
 dispatches `setView`, which also resets the key, so one drag becomes two undo steps.
 
 Discrete clicks never coalesce. The Lanes and junction Size steppers are ±1 /
-±0.25 per click, and a signal plan's four — a stage's green, amber and all-red,
-plus the plan's offset — are ±5 / ±1 / ±5, so N clicks are N undo steps —
-deliberate, since this design has no time or focus boundary that could close such
-a gesture. The marking actions are
+±0.25 per click, so N clicks are N undo steps — deliberate, since this design has
+no time or focus boundary that could close such a gesture. The marking actions are
 discrete on the same terms: placing three stop lines across a carriageway is three
 undo steps, and repainting one as a crossing and then widening it to the whole
 carriageway is two more, which is the honest reading of five deliberate clicks.

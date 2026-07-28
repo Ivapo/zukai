@@ -20,7 +20,7 @@
 
 use std::fs;
 
-use crate::model::graph::{Junction, Lane, Link, Movement, Node, NodeKind, Phase, SignalPlan};
+use crate::model::graph::{Junction, Lane, Link, Movement, Node, NodeKind};
 use crate::model::layout::{JunctionView, LinkAlign, LinkStyle, LinkView, NodeView};
 use crate::model::Document;
 
@@ -127,6 +127,14 @@ fn import_link(link: NetworkLink) -> Link {
     }
 }
 
+/// A junction arrives as its control, its right-of-way rule and the turns it
+/// permits.
+///
+/// **`signal_plan` is discarded**, alongside the ten simulation-only fields the
+/// mirror never read. A fixed-time plan is a table of stage timings; nothing in
+/// a schematic draws one, and Zukai does not write this format back out, so
+/// carrying it would be carrying data for no reader (`specs/signal_plans_spec.md`
+/// §0).
 fn import_junction(junction: NetworkJunction) -> Junction {
     Junction {
         node_id: junction.node_id,
@@ -137,25 +145,6 @@ fn import_junction(junction: NetworkJunction) -> Junction {
             .into_iter()
             .map(import_movement)
             .collect(),
-        // Carried whole. `cross-4` is `control: signal` with a plan, and
-        // dropping it would import a signalized junction that sits at red
-        // forever — the failure this format is prone to, with no error to say so.
-        signal_plan: junction.signal_plan.map(|plan| SignalPlan {
-            cycle_time: plan.cycle_time,
-            offset: plan.offset,
-            phases: plan
-                .phases
-                .into_iter()
-                .map(|phase| Phase {
-                    id: phase.id,
-                    duration: phase.duration,
-                    green_movements: phase.green_movements,
-                    permitted_movements: phase.permitted_movements,
-                    amber_time: phase.amber_time,
-                    all_red_time: phase.all_red_time,
-                })
-                .collect(),
-        }),
     }
 }
 
@@ -315,39 +304,25 @@ mod tests {
         assert_eq!(movements[1].kind, MovementKind::Right);
     }
 
-    /// `cross-4` is signalized, so the plan is not hypothetical. Dropping it
-    /// would leave a `control: signal` junction with no timing at all.
+    /// `cross-4` is `control: signal` **with** a 60 s plan in the file, and the
+    /// import keeps the control and drops the plan. A fixed-time plan is a table
+    /// of stage timings; nothing draws one, and Zukai does not write this format
+    /// back out, so carrying it would be carrying data for no reader.
+    ///
+    /// The whole-junction comparison is the assertion — a field re-added to the
+    /// model fails here rather than silently reappearing.
     #[test]
-    fn cross_4_imports_its_signal_plan() {
+    fn cross_4_keeps_its_control_and_drops_its_signal_plan() {
         let doc = import(CROSS_4);
         let junction = &doc.junctions[0];
 
         assert_eq!(junction.control, JunctionControl::Signal);
         assert_eq!(junction.rule, None);
         assert_eq!(junction.movements.len(), 16);
-
-        let plan = junction.signal_plan.as_ref().expect("cross-4 has a plan");
-        assert_eq!(plan.cycle_time, 60.0);
-        assert_eq!(plan.offset, 0.0);
-        assert_eq!(plan.phases.len(), 2);
-
-        // Assimilator validates that the phase times sum to the cycle time
-        // within 0.01 s. An imported plan arrives valid; asserting it here is
-        // what says so out loud before a writer ever has to preserve it.
-        let total: f64 = plan
-            .phases
-            .iter()
-            .map(|p| p.duration + p.amber_time + p.all_red_time)
-            .sum();
-        assert!((total - plan.cycle_time).abs() < 0.01, "{total} != 60");
-
-        let first = &plan.phases[0];
-        assert_eq!(first.id.as_str(), "P1");
-        assert_eq!(first.duration, 25.0);
-        assert_eq!(first.green_movements.len(), 4);
-        assert_eq!(first.permitted_movements.len(), 4);
-        assert_eq!(first.amber_time, 3.0);
-        assert_eq!(first.all_red_time, 2.0);
+        assert!(
+            CROSS_4.contains("signal_plan:"),
+            "the fixture must still have one"
+        );
     }
 
     /// The u-turn is the one kind `derivableMovements` never mints, so an

@@ -33,7 +33,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::model::graph::{JunctionControl, MovementKind, NodeKind, UnsignalizedRule};
-use crate::model::ids::{LaneIdx, LinkId, MovementId, NodeId, PhaseId};
+use crate::model::ids::{LaneIdx, LinkId, MovementId, NodeId};
 use crate::model::layout::Vec2;
 
 pub mod import;
@@ -188,11 +188,6 @@ pub struct NetworkJunction {
     /// Permitted turn movements.
     #[serde(default)]
     pub movements: Vec<NetworkMovement>,
-    /// Fixed-time plan. **Serde-optional but semantically required** when
-    /// `control` is `signal`: omitting it parses cleanly and leaves every
-    /// approach reading red at runtime (spec §2.3.2).
-    #[serde(default)]
-    pub signal_plan: Option<NetworkSignalPlan>,
 }
 
 /// Mirrors `MovementConfig` (`network.rs:1334-1378`), less everything about
@@ -220,40 +215,6 @@ pub struct NetworkMovement {
     /// [`MovementKind`] has no default — the mirror rule, in one field.
     #[serde(default = "default_movement_kind", rename = "type")]
     pub kind: MovementKind,
-}
-
-/// Mirrors `SignalPlanConfig` (`network.rs:1380-1393`).
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct NetworkSignalPlan {
-    /// Total cycle length, seconds. Phase times must sum to this within 0.01 s,
-    /// which Assimilator validates at startup.
-    pub cycle_time: f64,
-    /// Coordination offset, seconds.
-    #[serde(default)]
-    pub offset: f64,
-    /// Phases in cycle order.
-    pub phases: Vec<NetworkPhase>,
-}
-
-/// Mirrors `PhaseConfig` (`network.rs:1395-1420`).
-///
-/// Note which fields are bare: `green_movements`, `amber_time` and
-/// `all_red_time` are all required there. Only `permitted_movements` defaults.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct NetworkPhase {
-    /// Stable id.
-    pub id: PhaseId,
-    /// Green duration, seconds.
-    pub duration: f64,
-    /// Movements shown protected green. **Required**, `from_lanes`' trap again.
-    pub green_movements: Vec<MovementId>,
-    /// Movements permitted (give-way) this phase.
-    #[serde(default)]
-    pub permitted_movements: Vec<MovementId>,
-    /// Amber after green, seconds.
-    pub amber_time: f64,
-    /// All-red clearance, seconds.
-    pub all_red_time: f64,
 }
 
 /// Just enough of a `network.yaml` to read its version without committing to

@@ -2,7 +2,7 @@
 //! to and from Assimilator's `network.yaml` (`nodes`, `links`, `junctions`).
 //!
 //! This layer is deliberately **geometry-free**: it records topology, lane
-//! counts, turn movements, and signal timing, but no coordinates or polylines.
+//! counts and turn movements, but no coordinates or polylines.
 //! On import from Assimilator the literal geometry is discarded; on export it
 //! is synthesized from the [`Layout`](super::layout::Layout). Presentation
 //! (where a node sits on the canvas, how a junction is drawn) lives entirely in
@@ -16,7 +16,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::ids::{LaneIdx, LinkId, MovementId, NodeId, PhaseId};
+use super::ids::{LaneIdx, LinkId, MovementId, NodeId};
 
 /// A point in the network graph: a road end, a junction, or a mid-road shape
 /// change. Matches Assimilator's node `type`.
@@ -112,16 +112,13 @@ pub struct Junction {
     /// Permitted turning movements through the junction.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub movements: Vec<Movement>,
-    /// Fixed-time signal plan; `None` unless signalized.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub signal_plan: Option<SignalPlan>,
 }
 
 /// How a junction is controlled. Matches Assimilator's `control`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum JunctionControl {
-    /// Traffic-signal controlled; expects a [`SignalPlan`].
+    /// Traffic-signal controlled.
     Signal,
     /// Uncontrolled or sign-controlled; behaviour set by [`UnsignalizedRule`].
     Unsignalized,
@@ -175,39 +172,6 @@ pub enum MovementKind {
     UTurn,
 }
 
-/// A fixed-time signal plan for a signalized junction.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct SignalPlan {
-    /// Total cycle length, seconds.
-    pub cycle_time: f64,
-    /// Offset from a common reference, seconds (coordinated corridors).
-    #[serde(default)]
-    pub offset: f64,
-    /// Phases in cycle order.
-    pub phases: Vec<Phase>,
-}
-
-/// One stage of a [`SignalPlan`].
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Phase {
-    /// Stable id (e.g. `P1`).
-    pub id: PhaseId,
-    /// Green duration, seconds (excludes amber/all-red).
-    pub duration: f64,
-    /// Movements shown protected green this phase.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub green_movements: Vec<MovementId>,
-    /// Movements permitted (give-way) this phase.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub permitted_movements: Vec<MovementId>,
-    /// Amber time after green, seconds.
-    #[serde(default = "default_amber_time")]
-    pub amber_time: f64,
-    /// All-red clearance after amber, seconds.
-    #[serde(default = "default_all_red_time")]
-    pub all_red_time: f64,
-}
-
 fn default_median_gap() -> f64 {
     0.5
 }
@@ -219,12 +183,4 @@ fn default_lane_width() -> f64 {
 fn default_speed_limit() -> f64 {
     // 50 km/h, matching Assimilator's editor-generated example networks.
     13.888_888_888_888_89
-}
-
-fn default_amber_time() -> f64 {
-    3.0
-}
-
-fn default_all_red_time() -> f64 {
-    2.0
 }

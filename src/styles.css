@@ -622,11 +622,8 @@ body {
 }
 
 /* Withdrawing one turn is not deleting the junction, so this is not `.danger`:
-   it is the smallest control in the panel, and it only colours on hover.
-   Withdrawing one stage of a signal plan is the same statement, so it is the same
-   button. */
-.movement-del,
-.plan-stage-del {
+   it is the smallest control in the panel, and it only colours on hover. */
+.movement-del {
   flex-shrink: 0;
   width: 22px;
   height: 22px;
@@ -640,9 +637,7 @@ body {
   cursor: pointer;
 }
 
-.movement-del:hover,
-.plan-stage-del:hover,
-.plan-remove-btn:hover {
+.movement-del:hover {
   border-color: #e8837a;
   color: #e8837a;
 }
@@ -655,13 +650,9 @@ body {
 
 /* Derive is the same control as Add, so it is the same button: one mints a turn a
    human named, the other every turn the junction can legally carry. A comma says
-   they are one thing more honestly than a copy of the four declarations would.
-   The plan's two are the same control again - one mints the frame, the other one
-   more stage in it. */
+   they are one thing more honestly than a copy of the four declarations would. */
 .movement-add-btn,
-.movement-derive-btn,
-.plan-create-btn,
-.plan-stage-add {
+.movement-derive-btn {
   width: 100%;
   padding: 7px;
   border: 1px solid var(--line);
@@ -674,9 +665,7 @@ body {
 }
 
 .movement-add-btn:hover:not(:disabled),
-.movement-derive-btn:hover:not(:disabled),
-.plan-create-btn:hover,
-.plan-stage-add:hover {
+.movement-derive-btn:hover:not(:disabled) {
   border-color: var(--paint-yellow);
 }
 
@@ -686,128 +675,10 @@ body {
   cursor: not-allowed;
 }
 
-/* These two share their field with the rows above them - `.movement-add` and
-   `.plan` supply their own column gap, and a lone button in a block `.field` has
-   nothing to sit off. Add stage needs none: it is *inside* `.plan`. */
-.movement-derive-btn,
-.plan-create-btn {
+/* This one shares its field with the rows above it - `.movement-add` supplies its
+   own column gap, and a lone button in a block `.field` has nothing to sit off. */
+.movement-derive-btn {
   margin-top: 7px;
-}
-
-/* The stages a signalized junction cycles through: a derived cycle, an offset, and
-   a card per stage. `.movements`' column for its reason - a list of rows in the
-   panel, chrome only, and nothing here reaches an exported picture. */
-
-.plan {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.plan-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-/* The one number in the panel that cannot be typed: it is the sum of every stage's
-   green, amber and all-red, and Assimilator refuses a plan whose stages do not sum
-   to it. `.readout` is what says so - the class the panel already uses for a field
-   it only reports - and white rather than bold, so it reads as the headline it is
-   without borrowing `.stepper-value`'s weight, which belongs to numbers a click
-   can move. */
-.plan-cycle {
-  color: var(--paint-white);
-}
-
-/* Taking the plan away is more than withdrawing one stage and less than deleting
-   the junction, so it is not `.danger` either: `.movement-del`'s posture -
-   transparent until hover - at the size a word needs. */
-.plan-remove-btn {
-  flex-shrink: 0;
-  padding: 2px 6px;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--chrome-dim);
-  font-family: inherit;
-  font-size: 11px;
-  cursor: pointer;
-}
-
-/* A label and one stepper - the shape all four of a plan's numbers take, since
-   three steppers across need about 300px and the panel has 248. The label is
-   fixed-width so a stage's three line their buttons up, the way `.movement-pair`
-   is fixed so the dropdowns beside it do.
-
-   Pushed apart rather than packed left: the row is a name and a control, which is
-   `.inspector-head`'s and `.plan-head`'s arrangement, and packing left leaves 55px
-   of nothing to the right of every `+` while `Remove plan` above it is hard right. */
-.plan-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-/* The offset is the one row that is not inside a stage, so it alone has to pay
-   the card's inset by hand - otherwise its stepper sits 9px right of the three
-   below it, and four instances of one control stand in two columns. Only the
-   right, because the labels staggering by the card's own padding is what reads as
-   the stages being *inside* something. */
-.plan-row--bare {
-  padding-right: 9px;
-}
-
-.plan-row-label {
-  width: 54px;
-  flex-shrink: 0;
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--chrome-dim);
-}
-
-/* "120 s" is the widest value a row can hold, and every row has to reserve it or
-   the three steppers of a stage step out of line as their numbers change. Five
-   monospace characters at 16px is a shade over 49, so 44 was one digit short and
-   the green row's `+` jumped right of the amber row's at three digits. */
-.plan-row .stepper-value {
-  min-width: 50px;
-}
-
-.plan-stages {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-/* A stage is a unit - three times that move together, and from Phase 2 the
-   movements that run in it - so it is drawn as one card rather than as three loose
-   rows. */
-.plan-stage {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px;
-  background: var(--desk-2);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-}
-
-.plan-stage-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-}
-
-/* Yellow mono, the treatment every id in the panel gets (`.inspector-id`,
-   `.lane-kind-idx`, `.movement-pair`). */
-.plan-stage-id {
-  font-family: "Overpass Mono", monospace;
-  font-size: 12px;
-  color: var(--paint-yellow);
 }
 
 /* The one thing in the panel a human types into: what a text marking says.

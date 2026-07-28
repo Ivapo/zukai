@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Playwright MCP scratch — screenshots and page snapshots from driving the
+# dev server. Working artifacts, never part of the project.
+.playwright-mcp/
