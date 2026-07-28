@@ -96,6 +96,11 @@ phase from a spec still `status: draft`** — it must pass the review loop
 - `specs/signal_plans_spec.md` — the stages a signalized junction cycles
   through (**all 4 phases cut** — a plan is a table, and this project prints
   pictures; kept only as the record of why)
+- `specs/lane_arrows_spec.md` — which lane goes where, said with paint on the
+  approach instead of arcs across the pad: a marking you can drag, a marking
+  anchored to the junction end, import painting the lanes from the file's own
+  lane data, and the removal of the movement arcs and the movement list
+  (**draft — not reviewed**; 4 phases)
 
 **`rules/` — current-state reference (the *what is*).** Terse, authoritative maps
 of subsystems, read on demand. Unlike specs, rules describe the code as it is now;
