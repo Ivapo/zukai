@@ -1,10 +1,50 @@
 ---
-status: implemented — all 5 phases shipped 2026-07-28 (reviewed, converged in 2 rounds; Phase 5 built before Phase 4)
-last_updated: 2026-07-28
-note: "Lane arrows become how a junction's turns are shown — painted on the approach lanes, seeded from an imported network, and replacing the dashed arcs across the pad. Includes the two things that have to exist first: a marking you can drag, and a marking that measures from the junction end."
-implemented: ["Phase 1", "Phase 2", "Phase 3", "Phase 5", "Phase 4"]
-not_implemented: []
-related: [specs/road_markings_spec.md, specs/junction_semantics_spec.md, specs/network_yaml_spec.md]
+id: zk-011
+title: lane-arrows
+status: accepted
+last_updated: 2026-07-31
+note: >
+  Lane arrows become how a junction's turns are shown — painted on the
+  approach lanes, seeded from an imported network, and replacing the dashed
+  arcs across the pad. Includes the two things that have to exist first: a
+  marking you can drag, and a marking that measures from the junction end.
+
+phases:
+  - name: "Phase 1 — A marking you can drag"
+    reviewed: 2026-07-27
+    shipped: 2026-07-28
+    cut: null
+    by: null
+  - name: "Phase 2 — A marking anchored to the end of its road"
+    reviewed: 2026-07-27
+    shipped: 2026-07-28
+    cut: null
+    by: null
+  - name: "Phase 3 — Import paints the lanes"
+    reviewed: 2026-07-27
+    shipped: 2026-07-28
+    cut: null
+    by: null
+  - name: "Phase 4 — The arcs and the movement list go"
+    reviewed: 2026-07-27
+    shipped: 2026-07-28
+    cut: null
+    by: null
+  - name: "Phase 5 — The anchor finds the rim"
+    reviewed: 2026-07-27
+    shipped: 2026-07-28
+    cut: null
+    by: null
+
+extends: null
+supersedes:
+  - id: zk-008
+    phases:
+      - "Phase 2 — A movement exists: the whole pipeline, from the panel"
+      - "Phase 3 — Movements drawn through the junction"
+      - "Phase 4 — Derive: every legal turn at once"
+superseded_by: null
+related: [zk-006, zk-008, zk-009]
 reference: "Assimilator's `MovementConfig.from_lanes` (`crates/config/src/network.rs:1334-1378`) is the only field this spec reads back out of the format — which lanes of an approach feed a given turn. Read at `../assimilator` on 2026-07-26. Nothing else is wanted from it: `lane_mapping`, `priority` and `yields_to` were dropped in `fe8b452` and stay dropped."
 ---
 
@@ -892,91 +932,3 @@ before the paint is legible would break the rule this order exists to keep.
     `Diagram.test.tsx`'s "draws an undivided signalized junction exactly as it
     always has" and "leaves a signalised junction's own stop bars exactly as they
     were" are what pin it, and the `0.62` mutation proves the first still bites.
-
-## 5. Review log
-
-### Round 1 — 2026-07-27 — `VERDICT: NOT READY` (4 blocking)
-
-Clean-room reviewer with repo access. Grounding came back almost entirely clean:
-every `Canvas.tsx`, `geometry.ts`, `state.ts` and `Inspector.tsx` citation
-verified exact, both commit hashes say what the spec claims, and `cross-4` does
-import with 16 movements whose four u-turns carry `from_lanes: []`.
-
-**Blockers fixed:**
-
-1. **The two lane numberings run in opposite directions.** Assimilator's lane 0
-   is the leftmost/median (`network.rs:877`); Zukai's is the nearside kerb
-   (`geometry.ts:197-200`). §2.5's derivation mapped indices straight through,
-   which mirror-images every approach — invisibly, since `cross-4`'s lanes are
-   uniform 3.5 m. Fixed by new **§2.5.1**, a translation helper applied in both
-   `lane_arrows` and `import_link` (which carries the same bug today), a rewritten
-   §1 example pinned to the fixture's real two-lane approach, and a Phase 3 gate
-   that names lanes and turns so an identity map cannot pass it.
-2. **Phase 4 deleted `MovementKind`/`MovementId`, which Phase 3 makes
-   load-bearing.** `NetworkMovement` (`network/mod.rs:207-218`) is built from
-   both and must survive, since the importer still parses movements to derive
-   arrows. Fixed: they are **relocated into `network/mod.rs`**, and the
-   "one turn vocabulary" gate reworded to "one in the *model*" — a grep, since it
-   was never a writable runtime assertion.
-3. **OQ-1 was unresolved while gating Phase 2, and its proposed answer cost more
-   than §2.4 said.** The rim lives in module-private `Diagram.tsx` render code
-   (`junctionArms:357`, `Arm:331`, `rp:934`), so routing `markingAnchor` through
-   it is a refactor, not arithmetic. **RESOLVED**: end node in Phase 2, rim in a
-   new **deferred Phase 5** that names the lift as its whole scope. §2.4 now
-   records what the end-node anchor costs in the meantime.
-4. **`from_lanes`' optionality was unspecified and the two governing rules
-   disagreed.** Assimilator declares it required (`network.rs:1347`) and the
-   mirror rule follows Assimilator; but `the_lane_and_priority_keys_are_ignored_either_way`
-   deliberately pins that a bare movement parses. **RESOLVED**: it returns with
-   `#[serde(default)]`, the departure recorded in §2.5 — the optionality clause
-   existed to guarantee faithful *writing*, and the export is gone. Absent takes
-   the same path as empty: paints nothing.
-
-**Non-blocking, folded in:** corrected file citations (`Marking` is
-`model/decoration.rs:14`, `LinkAlign` `model/layout.rs:94`, `MovementId`
-`model/ids.rs:57`); §2.4 now cites `TURN_ARROW_LENGTH = 15` rather than
-`ARROW_REACH` (a *lateral* fraction of band width), and states the two
-conversions — `markingArrow` centres the shaft on `position`, and `position` is
-metres; §2.3's "off the end of its own road" corrected to the clamp's actual
-behaviour (`geometry.ts:897`); `nextId`/`TURN_DIRECTIONS` flagged TS-only so
-Phase 3 mints its own; OQ-2 marked RESOLVED; Phase 1's identity return flagged as
-a new pattern with no precedent to inherit; markings **OQ-6** named as the closer
-neighbour to §2.3 than OQ-5; the `network/mod.rs:193-205` doc comment added to
-Phase 3's docs-touched; a Phase 4 split point at the language boundary; and the
-`jn-hit` dead zone recorded as **OQ-5** with Phase 1's dev pass as where it shows.
-
-**Rejected:** nothing — every finding was accepted or resolved into an OQ.
-
-### Round 2 — 2026-07-27 — `VERDICT: READY` (0 blocking) — **converged**
-
-Same reviewer resumed. All four blockers confirmed resolved, with the resolutions
-re-verified against the code rather than taken on the changelog's word. Three
-checks worth keeping:
-
-- **§2.5.1's translation is right in both directions**, because `n - 1 - i` is an
-  involution — which is *why* one helper can serve both call sites without a
-  second formula. The worked numbers were re-derived from the fixture, including
-  that §1's "kerb at the bottom" is correct: `DRIVE_SIDE = 1` and a right-of-travel
-  normal of `(-dir.y, dir.x)` put lane 0 at `+y` for eastbound travel.
-- **The distinct-width `import_link` test really is the only catcher.**
-  `t_junction.yaml`'s links are single-lane (reversal is a no-op), `cross-4`'s are
-  uniform, and no existing test asserts lane order — so the reversal breaks
-  nothing silently.
-- **§2.4's cost is exact, not hand-waved**: `rp = max((maxW * 0.62 + 3) * scale,
-  reach)` is 16.0 for a 2-lane road and 27.2 for a 4-lane one, against the
-  `1.5 × 15 = 22.5` offset. A wide road does reach it.
-
-**Two non-blocking implementation facts folded in afterwards:** there is no
-`polylineLength` helper — the total lives inside `pointAlongPolyline`
-(`geometry.ts:885-894`) and Phase 2 must extract or recompute it; and `string_id!`
-(`ids.rs:13`) is not `#[macro_export]`ed, so Phase 4 leaves `MovementId` in
-`ids.rs` (it is an id, not a turn enum) and moves only `MovementKind`.
-
-The reviewer also flagged that `import_link`'s reversal should say what happens to
-`Lane.id` — already folded into §2.5.1 during the sweep, and answered more
-strongly than asked: ids are **renumbered by new position**, because `Lane.id` is
-documented as the index (`graph.rs:69-70`) and every reader is positional
-(`Diagram.tsx:753`, `state.ts:977`), so copying ids through a reversal would hide
-a second silent failure inside the fix for the first.
-
-**Status moved `draft` → `reviewed`. Cleared for Phase 1.**

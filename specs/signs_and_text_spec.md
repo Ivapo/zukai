@@ -1,10 +1,38 @@
 ---
-status: implemented (all 4 phases, 2026-07-26; reviewed in 2 rounds)
-last_updated: 2026-07-26
-note: Put text and roadside signs in the drawing — the font that must travel inside an exported file, painted road text, and the sign vocabulary. Closes export spec OQ-4.
-implemented: ["Phase 1", "Phase 2", "Phase 3", "Phase 4"]
-not_implemented: []
-related: [specs/road_markings_spec.md, specs/diagram_export_spec.md, specs/road_rendering_spec.md]
+id: zk-007
+title: signs-and-text
+status: accepted
+last_updated: 2026-07-31
+note: >
+  Put text and roadside signs in the drawing — the font that must travel
+  inside an exported file, painted road text, and the sign vocabulary.
+
+phases:
+  - name: "Phase 1 — A glyph in the drawing: the font, and painted road text"
+    reviewed: 2026-07-26
+    shipped: 2026-07-26
+    cut: null
+    by: null
+  - name: "Phase 2 — A sign exists: place, select, drag, delete"
+    reviewed: 2026-07-26
+    shipped: 2026-07-26
+    cut: null
+    by: null
+  - name: "Phase 3 — The vocabulary: the shapes that carry the meaning"
+    reviewed: 2026-07-26
+    shipped: 2026-07-26
+    cut: null
+    by: null
+  - name: "Phase 4 — Direction signs, and text that sizes its plate"
+    reviewed: 2026-07-26
+    shipped: 2026-07-26
+    cut: null
+    by: null
+
+extends: null
+supersedes: null
+superseded_by: null
+related: [zk-006, zk-003, zk-004]
 reference: "Road-atlas and motorway-signage convention — a speed roundel, an octagonal stop, an inverted give-way triangle, a destination plate, and text painted flat on the carriageway. Not to-scale sign dimensions, not a national sign catalogue (no symbol library), and not Assimilator's business at all: `decoration.rs` says signs never export to `network.yaml`."
 ---
 
@@ -730,92 +758,3 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
     so `strokeAllowance` on a 19-character destination is still the road's, and
     `getBBox` — which measures fill — already contains the letters. The framing
     itself was checked in the app, on a PNG export.
-
-## 5. Review log
-
-**Round 1 — 2026-07-26 — `NOT READY` → fixed.** Clean-room reviewer with repo
-access; every `file:line` in §§1–2.8 verified against the source, and the `?inline`
-transform confirmed to survive vitest.
-
-*Two blocking findings, both accepted:*
-
-1. **Where `font-family` is declared was never stated, and all three candidate
-   homes broke something the spec asserted.** `diagram.css` fails four existing
-   `font-family` assertions on text-free documents (`export.test.ts:468`, `:471`,
-   `:494`, `:539` — the spec had named only `:465`) and falsifies its own
-   "byte-identical" claim; the gated font block alone would drift the canvas from
-   the file. **Resolved** in §2.3: `font-family`/`font-size` travel as
-   presentation attributes on the `<text>`, on the turn arrow's existing
-   `stroke-width` precedent, so all four assertions hold **unchanged** and the
-   `:465` test is *reframed*, not inverted (§1 and Phase 1's gate corrected to
-   match).
-2. **The `?inline` import cannot live in `src/styles/fonts.css`**, and `?raw`
-   does no URL rewriting, so a literal `url(…)` in a stylesheet would have
-   travelled as an unresolved external reference — breaking the very invariant
-   §2.3 protects. **Resolved** in §2.2: `fonts.css` is dropped for
-   `src/editor/fonts.ts` (`FONT_FAMILY` + `fontFaceCss()`), emitted as a second
-   `<style>` **after** `diagram.css`'s so `embeddedCss()` keeps measuring the
-   right block.
-
-*Non-blocking, accepted:* the `<style>` ordering hazard (folded into the above);
-the stale vitest citation (it is `vitest.config.ts`, `environment: "node"`, not
-"no `environment` in `vite.config.ts`"); §2.6's overclaim that both silent sites
-are tested (`isSelected` gets a markup assertion, the Inspector has no test file
-in the repo and is a `bun run dev` check); the `associated_link` clear needs the
-**node** arm too; nothing could ever *set* `associated_link` (Phase 2 gains
-`setSignLink` and a link picker, rather than shipping a dead readout);
-`MARKING_PICKER`'s missing `text` entry and the fresh-pick payloads
-(`content: ""`, `custom { label: "" }`, and empty content renders nothing);
-`textWidth`'s tautological assertion (`ADVANCE` is now a measured, pinned
-literal); §2.7's palette arithmetic (one new entry, not five); the OFL citation
-pointing at the proportional package; `needsText` needing export across the
-`Diagram.tsx`/`export.tsx` boundary; and OQ-1's missing failure branch (a failed
-raster experiment now escalates and returns the spec to review, explicitly).
-
-*Also resolved this round:* **OQ-5**, with the exact attribution string from
-`@fontsource/overpass-mono/metadata.json`.
-
-*Rejected:* the suggestion that **Phase 1 may overflow one plan-mode pass** — it
-is the largest phase, but splitting the font pipeline from painted text would
-leave the font untestable, since painted text is the only thing that exercises
-it. The reviewer's own read was "probably one pass"; recorded here so the size is
-a known risk rather than an oversight.
-
-**Round 2 — 2026-07-26 — `READY`.** Same reviewer resumed. Both blockers
-confirmed resolved, **zero new blocking findings**. It verified the precondition
-the attribute mechanism rests on and the spec had only asserted: no author rule
-can override a presentation attribute on the canvas's `<text>`, since
-`styles.css`'s only universal rule is `* { box-sizing: border-box }` (`:30`) and
-every `font-family` there is either on a chrome class or on the root — reaching
-an SVG `<text>` by *inheritance*, which loses to a declaration on the element
-itself. Also confirmed end to end: the `*?inline` typing chain
-(`vite/client.d.ts:253` → `src/vite-env.d.ts:1` → `tsconfig.json`'s
-`include: ["src"]`), that `fontFaceCss()`'s `font-weight:400` is the weight
-`main.tsx:11` actually loads, that the OFL string is byte-for-byte
-`metadata.json`'s, that exporting `needsText` into `export.tsx` adds no import
-cycle, and that no existing test builds a document with signs, so Phase 2's
-`needsText` widening cannot disturb the suite.
-
-*Three non-blocking residues, all folded in this round:*
-
-- **§2.3's premise was stale in the spec's own favour.** All eight `url(`
-  assertions are scoped to `embeddedCss()`, which never sees the second
-  `<style>` — so they would keep passing untouched rather than "not standing".
-  Rewritten as the sharper point: they survive *by accident*, which is a coverage
-  gap, and the fix is to widen the subject from the first stylesheet to the whole
-  file.
-- **"Byte-identically to today" was overstated** — `diagram.css` gains
-  `.marking-text { fill: … }`. Restated precisely (same markup, same font
-  posture; one more paint rule, as `.marking-zebra` already is for a document
-  with no crossing).
-- **Phase 3's "the drawing's second `<text>`"** presumed a document that also
-  carries painted text; the gate now asserts the roundel's own element rather
-  than an index.
-
-Two further implementation details it surfaced were folded into Phase 1:
-`noFallthroughCasesInSwitch` makes the empty-content `break` to the bar the
-natural shape, and `.marking-hit`/`.marking-halo` live in `MarkingShape`
-(`Diagram.tsx:499-508`), so selection holds whichever way that arm goes.
-
-**Converged in 2 rounds.** `status: draft` → `reviewed`; cleared for
-implementation, starting with Phase 1.

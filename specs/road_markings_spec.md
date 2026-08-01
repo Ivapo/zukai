@@ -1,10 +1,44 @@
 ---
-status: implemented (Phases 1–4 shipped 2026-07-25, reviewed in 3 rounds; Phase 5 reopened, reviewed in 3 scoped rounds and shipped 2026-07-28)
-last_updated: 2026-07-28
-note: Render and place road-surface markings — stop and give-way lines, crossings, lane arrows, lane lines. Paint only; signs and any painted text wait on font embedding. Reopened 2026-07-28 for the two-headed arrow (§2.11, Phase 5), now shipped.
-implemented: ["Phase 1", "Phase 2", "Phase 3", "Phase 4", "Phase 5"]
-not_implemented: []
-related: [specs/road_rendering_spec.md, specs/ramps_and_tapers_spec.md, specs/diagram_export_spec.md, specs/lane_arrows_spec.md]
+id: zk-006
+title: road-markings
+status: accepted
+last_updated: 2026-07-31
+note: >
+  Render and place road-surface markings — stop and give-way lines,
+  crossings, lane arrows, lane lines. Paint only; signs and any painted text
+  wait on font embedding.
+
+phases:
+  - name: "Phase 1 — A marking exists: placement, selection, lifecycle, and `stop_line`"
+    reviewed: 2026-07-25
+    shipped: 2026-07-25
+    cut: null
+    by: null
+  - name: "Phase 2 — The Inspector earns its keep: kind, span, and the transverse pair"
+    reviewed: 2026-07-25
+    shipped: 2026-07-25
+    cut: null
+    by: null
+  - name: "Phase 3 — `turn_arrow`"
+    reviewed: 2026-07-25
+    shipped: 2026-07-25
+    cut: null
+    by: null
+  - name: "Phase 4 — `lane_line`, and the two-way centreline"
+    reviewed: 2026-07-25
+    shipped: 2026-07-25
+    cut: null
+    by: null
+  - name: "Phase 5 — The two-headed arrow"
+    reviewed: 2026-07-28
+    shipped: 2026-07-28
+    cut: null
+    by: null
+
+extends: null
+supersedes: null
+superseded_by: null
+related: [zk-004, zk-005, zk-003, zk-011]
 reference: "Road-atlas marking convention — a transverse bar where traffic stops, a triangle line where it gives way, a zebra where people cross, destination arrows in the lane they belong to, and a longitudinal line whose style says whether you may cross it. Not to-scale marking dimensions (that is Assimilator's business, and it has no markings anyway), and not signage, which is textual."
 ---
 
@@ -1067,247 +1101,3 @@ gate) in three rounds on 2026-07-28 and **is cleared to implement**.
   and emptying Oncoming returned it to a single-headed arrow with the forward
   directions intact. Note the canvas zoom is anchored at the **origin**, not the
   viewport centre, so a zoomed-in screenshot needs a pan afterwards.
-
-## 5. Review log
-
-### Round 1 — 2026-07-25 — `VERDICT: NOT READY` (4 blocking)
-
-Clean-room reviewer with repo access, per `spec-authoring.md` §7. Every
-`file:symbol` citation and every key assumption was re-checked against the source
-(and independently re-verified by the author before adjudication).
-
-**Blocking, all four accepted and folded in:**
-
-1. **§1's usage example contradicted §2.4/§2.7, and `lane: None` had no
-   discoverable gesture.** The example placed a carriageway-wide bar by clicking
-   lane 0, which §2.4's band-matching cannot produce, and no phase added a lane
-   control — leaving the *most common* stop line reachable only by clicking the
-   1.5-unit casing lip. Fixed: §1 rewritten and phase-annotated; `addMarking`
-   pinned to `stop_line`; a **Span control** added to Phase 2's Inspector as the
-   deliberate route, with §2.4 recording the click fallback as a side door.
-2. **§2.6's "TypeScript's exhaustiveness checking finds all four at build time"
-   was false — the best catch of the round.** All ids are bare `type X = string`
-   (`types.ts:12-22`) and all four sites narrow with a binary `if`/ternary, so
-   the new arm compiles clean and misroutes silently: `selectionValid` drops the
-   selection on undo/redo, `Inspector` renders the link panel, and
-   `deleteSelection` takes the **node** arm and dirties the document with an undo
-   snapshot while deleting nothing. §2.6 rewritten to state the trap; two sites
-   convert to a `never`-checked `switch`; Phase 1's gate tests all three.
-3. **A `lane_line` on the offside-most lane named a divider that does not
-   exist.** `bands.slice(1)` gives `n-1` dividers, so `lane = n-1` has no
-   boundary — one click in three on a 3-lane road. §2.3 gained a total rule: the
-   renderer skips it, and Phase 2's kind-aware controls make it unreachable
-   in-app; Phase 4's gate pins the skip.
-4. **Phase 3's "`u_turn` does not degenerate" was unverifiable and the shape
-   undefined.** "One head per direction" cannot express a U-turn, and
-   `TurnDirection` has six variants the spec never enumerated. §2.7 gained a
-   branch-bearing table (`through` 0°, slight ±30°, hard ±90°, `u_turn` a 180°
-   hook) and Phase 3's gate became a per-direction bearing assertion.
-
-**Non-blocking, all accepted:** stale `Diagram.tsx` line numbers (the whole file
-was cited at the pre-gore commit — re-swept to HEAD); `mod.rs:56` → `:67`; §2.8's
-claim that `<text>` assertions exist (they don't — Phase 1 adds one); §2.3's
-misreport of road spec OQ-4 (it concluded a *model* field; only ramps OQ-6
-proposed a presentation one) and Phase 4's close-out recast as an **amendment** to
-an already-`RESOLVED` OQ; §2.9's three missing plumbing rows (the new
-`Interaction` callback, `drawnPolyline`'s module-privacy — resolved by moving it
-and `lateralShift` to `geometry.ts`, and `App.tsx`'s `TOOL_KEYS`); §2.7's
-self-contradictory z-order and unspecified nesting (settled: a sibling layer,
-because `RoadShape`'s `<g>` carries `onLinkPointerDown`); no stated handling for
-hand-edited documents (§2.5 gained a skip-don't-crash paragraph); the
-"byte-identical" gate clause restated as the TS-checkable assertion it is; OQ-3
-marked `RESOLVED`; and Phase 1's size, relieved by moving the Inspector's editing
-controls into Phase 2 (no renumbering — still four phases). One new **OQ-6** was
-recorded on whether markings should follow a dragged node.
-
-**Rejected:** none.
-
-### Round 2 — 2026-07-25 — `VERDICT: NOT READY` (1 blocking, newly introduced)
-
-Same reviewer, resumed. All four round-1 blockers confirmed resolved and
-re-verified against HEAD. One new blocker, introduced by round 1's own fixes:
-
-1. **§2.4's "clicking an existing marking places a new one" was impossible under
-   §2.7's sibling-layer rule** — both were added in the same round and conflict.
-   A marking's hit target is not a descendant of any `road` group and SVG events
-   bubble to ancestors only, so `onLinkPointerDown` can never fire from it; not
-   stopping propagation instead reaches `onBackgroundPointerDown`, whose select
-   tail (`Canvas.tsx:54-56`) **clears the selection and starts a pan**, and
-   `pointer-events: none` would make markings unselectable under every tool.
-   Accepted: §2.4 now writes the behaviour into `onMarkingPointerDown` as a
-   tool-branch against the marking's own `link`, states that
-   `onBackgroundPointerDown` is left untouched, and Phase 1's scope and `bun run
-   dev` gate both cover it.
-
-**Non-blocking, all accepted:** §2.7 said "Four constraints" over three bullets
-(count corrected — no bullet was lost); §2.4's dependency list for the
-`drawnPolyline` move omitted `linkStyle`/`linkAlign` and the `carriageways(doc)`
-argument `Canvas.tsx` needs (added; the no-cycle conclusion was independently
-confirmed and stands); `export.test.ts`'s `url(` assertions number five, not
-four. The reviewer also corrected §2.6's own description of the `Inspector`
-failure — it renders the **blank** `<aside>` of `Inspector.tsx:104`, not a
-populated link panel — which is folded in, since §2.6's whole point is being
-exact about what fails silently.
-
-**Rejected:** none. The Phase 1/2 rebalance and the §2.3 boundary rule were
-confirmed sound, including the `setLinkLanes` shrink path that leaves a
-`lane_line` on a now-nonexistent boundary and lands it in the skip.
-
-### Round 3 — 2026-07-25 — `VERDICT: READY` (converged)
-
-Same reviewer, resumed. Round 2's blocker confirmed resolved: the reviewer
-re-derived the diagnosis against `Canvas.tsx:54-56`, confirmed
-`onMarkingPointerDown(e, marking)` already carries everything the branch needs
-(`marking.link`, plus §2.4's `drawnPolyline`/`carriageways`/`nearestOnPolyline`/
-`laneBands`), and confirmed §2.4 now *derives* the handler contract from §2.7's
-layer rule rather than contradicting it. The three round-2 corrections verified
-at HEAD. **Zero blocking findings.**
-
-Two non-blocking notes were raised for the record and both folded in, since each
-records a real consequence a reader would otherwise hit at run time:
-
-- The unconditional `stopPropagation` makes a marking a small **dead zone for the
-  node tool** — `onLinkPointerDown` deliberately does not stop propagation
-  (`Canvas.tsx:93`) and this handler does, so a node cannot be dropped on an
-  existing marking. §2.4 now states the trade.
-- **The junction hit disc sits above the marking layer** (`jn-hit`, `r = outerR +
-  2`, `Diagram.tsx:668`), so clicks within about `rp + 2` of a junction drag the
-  glyph instead of placing paint. This matters most to **OQ-5**, whose proposed
-  snap target lands inside that disc; OQ-5 now says so, with the §1 clearance
-  worked out.
-
-Converged in three rounds. `status` moves `draft` → `reviewed`; the spec is
-cleared for implementation, Phase 1 first.
-
-### Reopened — 2026-07-28 — Phase 5 added, **review pending**
-
-The first use of `spec-authoring.md` §6.1. All four phases had shipped and the
-spec was `implemented`; a two-headed turn arrow is squarely this spec's subject
-(§2.7's vocabulary, Phase 3's geometry), so it is added here as **Phase 5**
-rather than given a spec of its own. Nothing above §2.11 was renumbered,
-rewritten, or removed, and Rounds 1–3 stand as they were.
-
-`status` moves `implemented` → `partial`. **Phase 5 has not been reviewed**, and
-under §7's phase-level gate that blocks it independently of the document's
-status — the next entry here should be `Round 1 — Phase 5 only`, judging that
-phase alone.
-
-Why the addition was worth the reopening rather than a deferral: the alternative
-model — new `TurnDirection` variants — costs a `SCHEMA_VERSION` bump, and the
-cheap route is only obvious while the reasoning for `Marking.anchor`'s
-field-not-variant decision is fresh. Recorded now so it is not re-derived
-expensively later.
-
-### Round 1 — Phase 5 only — 2026-07-28 — `VERDICT: NOT READY` (2 blocking)
-
-The first scoped round under `spec-authoring.md` §7's phase-level gate. Fresh
-clean-room reviewer with repo access, told that Phases 1–4, §§2.1–2.10 and Rounds
-1–3 are settled and that every finding must concern §2.11 or Phase 5. **Fifteen
-findings, all fifteen accepted; none rejected, none deferred.**
-
-Three stale citations in §2.11/Phase 5 were corrected *before* the round, so the
-reviewer would verify accurate pointers rather than spend a capped round on them:
-`geometry.ts:1215-1283` → `:1509-1579` (it named `markingAnchor`, ~294 lines off),
-`decoration.rs:61-74` → `:95-111`, and a bare `types.ts` → `src/model/types.ts`.
-§6.1 permits this only because they sit in the sections the new phase touches; the
-stale citations in §§2.1–2.10 were left as they shipped.
-
-**Blocking, both accepted:**
-
-1. **The shipped forward-direction control would silently wipe `back`.**
-   `setMarkingKind` replaces the whole tagged kind with no merge
-   (`state.ts:893-907`) and `MarkingDirections` builds a fresh literal
-   (`Inspector.tsx:580-581`) — so painting a two-way left-turn lane and then
-   toggling any *forward* direction destroys the rear head. The asymmetry is what
-   hides it: `directions` is required so the compiler forces the **new** control to
-   carry it, while `back?` is optional so nothing forces the **old** control to
-   carry `back`. Same silent-data-loss class as §2.5's `setLinkLanes`/`Lane.kind`,
-   by a different door. §2.11 gained the "second trap" subsection; both controls
-   now merge rather than rebuild.
-2. **No stated route back to a single-headed arrow.** `disabled={on &&
-   directions.length === 1}` (`Inspector.tsx:591`) is deliberate for the forward
-   control, but copied onto the back one it traps a user who adds a rear head —
-   the only escape being a Kind repaint, which resets the forward directions too.
-   Resolved toward an **emptiable** back control: that guard's rationale (a
-   branchless shaft reads as a lane line) does not transfer, since emptying `back`
-   leaves the forward arrow whole.
-
-That second call cascaded through three non-blocking findings as a set, which is
-why it was worth settling rather than deferring: it made `back: []` reachable
-in-app, which decided the **Rust representation** (a defaulted `Vec` with
-`skip_serializing_if = "Vec::is_empty"`, so empty and absent are the same document
-and `Some(vec![])` never exists), which in turn let the **shaft rule** be stated as
-"symmetric iff a branch was *built*" — covering `back: []` and a hand-edited `back`
-of unknown names with no arm of its own.
-
-**Non-blocking, all accepted:** the renderer call site (`Diagram.tsx:597`) absent
-from scope, where an unpassed optional parameter builds and tests green while
-drawing nothing; "every existing arrow test untouched" being literally false on
-the Rust side (four compiler-forced sites — `import.rs:300`, `:370`, `:614`,
-`mod.rs:216` — so the clause is now scoped to the TypeScript suite); the serde gate
-naming `mod.rs` rather than `decoration.rs`'s own module, where the `Marking.anchor`
-precedent it invokes actually lives; `import.rs:123` → `:172`; "`stub()`/`hook()`
-reused unchanged" overstating what closures capturing `at` can do; the 180°
-symmetry assertion naming `anchor.at` rather than the **band centre**, which would
-fail a correct implementation on any lane whose band offset is not zero; the
-"must be shown to fail" clause being a mutation check no test can express (dropped
-— the gate now pairs two concrete assertions and says which half each catches); the
-unspecified `back`-only arrow; `import.rs:723-737`'s cross-file grep of
-`const TURN_DIRECTIONS`; `TURN_ARROW_LENGTH`'s doc comment, whose "adding a branch
-never moves the arrow" stops being true; and the roadmap missing from Docs touched.
-
-**Rejected:** none.
-
-### Round 2 — Phase 5 only — 2026-07-28 — `VERDICT: NOT READY` (1 blocking, newly introduced)
-
-Same reviewer, resumed. Both round-1 blockers confirmed resolved and re-verified
-at HEAD, along with every corrected pointer. The reviewer independently re-derived
-the paired-assertion claim and confirmed it pins both halves of the frame flip: a
-reflection of `along` alone puts the rear `left` head at `across = -reach` (fails
-opposite-side), and a reflection of `across` alone puts it at `(+reach, +fork)`
-(passes opposite-side, fails the rotation).
-
-One new blocker, introduced by round 1's own fix — the best catch of the loop:
-
-1. **The gate item guarding blocker 1 tested the wrong layer, and this repo cannot
-   test the right one.** The wipe does not live in the reducer — `setMarkingKind`
-   faithfully stores whatever payload it is handed, as §2.11 says itself — so a
-   `state.test.ts` case constructs its own payload and passes identically whether
-   or not the panel was ever amended (`state.test.ts:815-838` is that test, and it
-   would not move). The defect lives in what `Inspector.tsx:580-581` **builds**,
-   and nothing here reaches that: `vitest.config.ts:8` is `environment: "node"` on
-   the stated grounds that the units under test are pure TS, there is no
-   `Inspector.test.tsx`, and `Diagram.test.tsx` renders through
-   `renderToStaticMarkup`, which fires no `onClick`. The phase would have shipped a
-   gate that certified a guard while being unable to observe it.
-
-Accepted, with the first of the three remedies offered: the merge becomes an
-exported pure `turnArrowKind(current, patch)` in `state.ts` that both controls
-call. A `bun run dev` restatement does not survive a refactor, and adding a DOM
-harness is a dependency plus a `vitest` environment change plus a testing posture
-— a decision a two-headed-arrow phase has no business carrying. `state.ts` rather
-than `Inspector.tsx` because losing `back` is **document data loss** rather than a
-panel slip, so the rule belongs at that level, and because the assertion then sits
-beside the payload test it extends. Still no new action: it feeds `setMarkingKind`
-and joins neither the `Action` union nor the reducer.
-
-**Rejected:** none.
-
-### Round 3 — Phase 5 only — 2026-07-28 — `VERDICT: READY` (converged)
-
-Same reviewer, resumed. The round-2 blocker confirmed resolved: every leg of the
-new §2.11 block re-verified at HEAD, `turnArrowKind` confirmed reachable from
-`environment: "node"` with no DOM, and the placement checked for a module edge —
-`Inspector.tsx:36` already imports from `../editor/state` and `state.ts` does not
-import the panel, so there is no cycle. The reviewer also confirmed the two
-`include_str!` cross-file tests (`import.rs:353-354`) read `geometry.ts` and
-`Inspector.tsx` only, so nothing greps `state.ts`. **Zero blocking findings.**
-
-One non-blocking note, folded in: the `bun run dev` pass exercised painting and
-emptying but not **toggling a forward direction on an arrow that has `back`** —
-the one gesture that would catch a call site left unmigrated. `turnArrowKind`'s
-unit test proves the merge is correct; nothing proves both call sites use it. The
-dev pass now walks all three.
-
-Converged in three rounds — the cap, reached rather than exceeded. Phase 5's status
-line moves to `reviewed`; it is cleared for implementation.

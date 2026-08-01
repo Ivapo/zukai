@@ -1,11 +1,39 @@
 ---
-status: closed
-last_updated: 2026-07-27
-note: "Fixed-time signal plans. **All four phases cut 2026-07-27.** Phase 1 shipped and was reverted the same day; 2–4 were never started. A plan is a table, its only drawable form is a stage diagram, and this project prints network figures. Kept as the record of why — read §0 and stop there."
-implemented: []
-cut: ["Phase 1", "Phase 2", "Phase 3", "Phase 4"]
-not_implemented: []
-related: [specs/junction_semantics_spec.md, specs/network_yaml_spec.md, specs/road_markings_spec.md]
+id: zk-010
+title: signal-plans
+status: accepted
+last_updated: 2026-07-31
+note: >
+  Fixed-time signal plans. All four phases were cut — a plan is a table, its
+  only drawable form is a stage diagram, and this project prints network
+  figures. Kept as the record of why: read §0 and stop there.
+
+phases:
+  - name: "Phase 1 — A plan, and the stages in it"
+    reviewed: 2026-07-27
+    shipped: 2026-07-27
+    cut: 2026-07-27
+    by: zk-010
+  - name: "Phase 2 — Which movements run when"
+    reviewed: 2026-07-27
+    shipped: null
+    cut: 2026-07-27
+    by: zk-010
+  - name: "Phase 3 — The plan on the canvas"
+    reviewed: 2026-07-27
+    shipped: null
+    cut: 2026-07-27
+    by: zk-010
+  - name: "Phase 4 — Derive a plan"
+    reviewed: 2026-07-27
+    shipped: null
+    cut: 2026-07-27
+    by: zk-010
+
+extends: null
+supersedes: null
+superseded_by: null
+related: [zk-008, zk-009, zk-006]
 reference: "Assimilator's `crates/config/src/network.rs` — `SignalPlanConfig` (`:1380-1393`) and `PhaseConfig` (`:1395-1421`) — plus `crates/network/src/validation.rs`, whose rule 4 (`:14`, computed at `:425-436`, tolerance `CYCLE_TIME_TOLERANCE = 0.01` at `:30`) and dangling-movement check (`:437-457`, `UnknownGreenMovement`) are the two things an editor here can break. Read at `../assimilator` on 2026-07-27. Explicitly *not* in scope from it: actuated and adaptive control, `detectors`, the per-junction `b_amber`/`enforce_entry_guards` simulation fields, and corridor coordination beyond carrying `offset`."
 ---
 
@@ -594,115 +622,3 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
     the plan is entirely ours.
 - **Docs touched:** `rules/junctions.md`; `CLAUDE.md`'s spec list; the
   project-memory roadmap; mark this spec `implemented`.
-
-## 5. Review log
-
-### Round 1 — 2026-07-27 — NOT READY → fixed
-
-Clean-context reviewer with access to **both** repos. Five blocking findings and
-ten non-blocking; **every one accepted**, none rejected. It verified all
-Assimilator citations exact and confirmed all four of the load-bearing
-assumptions about existing code (nothing reads `signal_plan`;
-`setJunctionControl` keeps a plan on the flip to unsignalized; neither movement
-cascade purges phase references; no Rust and no `SCHEMA_VERSION` change needed).
-
-**Blockers fixed:**
-
-1. **Phase 1 asserted something impossible.** "Flipping control drops the plan
-   and returns `doc` by identity when there was none" — a flip always rewrites
-   `control`, so `doc`, `doc.junctions` and the junction are new by
-   construction. The gate is now the *absent-key* assertion (`"signal_plan" in
-   junction === false`, deliberately not `toBeUndefined()`), and says outright
-   that there is no identity assertion to make here.
-2. **Phase 1's second gate demanded a behaviour and then declined to choose
-   it.** It cited `setJunctionRule`'s don't-guard-on-a-sibling posture *and*
-   required a no-op, which are opposites. Settled in favour of guarding, with the
-   reason that makes it principled rather than arbitrary: unlike a stray `rule`,
-   a stray `signal_plan` is **not inert** — `validation.rs:424` validates any
-   plan present with no `control` check. New §2.3.1 records the departure.
-3. **Phase 3's stop-bar rule was undefined for two reachable arms** — one whose
-   movements are all *permitted* (green, so neither clause fired) and one that no
-   movement approaches at all, which `junctionArms` emits for every incident link
-   including a divided road's exit carriageway. Replaced with a single iff that
-   covers all three cases.
-4. **OQ-8 contradicted its own worked example.** "Pair approaches within a
-   tolerance of 180° … so a T yields three stages" — on an orthogonal T the two
-   opposing approaches *do* pair, giving **two**. The tolerance was also
-   unstated. Resolved in the spec (30°, through/right protected, left permitted,
-   matching what `cross-4` itself writes) rather than left for Phase 4, since a
-   phase defined by reference to an open question is by definition not
-   self-contained.
-5. **§2.8 and OQ-6 were wrong about the existing drawing.** A three-aspect
-   `SignalHead` already ships (`Diagram.tsx:1048`, `:1177-1214`), all lamps lit,
-   **once per junction** at a fixed 45° offset. The spec now keeps it untouched
-   and says why — one head cannot show four arms' aspects, so colouring it would
-   be a claim about an arm it does not belong to — with the per-arm version as
-   OQ-6.
-
-**Non-blocking, all accepted:** `Diagram` takes `{ doc, interaction }` and does
-not read `EditorState` (§2.5 rewritten) — **and the reviewer's own dividend from
-that is now load-bearing**: `interaction` absent *is* export mode, so a preview
-carried there is absent from exports with no flag, which settles what Phase 3 had
-deferred and earns a regression assertion of its own; 3.0/2.0 are Zukai's
-defaults, not Assimilator's, whose fields are required; `deleteMovement`'s cite
-was the reducer case, not the function; `cross-4` has **16** movements (8
-assigned per stage), so the panel renders 32 rows, which is the ergonomic
-question; a dangling `previewPhase` is inert by lookup miss rather than patched
-by three actions; Derive must mint ids from an empty plan or its own idempotence
-gate is unreachable; §1's "the last one still open" softened to "the most
-consequential"; OQ-4/OQ-5 marked RESOLVED per §4's resolve-inline discipline;
-`.jn-movement-head` is a separate element and needs the role paint too; OQ-7
-notes that `cycle_time: 0` passes rule 4 but is untested at runtime.
-
-### Round 2 — 2026-07-27 — NOT READY → fixed
-
-Same agent resumed. Confirmed all five round-1 blockers resolved, re-verifying
-each against source rather than taking the changelog's word — including that
-`validation.rs:424` really does enter the rule-4 block with no `control` check
-(which is what makes §2.3.1's asymmetry principled), that `Arm.id` is the link id
-(`Diagram.tsx:376`) so the stop-bar iff is computable, and that `diagramSvg`
-takes only a `Document` so Phase 3's export guard is expressible.
-
-**One new blocker, and it is a misreading of my own evidence.** OQ-8's role rule
-named three of `MovementKind`'s **four** variants (`graph.rs:222-232`) and cited
-`cross-4:535-548` as support. Pairing that fixture's movement ids to their
-declared types shows its permitted lists are **two lefts plus two u-turns**, not
-four lefts — so the lines cited contradicted the rule they were cited for, and
-`u-turn` had no role at all. Fixed by naming four kinds (`left` **and** `u-turn`
-permitted) and correcting the reading.
-
-**Why no gate caught it, which is the part worth keeping.** The count assertions
-use a 12-movement cross, and `derivableMovements` strips u-turns — so a junction
-whose movements were *derived* cannot exercise the case, and **both readings of
-the rule passed every listed gate**. Only an *imported* junction reaches it, and
-`cross-4` has four u-turns. Phase 4 now asserts that no movement is absent from
-both lists of its stage, on an **imported** `cross-4` rather than a derived
-cross. A rule with a clause no gate can enforce is the same defect class as
-`network_yaml_spec.md`'s `#[serde(default)]` findings: it parses, it runs, and it
-means something other than what it says.
-
-### Round 3 — 2026-07-27 — READY (converged)
-
-Same agent resumed. Zero blocking findings. It confirmed the u-turn rule against
-the enum itself (`graph.rs:222-232` is exactly four variants), re-derived the
-`cross-4` reading independently, verified `derivableMovements` really does filter
-u-turns — so the "no gate could reach it" claim holds — and swept for stale
-three-kind text, finding the only survivors are the two *narrative* passages that
-describe what the draft got wrong, which are records rather than rules.
-
-**Its one substantive note was that the new gate was weaker than the rule**, and
-it is now folded in. "No movement is absent from both lists" enforces the clause
-that was missing entirely, but would still pass an implementation that made
-u-turns *protected*. Phase 4 now asserts the role as well as the coverage — a
-protected u-turn across opposing traffic being the specific wrong answer worth
-naming. Also fixed: `SignalHead`'s closing line had been corrected in the log but
-not in §2.8.
-
-**Converged at zero blocking. `status` → `reviewed`; phases may now be planned.**
-Three rounds, six blockers, none rejected — and five of the six were **claims
-about existing code**, not about the design: an assertion that could not be made
-green, a contradiction between an action's stated posture and its gate, an
-undefined case for two arms that really occur, a signal head that already ships,
-and a fixture cited for the opposite of what it contains. The design itself drew
-one blocker (OQ-8's count) and it was arithmetic. That ratio is the argument for
-this loop having repo access rather than reading the spec alone.

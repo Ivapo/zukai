@@ -1,10 +1,38 @@
 ---
-status: implemented (all 4 phases; reviewed in 2 rounds, 2026-07-24)
-last_updated: 2026-07-26
-note: Export the schematic as a standalone SVG (and PNG) — the picture leaves the app, chrome-free, at its own scale.
-implemented: ["Phase 1", "Phase 2", "Phase 3", "Phase 4"]
-not_implemented: []
-related: [specs/save_load_spec.md]
+id: zk-003
+title: diagram-export
+status: accepted
+last_updated: 2026-07-31
+note: >
+  Export the schematic as a standalone SVG (and PNG) — the picture leaves
+  the app, chrome-free, at its own scale.
+
+phases:
+  - name: "Phase 1 — Extract the diagram render tree"
+    reviewed: 2026-07-24
+    shipped: 2026-07-24
+    cut: null
+    by: null
+  - name: "Phase 2 — The SVG string builder"
+    reviewed: 2026-07-24
+    shipped: 2026-07-24
+    cut: null
+    by: null
+  - name: "Phase 3 — Export SVG end to end"
+    reviewed: 2026-07-24
+    shipped: 2026-07-24
+    cut: null
+    by: null
+  - name: "Phase 4 — PNG"
+    reviewed: 2026-07-24
+    shipped: 2026-07-24
+    cut: null
+    by: null
+
+extends: null
+supersedes: null
+superseded_by: null
+related: [zk-001]
 reference: "Standalone SVG 1.1 as browsers, Inkscape, and Figma consume it — `xmlns`, explicit `width`/`height`/`viewBox`, and no external references (no linked stylesheet, no web font, no remote image). PDF, multi-page output, and print CSS are out of scope."
 ---
 
@@ -533,72 +561,3 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
 - **Docs touched:** extend `rules/diagram-export.md` with the raster path and its
   two standing constraints (no external references, no text without an embedded
   font); update the project-memory roadmap.
-
-## 5. Review log
-
-### Round 1 — 2026-07-24 — `VERDICT: NOT READY` (2 blocking, 10 non-blocking)
-
-Clean-room reviewer with repo access. Grounding came back clean: every `file:symbol`
-citation checked out (the `Canvas.tsx` shapes, `ViewTransform`/`roadWidth`, the
-omit-table class names, `MarkingKind::Text`, `ensureZkaiExtension`, `dialog:default`,
-`renderToStaticMarkup` in react-dom 19, no jsdom in `package.json`, zero `<text>` in
-the drawing).
-
-**Blockers fixed:**
-
-1. **Phase 1's exit-gate test could never run.** `vitest.config.ts` includes
-   `src/**/*.test.ts`, which does not match the `Diagram.test.tsx` the gate
-   requires — `bun run test` would have run the two existing suites and reported
-   green, so the gate self-certified. Phase 1 now scopes the glob widening to
-   `*.test.{ts,tsx}` and its gate requires the test-file count to go 2 → 3.
-2. **`EXPORT_MARGIN = 24` clipped real drawings.** `getBBox()` excludes stroke;
-   the casing is `stroke-width: roadWidth(lanes)` with `stroke-linecap: round`, so
-   it overhangs each polyline end by up to `roadWidth(8)/2 = 37.5` world units —
-   every road of 5+ lanes would have lost its end-cap, and no gate caught it. §2.6
-   now derives the margin (`EXPORT_PAD = 24` + `strokeAllowance(doc)`), Phase 2
-   asserts `margin >= roadWidth(8)/2`, and Phase 3's manual check requires an
-   8-lane link in frame.
-
-**Non-blocking, all accepted and folded in:** `export.ts` → `export.tsx` (it renders
-JSX); `measureDiagram(doc)` replaces `measureDiagram(markup)` with `diagramInner`
-named as the markup producer, and its home stated once (§2.6 and §2.9 disagreed);
-`Diagram` owns the `<g class="diagram">` wrapper rather than `Canvas`; §2.5's
-element list corrected (it omitted `.jn-stopbar`/`.jn-priority`/`.jn-signal-body`)
-and the removal pinned to render time, not a string pass; `opts` dropped from
-`diagramSvg` (no consumer, and it contradicted OQ-2); degenerate/empty bounds given
-a defined output (`viewBox="-26 -26 52 52"`); the unrecognized-extension case given
-an exhaustive table (§2.10); WKWebView `toBlob` fallback recorded as OQ-6; Phase 3–4
-gates gained `cargo fmt --check` / `cargo clippy --all-targets`, and all four phases
-gained the **Docs touched** bullet both sibling specs carry.
-
-**OQ-5 resolved during review** (it was `answerable-from-code`, which
-`spec-authoring.md` §4 says to answer here): `diagram.css` owns the shared palette
-outright and `styles.css` deletes its duplicate `:root` declarations — keeping both
-would have let the app and the export disagree, since the later import wins.
-
-No findings rejected.
-
-### Round 2 — 2026-07-24 — `VERDICT: READY` (0 blocking)
-
-Same reviewer resumed with the changelog. Both blockers confirmed resolved: the
-`2 → 3` test-file count is a real counter (the repo has exactly two suites today),
-and the derived margin verified arithmetically (`roadWidth(8)/2 = 37.5`;
-`Math.max(2, ...[])` → `2`, the seed avoiding the `-Infinity` spread trap).
-
-The reviewer additionally checked the one stroke `strokeAllowance` does *not*
-model — `.jn-ring`, drawn at `strokeWidth={ringT}` where `ringT = ro * 0.42`, which
-on a scale-2.5 roundabout with 8-lane arms is a ~106-unit stroke whose half-width
-(53) exceeds 37.5 — and confirmed it cannot clip: the ring is centred at
-`ro - ringT/2`, so its outer edge lands at exactly `ro`, where the coincident
-`.jn-edge` circle is pure geometry `getBBox()` already includes. Round
-`stroke-linejoin` at bends never exceeds `w/2` from the vertex, and the arrowhead is
-inset by `w + 8`. `EXPORT_PAD + max(roadWidth/2)` therefore bounds every exported
-mark. Also re-verified: the §2.4 variable-usage counts, the `?raw` declaration
-(`vite/client.d.ts`, referenced via `src/vite-env.d.ts`), and `renderToStaticMarkup`
-resolving under both browser and node conditions.
-
-Two non-blocking consistency nits folded in on convergence: §2.6's signature block
-now reads `Rect | null` to match §2.9 and Phase 2's gate, and §2.5 no longer claims
-*every* stroked element carries `vectorEffect` (`.jn-ring` and the halos don't).
-
-**Converged in 2 rounds — `status: reviewed`.** Phase 1 is cleared to plan.

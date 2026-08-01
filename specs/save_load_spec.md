@@ -1,9 +1,37 @@
 ---
-status: implemented (2 review rounds, 2026-07-24)
-last_updated: 2026-07-24
-note: Save/open Zukai documents as .zkai YAML files, with dirty tracking and an unsaved-changes guard.
-implemented: ["Phase 1", "Phase 2", "Phase 3", "Phase 4"]
-not_implemented: []
+id: zk-001
+title: save-load
+status: accepted
+last_updated: 2026-07-31
+note: >
+  Save and open documents as `.zkai` YAML files, with dirty tracking and an
+  unsaved-changes guard.
+
+phases:
+  - name: "Phase 1 — Rust persistence commands"
+    reviewed: 2026-07-24
+    shipped: 2026-07-24
+    cut: null
+    by: null
+  - name: "Phase 2 — Editor persistence state"
+    reviewed: 2026-07-24
+    shipped: 2026-07-24
+    cut: null
+    by: null
+  - name: "Phase 3 — File dialogs + IPC glue"
+    reviewed: 2026-07-24
+    shipped: 2026-07-24
+    cut: null
+    by: null
+  - name: "Phase 4 — Desktop polish"
+    reviewed: 2026-07-24
+    shipped: 2026-07-24
+    cut: null
+    by: null
+
+extends: null
+supersedes: null
+superseded_by: null
 related: []
 reference: "Tauri 2 plugin-dialog (https://v2.tauri.app/plugin/dialog/) for native file pickers. network.yaml import/export is a SEPARATE future spec — this spec is Zukai's own format only."
 ---
@@ -296,26 +324,3 @@ when it was picked up (§2.6 records the decisions).
   still works with no menu and the webview shortcuts.
 - **Docs touched:** `rules/persistence.md` (menu/close-guard/recents rows, the new
   permission), this spec's §2.6 and frontmatter.
-
-## 5. Review log
-
-- **Round 1 (2026-07-24, clean-context agent, repo read access).** Verdict: NOT
-  READY — 1 blocking, 7 non-blocking; every `file:symbol` citation verified accurate.
-  - **Blocking (fixed):** the load return-path dropped empty collections via
-    `skip_serializing_if`, returning JSON with `nodes`/`links`/`layout` maps absent,
-    which would crash the frontend (`doc.links.map`). Resolved by `normalizeDocument`
-    (§2.1) + empty-document coverage in the Phase 2/3 gates.
-  - **Non-blocking (folded in):** dirty gated on document identity, not action type
-    (§2.3); two-step version probe for the friendly error (§2.2, Phase 1);
-    `dialog:default` permission named + `ask()` guard (§2.4/2.5); Phase 2 test seam
-    specified as `vitest` over the pure reducer/normalize; `document.title` for the
-    Phase 2 title; softened the browser-shortcut claim (§2.4). Resolved OQ-3, OQ-4.
-  - **Rejected:** "last_updated future-dated" — 2026-07-24 is today.
-- **Round 2 (2026-07-24, same agent, resumed).** Verdict: **READY**. Confirmed the
-  round-1 blocker is resolved (traced `normalizeDocument` against every crashing
-  consumer) and accepted the #8 rejection. Two new non-blocking refinements, both
-  folded in: (a) a carve-out so the three persistence actions set `dirty` explicitly
-  rather than being governed by the identity rule, plus a `markSaved`-clears-dirty
-  gate assertion (§2.3, Phase 2); (b) normalization pinned to a single boundary —
-  the `loadDocument` reducer case (§2.1/§2.3/Phase 3). No new blocking issues.
-- **Outcome:** converged in 2 rounds; ready for implementation.

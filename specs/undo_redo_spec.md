@@ -1,10 +1,29 @@
 ---
-status: implemented (2 review rounds, 2026-07-24)
-last_updated: 2026-07-24
-note: Linear undo/redo for document edits — snapshot history in the reducer, with drag coalescing, wired to keyboard, toolbar, and the native Edit menu.
-implemented: ["Phase 1", "Phase 2"]
-not_implemented: []
-related: [specs/save_load_spec.md]
+id: zk-002
+title: undo-redo
+status: accepted
+last_updated: 2026-07-31
+note: >
+  Linear undo/redo for document edits — snapshot history in the reducer,
+  with drag coalescing, wired to keyboard, toolbar, and the native Edit
+  menu.
+
+phases:
+  - name: "Phase 1 — History in the reducer"
+    reviewed: 2026-07-24
+    shipped: 2026-07-24
+    cut: null
+    by: null
+  - name: "Phase 2 — Triggers: keyboard, toolbar, native Edit menu"
+    reviewed: 2026-07-24
+    shipped: 2026-07-24
+    cut: null
+    by: null
+
+extends: null
+supersedes: null
+superseded_by: null
+related: [zk-001]
 reference: null   # Not an Assimilator-coupled feature; Zukai-internal only.
 ---
 
@@ -339,53 +358,3 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
   ignored) and, under `tauri dev`, that the installed menu is Zukai's and its Edit
   submenu holds exactly one Undo/Redo pair (Cmd+Z / Shift+Cmd+Z) above the
   Cut/Copy/Paste separator.
-
-## 5. Review log
-
-### Round 1 — 2026-07-24 — `VERDICT: NOT READY` (1 blocking)
-
-Clean-room reviewer with repo access.
-
-**Blocking, fixed:** §1's usage example ("bump lanes to 3", one Cmd+Z back to 1)
-contradicted §2.3, which gives every non-`moveNode` edit `coalesceKey = null` —
-the Lanes control is a ±1 stepper (`Inspector.tsx`), so 1 → 3 is two dispatches
-and two undo steps, and every later line of the example was off by one. Fixed by
-correcting the example to a single click and adding **§2.3a** as a recorded
-decision (discrete clicks never coalesce, because this design has no time/focus
-boundary to close such a gesture).
-
-**Non-blocking, folded in:** stale `state.ts:NNN` / `App.tsx:44` line citations
-replaced with `file:symbol` form per `spec-authoring.md` §5 (7 of 8 were wrong);
-§2.1 vs §2.3 contradiction over whether `markSaved`/`setRecents` clear
-`coalesceKey` resolved in favour of "untouched" (taking §2.3 literally would break
-the `setRecents` identity assertion in `state.test.ts`); §2.4 pseudo-code now
-preserves the identity-stable no-op return; undo/redo now clear `linkFrom`; §2.7
-gained the concrete removal mechanism (`findSubmenu("Edit")` + `removeAt(0)`
-twice — Undo/Redo verified as the first two items of `Menu::default`'s Edit
-submenu in tauri 2.11.5) instead of the inexact "same move as File"; Ctrl+Y noted
-as browser-path-only; the wheel-during-drag split documented as an accepted
-consequence in §2.3; `bun run test` named correctly and added to Phase 2's gate;
-`rules/persistence.md` reconciliation added to both phases' docs lists.
-
-**OQs closed during review:** OQ-3 resolved (100, drop-oldest). OQ-4 resolved —
-the reviewer showed its premise was wrong (`MenuItem.setEnabled` exists and does
-not rebuild the menu), so the same conclusion is kept with a corrected rationale.
-
-**Rejected:** none outright. The alternative to the blocking fix — coalescing
-repeated stepper clicks — was considered and rejected on the record in §2.3a.
-
-### Round 2 — 2026-07-24 — `VERDICT: READY` (0 blocking) — converged
-
-Same reviewer resumed. Confirmed the blocker is resolved by tracing the §1
-example through the reducer (`past = [empty, N1, N1+N2, +link, +drag]` — the
-three undos and the redo land exactly as the example claims), and re-verified
-each folded-in change against the code: the `setRecents` identity assertion, the
-`nodePos`-guarded link preview, `HistoryAction` as a third union arm leaving
-`editReducer`'s exhaustive switch narrowing to `EditAction`, the §2.4 early-out
-being correctly conditioned on `coalesceKey === null` (so a no-op editing action
-*mid*-gesture still resets the key), and the §2.7 menu surgery — `removeAt(0)`
-twice then `insert([undo, redo], 0)` reproduces `[Undo, Redo, Separator, Cut, …]`,
-and sits before `setAsAppMenu()` so a throw leaves nothing half-installed.
-
-No new blocking issues. `status` moved `draft` → `reviewed`; the spec is cleared
-for Phase 1.

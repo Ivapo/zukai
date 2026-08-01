@@ -1,0 +1,74 @@
+# spec-lint configuration.
+#
+# This file lives at the TARGET repo root, not with the tool: it describes
+# THIS corpus, so it travels with it and is reviewed in the same commit as
+# the citations it counts. Every key is optional; the values below are the
+# defaults except where a comment says otherwise.
+
+specs_glob: "specs/*_spec.md"     # one level only
+rules_glob: "rules/*.md"
+exclude:                          # a linter does not lint its own output
+  - "specs/INDEX.md"
+  - "rules/INDEX.md"
+exclude_trees:                    # append-only record, not ratcheted
+  - "specs/reviews/"
+templates:                        # shape-only: keys required, values are not
+  - "specs/_template.md"
+  - "rules/_template.md"
+
+# Identity. Chosen once for this repo and never renumbered. This is the
+# AUTHORITATIVE home for the prefix -- it is the one the linter reads.
+#
+# zk-001 .. zk-011 were allocated in creation order, which is the order
+# `max(existing) + 1` would have produced had the ids existed from the start.
+id_prefix: zk
+id_min_digits: 3
+
+# Citations. Cite `file:symbol`; a `file:line` citation is an error. Migration
+# is a ratchet, not a cliff: `baseline` is a map of file -> count that a HUMAN
+# lowers, in the commit that converts the citations. The linter never writes it.
+#
+# The extension set is the one the counts below were measured with; widening it
+# without re-measuring would silently move every number in the map.
+citation_extensions: [ts, tsx, rs, css]
+source_roots: ["."]
+source_index: git
+
+# 388 citations across 10 files, counted AFTER the review logs moved to
+# specs/reviews/ -- that tree is append-only record, so it is excluded from the
+# ratchet, and relocating a log lowers this corpus's baseline for free.
+# undo_redo_spec.md is absent, so its baseline is zero: its one citation was
+# inside its review log and left the surface with it.
+baseline:
+  specs/diagram_export_spec.md: 4
+  specs/junction_semantics_spec.md: 48
+  specs/lane_arrows_spec.md: 41
+  specs/network_yaml_spec.md: 35
+  specs/ramps_and_tapers_spec.md: 51
+  specs/road_markings_spec.md: 74
+  specs/road_rendering_spec.md: 51
+  specs/save_load_spec.md: 7
+  specs/signal_plans_spec.md: 33
+  specs/signs_and_text_spec.md: 44
+
+# A rule declaring nothing about its own provenance is a finding. Demote to
+# `warning` mid-migration, deliberately.
+#
+# Left at `error` deliberately: this repo's 9 rules/ files carry no frontmatter
+# yet and every one of them reports. That is the honest state, and scoping a
+# run with `--tree specs` is the narrower tool for looking only at the tree
+# that has been migrated.
+rules_unmanaged_severity: error
+
+# The deliverable set: files that must stand alone, and the names that may not
+# appear in them. Both empty means the check is off.
+deliverables: []
+forbidden_names: []
+
+# The bound on a status artifact, in lines. An empty map means the check is off.
+status_artifacts: {}
+
+index:
+  specs: "specs/INDEX.md"
+  rules: "rules/INDEX.md"
+  mode: check                     # check | write | off

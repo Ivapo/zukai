@@ -1,10 +1,38 @@
 ---
-status: implemented (all 4 phases shipped 2026-07-25)
-last_updated: 2026-07-25
-note: Draw the transitions between roads — lane-count tapers, ramp gores, and junction interiors that follow a divided road's carriageways.
-implemented: ["Phase 1", "Phase 2", "Phase 3", "Phase 4"]
-not_implemented: []
-related: [specs/road_rendering_spec.md, specs/diagram_export_spec.md]
+id: zk-005
+title: ramps-and-tapers
+status: accepted
+last_updated: 2026-07-31
+note: >
+  Draw the transitions between roads — lane-count tapers, ramp gores, and
+  junction interiors that follow a divided road's carriageways.
+
+phases:
+  - name: "Phase 1 — Arms carry their position (road spec OQ-6)"
+    reviewed: 2026-07-25
+    shipped: 2026-07-25
+    cut: null
+    by: null
+  - name: "Phase 2 — Link alignment"
+    reviewed: 2026-07-25
+    shipped: 2026-07-25
+    cut: null
+    by: null
+  - name: "Phase 3 — Tapers"
+    reviewed: 2026-07-25
+    shipped: 2026-07-25
+    cut: null
+    by: null
+  - name: "Phase 4 — Gores"
+    reviewed: 2026-07-25
+    shipped: 2026-07-25
+    cut: null
+    by: null
+
+extends: null
+supersedes: null
+superseded_by: null
+related: [zk-004, zk-003]
 reference: "Motorway diagram convention as road atlases and variable-message signage use it — tapered lane drops, hatched gore areas at a diverge, a continuous outer edge through a lane change. Not to-scale interchange geometry (that is Assimilator's job), and not the painted chevrons inside a gore, which are markings and belong to the decorations spec."
 ---
 
@@ -803,120 +831,3 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
   a gap — §1's dropped lane leaves *as* the ramp, and the gore is what closes the
   picture. `Arm` gained an `id` for `gorePair`'s tie-break, and `hasShoulder`
   became `needsHatch`.
-
-## 5. Review log
-
-### Round 1 — 2026-07-25 — `VERDICT: NOT READY` (8 blocking)
-
-Clean-room reviewer with repo access. It **confirmed §2.2's load-bearing
-claim**: `drawnPolyline` is `offsetPolyline(linkPolyline(...), d)` and
-`offsetPolyline` displaces the first and last points by their own segment
-normals, so `poly[0]` / `poly.at(-1)` really is the carriageway's drawn end and
-`origin = n0` needs no re-derivation. The `rayIntersection` maths of §2.5 also
-checked out for both diverge and merge. Blockers fixed:
-
-1. **The pad-radius formula shrank every undivided pad**, contradicting Phase
-   1's own no-change gate — `0.62 w + 3 > w / 2` for all `w`. §2.2 now makes the
-   arm reach a **floor** on today's expression, not a replacement.
-2. **`scale` composition was unspecified.** §2.2 pins it: `scale` multiplies the
-   base term only, the reach floor is unscaled world units — otherwise a
-   shrunken junction reintroduces the very defect Phase 1 removes. The roundabout
-   ring `ro` takes the same floor (was silently omitted).
-3. **Phase 2's sign assertion was inverted.** Lane 0 is nearside at *positive*
-   offset, so an `offside`-aligned eastbound road's lane region is at **positive**
-   `y`, not negative. §2.3 stopped hedging ("or the reverse") and now derives and
-   pins the sign; the gate follows it. The spec had walked into the trap it named.
-4. **The through-joint test fired on a divided road's own two carriageways** —
-   `divided()` puts exactly one link in and one out at each node, so unequal lane
-   counts would have drawn a wedge between two anti-parallel carriageways. §2.4
-   excludes the reversed-twin pair; §2.8 records the resulting non-goal.
-5. **The additive argument ignored `stroke-linecap: round`.** The outset link's
-   half-disc bulges outside the wedge hypotenuse and no polygon can erase it.
-   §2.4 adds the butt-cap rule and states its whole-path consequence. (The
-   reviewer estimated the overhang at ~2.7 units / ⅓ lane; measuring §1's 4→3
-   joint gives ~1.3 units over the first ~13 — smaller, still an edge line's
-   width, still fixed.)
-6. **`taperWedge(...)` had no signature** and no rule for mismatched alignment or
-   an angled joint. §2.4 replaces "the narrower link's side" with a per-side
-   **inset-edge** rule that subsumes every case, gives the function a concrete
-   points-in signature, says casing edge (not lane region), and says three
-   corners — the gate had said four for a triangle.
-7. **Nothing said which two of a gore's three arms diverge**, and §2.5's
-   justification ("the arm directions already say which way traffic goes") was
-   **false** — `junctionArms` orients every arm away from the node. Replaced with
-   the smallest-angle pair rule, which needs no travel direction and handles
-   diverge and merge alike.
-8. **OQ-3 blocked Phase 4.** Resolved: bump `SCHEMA_VERSION` to 2 (§2.6).
-
-Non-blocking, folded in: the `getBBox`/`strokeAllowance` premise was wrong —
-fill geometry is already measured, so §2.7 now records "expect no change"
-instead of sending Phase 3 after a non-bug; §1's ramp is 10.2 units, not 12;
-Phase 2 gained `state.ts` (`setLinkAlign` action, reducer, undo test); the
-world→glyph frame conversion for `origin` is stated; `skip_serializing_if` got
-its `LinkAlign::is_centre` predicate; the divided-pair median consequence of
-alignment is named in §2.3; OQ-7's and the Inspector's citations corrected.
-
-**Nothing rejected.** Every finding was either a real code contradiction or a
-gap an implementer would have had to guess at.
-
-### Round 2 — 2026-07-25 — `VERDICT: NOT READY` (1 blocking, newly introduced)
-
-Same reviewer, resumed. It confirmed all eight round-1 blockers resolved, and
-checked three of the new mechanisms numerically: the reach floor never binds at
-the default Size so the existing pad test (`Diagram.test.tsx:213`) still passes;
-`ringT`/`ri` derive from `ro` (`:413-414`) so they inherit the floor for free;
-and the closest-pair rule discriminates 30° from 150°/180° at both a diverge and
-a merge. It also **withdrew its round-1 overhang estimate** — against the
-now-pinned *casing* boundary the peak is 1.327 units at t = 6.85, zero at
-t = 12.8, matching this spec's number; its 2.7 had assumed a lane-region-bounded
-wedge, which round 1 had left unspecified.
-
-The one new blocker was **introduced by round 1's own §2.4 rewrite**. Round 1's
-rule gated on "the two drawn lane regions differ in width", which excluded a bend
-by construction; replacing it with edge *coincidence* on world points dropped
-that guard. `segmentNormals` (`geometry.ts:316-325`) rotates with the link, so at
-`N1(0,0) → N2(120,0) → N3(120,120)` two **identical** 4-lane links put their
-nearside casing edges at `(120, 19.5)` and `(100.5, 0)` — a plain corner would
-have drawn two wedges and two butt caps, silently contradicting Phase 3's own
-"markup unchanged" gate, which a collinear fixture would never catch. Fixed by
-making the comparison one of **signed lateral offsets in the shared frame**
-(`d ± roadWidth/2`, which `drawnPolyline` already computes) and adding a
-`TAPER_MAX_BEND` collinearity guard, with the corner as an explicit Phase 3 gate
-case.
-
-Non-blocking, folded in: Phase 4 now names `persist.rs`'s
-`rejects_a_newer_schema_version` fixture (`:120-137`), which writes
-`schema_version: 2` and must go to `3` or silently stop testing anything; §2.2
-records that Size **clamps** below ~half scale (an intended consequence of the
-unscaled floor, not a bug) and Phase 1's pin is explicitly written at the default
-Size; `dist` → `distance` (`geometry.ts:57`).
-
-### Round 3 — 2026-07-25 — `VERDICT: READY` (0 blocking) — **converged**
-
-Same reviewer, resumed. It re-derived the new rule rather than reading it:
-confirmed `segmentNormals` produces the spec's `(120, 19.5)` / `(100.5, 0)`
-counter-example exactly; reproduced **all four rows** of §2.4's table from
-`d ± roadWidth/2` (drop → inset downstream, addition → inset upstream,
-`centre` → both sides, mismatched alignment → one wedge each way); and confirmed
-that because offsets are frame-independent scalars, equality holds at *any* bend
-within tolerance, so a bend with no width step keeps its present-day markup.
-
-Three non-blocking refinements folded in at convergence:
-
-- **A rationale sentence was mis-attributed** (a real correction, not style):
-  §2.4 credited the reversed-twin exclusion with making the two frames agree in
-  sign. It does not — a hairpin `N1→N2`, `N2→N3` with N3 beside N1 has a
-  different node pair, so the twin test misses it, and its frames oppose. The
-  **bend guard** is what makes the claim true. Rewritten so a later reader cannot
-  drop the guard believing the twin test covers it.
-- **Butt caps notch the outside of a bend** — depth `(roadWidth/2)·tan(θ/2)`,
-  which the round caps used to fill. This turned `TAPER_MAX_BEND` from a picked
-  number into a derived one: **8°, not 15°**, so that at the tolerance limit the
-  notch (≈1.36 units, 4-lane) is no deeper than the ≈1.33-unit overhang the butt
-  cap removes. 15° would have inverted the trade at ≈2.6. Added as the third
-  consequence in §2.4's list.
-- Phase 3's gate said "equal casing edges"; now "equal casing-edge **offsets**",
-  matching §2.4's language.
-
-**Converged at three rounds.** `status: draft` → `reviewed`; the phases are
-cleared for plan-mode implementation.
