@@ -1,3 +1,26 @@
+---
+title: signs
+sources:
+  - src/App.tsx
+  - src/components/Canvas.tsx
+  - src/components/Diagram.tsx
+  - src/components/Inspector.tsx
+  - src/components/Toolbar.tsx
+  - src/editor/geometry.ts
+  - src/editor/state.ts
+  - src/model/document.ts
+  - src/styles.css
+  - src/styles/diagram.css
+  - src-tauri/src/model/decoration.rs
+covers: >
+  the objects a human stands beside the road: why a sign is node-shaped rather
+  than marking-shaped, the four actions, what removes one, the topmost sign
+  layer and what a sign is drawn from, the shape-then-colour vocabulary, and the
+  panel
+max_lines: 200
+generated: null
+---
+
 # Signs
 
 The objects a human stands *beside* the road: how a sign is placed, moved,

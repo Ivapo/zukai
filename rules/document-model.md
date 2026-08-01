@@ -1,3 +1,21 @@
+---
+title: document-model
+sources:
+  - src-tauri/src/model/mod.rs
+  - src-tauri/src/model/graph.rs
+  - src-tauri/src/model/layout.rs
+  - src-tauri/src/model/decoration.rs
+  - src-tauri/src/model/ids.rs
+  - src/model/types.ts
+  - src/model/document.ts
+covers: >
+  the three parts of a Document and what separates them, the invariants, the
+  Rust-TypeScript mirror discipline and its one instructive exception, and what
+  does and does not move SCHEMA_VERSION
+max_lines: 130
+generated: null
+---
+
 # Document Model
 
 Authoritative map of Zukai's document model. Terse by design — read the rustdoc in

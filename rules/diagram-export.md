@@ -1,3 +1,25 @@
+---
+title: diagram-export
+sources:
+  - src/App.tsx
+  - src/components/Canvas.tsx
+  - src/components/Diagram.tsx
+  - src/components/Toolbar.tsx
+  - src/editor/export.tsx
+  - src/editor/export.test.ts
+  - src/editor/files.ts
+  - src/editor/fonts.ts
+  - src/editor/menu.ts
+  - src/styles/diagram.css
+  - src-tauri/src/export.rs
+covers: >
+  the SVG/PNG export path: the one render tree and its two consumers, which
+  paint travels inside the file, the pure/DOM/Tauri layers, how bounds and the
+  margin are derived, and the self-contained-file constraints that fail silently
+max_lines: 200
+generated: null
+---
+
 # Diagram export (SVG, PNG)
 
 How the drawing leaves Zukai as a standalone picture. Spans React, CSS, and two

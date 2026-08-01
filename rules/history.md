@@ -1,3 +1,19 @@
+---
+title: history
+sources:
+  - src/App.tsx
+  - src/components/Canvas.tsx
+  - src/components/Toolbar.tsx
+  - src/editor/menu.ts
+  - src/editor/state.ts
+covers: >
+  the undo/redo snapshot stack in the reducer: the document-identity signal,
+  drag coalescing, the trap where an action deleting nothing must return the
+  same doc, what resets history, and the three trigger surfaces
+max_lines: 160
+generated: null
+---
+
 # Undo / Redo
 
 How document history works. Frontend only — nothing here crosses IPC or reaches

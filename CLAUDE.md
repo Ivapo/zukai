@@ -65,167 +65,76 @@ cd src-tauri && cargo build    # build the Rust backend
 
 ## Development flow
 
-Zukai uses a two-tier documentation system, adapted from Assimilator and sized for
-this project.
+Zukai uses a two-tier documentation system: `specs/` are design plans, `rules/` are
+current-state reference. Both are checked by a linter; neither is catalogued here.
 
 **`specs/` — design plans (the *why* and the how).** Before building a non-trivial
-feature, write a spec: a frontmatter header (`status`, `last_updated`,
-`implemented`/`not_implemented`), a Goal anchored to a concrete usage example, the
-design, open questions, and **numbered implementation phases**. Each phase is
-strictly sequential and sized to **one plan-mode pass** with a concrete exit gate
-(build + tests green, plus a behavioural check). To implement, run "implement Phase
-N of `specs/<spec>.md`". Conventions live in `specs/spec-authoring.md`; start new
-specs from `specs/_template.md`. Review a draft before implementing with
-`/review-spec <spec>` (the §7 loop) — a spec must reach `status: reviewed` first.
+feature, write a spec: a frontmatter header (`id`, `title`, `status`, `last_updated`,
+and a `phases:` list carrying each phase's `reviewed` / `shipped` / `cut` dates), a
+Goal anchored to a concrete usage example, the design, open questions, and **numbered
+implementation phases**. Each phase is strictly sequential and sized to **one
+plan-mode pass** with a concrete exit gate (build + tests green, plus a behavioural
+check). To implement, run "implement Phase N of `specs/<spec>.md`". Start a new spec
+from `specs/_template.md`; its review record goes in `specs/reviews/<id>.md`, which is
+append-only.
+
+**`rules/` — current-state reference (the *what is*).** Terse, authoritative maps of
+subsystems, read on demand. Unlike specs, rules describe the code as it is now. Each
+declares its own provenance in frontmatter — `sources` (the files it is derived from),
+`covers` (what to extract), `max_lines` (the cap on how far a reader should have to
+scroll) — so the regeneration loop can rebuild it without knowing anything about this
+project in advance. `sources: []` means **declared** hand-maintained, which is a
+different thing from silently unmaintained. Start a new rule from `rules/_template.md`,
+and seed one only where there is real cross-file knowledge worth extracting.
+
+### Read the index at the moment you need it
+
+- **Before drafting, reviewing or implementing a spec, read `specs/INDEX.md`.**
+- **Before changing a subsystem, read `rules/INDEX.md`.**
+
+Both are generated from frontmatter by the linter and are never hand-edited. They are
+deliberately *not* reproduced in this file: a catalogue here is loaded into every
+session, including the ones that never touch a spec.
+
+### The methodology is not local to this repo
+
+Conventions — the frontmatter schema, phase discipline, open-question rules, the
+review loop and its round cap — live in the canonical document:
+
+> `/Users/ivapo/.claude/skills/spec-driven-dev/spec-authoring.md`
+
+There is deliberately **no copy in `specs/`**. A local copy is how two documents end
+up describing one process. Section numbers cited anywhere in this repo (`§6.1`, `§7`,
+`§7.6`) are that document's. The loops live beside it, and are run by path — this repo
+has no `/review-spec` or `/sync-rules` command:
+
+```bash
+SDD=/Users/ivapo/.claude/skills/spec-driven-dev
+python3 $SDD/bin/spec-lint .                 # validate specs/ and rules/
+python3 $SDD/bin/spec-lint . --write-index   # regenerate both INDEX.md files
+# review a spec:      $SDD/loops/review-spec.md
+# regenerate a rule:  $SDD/loops/sync-rules.md
+```
 
 **Standing plan-mode rule:** when planning a phase of a spec, always include, as
-explicit plan steps, (1) a **commit plan** (what gets committed, the message,
-whether to push) and (2) a **reconciliation step** (which `rules/`, `CLAUDE.md`, or
+explicit plan steps, (1) a **commit plan** (what gets committed, the message, whether
+to push) and (2) a **reconciliation step** (which `rules/`, `CLAUDE.md`, or
 project-memory roadmap entries the phase changes — or "none needed"). These are
-default steps, not things to request each time. And **never plan or implement a
-phase that has not passed the review loop** (`specs/spec-authoring.md §7`) —
-which means `status: draft` blocks the whole spec, *and* a phase added to an
-already-shipped spec (§6.1) is blocked until its own scoped round says
-`reviewed`, even though that spec is at `partial` rather than `draft`. The gate
-is on the phase, not the document.
+default steps, not things to request each time. And **never plan or implement a phase
+that has not passed the review loop** (§7): `status: draft` blocks everything in the
+spec, *and* a phase appended to an already-accepted one (§6.1) is blocked until its
+own scoped round sets that phase's `reviewed` date. The gate is on the phase, not the
+document.
 
-**Additions go in the spec that owns the subject** (`spec-authoring.md §6.1`).
-An implemented spec can be reopened to `partial` and given a new phase; starting
-a second spec to avoid touching a finished one is how two documents end up
-designing one subsystem. A new spec is for work spanning several subsystems, or
-work that removes what another spec shipped.
+**Additions go in the spec that owns the subject** (§6.1). An accepted spec can be
+given a new phase; starting a second spec to avoid touching a finished one is how two
+documents end up designing one subsystem. A new spec is for work spanning several
+subsystems, or work that removes what another spec shipped.
 
-- `specs/spec-authoring.md` — how to write specs (read before drafting one)
-- `specs/_template.md` — copy this to start a new spec
-- `specs/save_load_spec.md` — save/open `.zkai` documents (implemented; 4 phases)
-- `specs/undo_redo_spec.md` — undo/redo over document edits (implemented; 2 phases)
-- `specs/diagram_export_spec.md` — export the schematic as SVG/PNG (implemented; 4 phases)
-- `specs/road_rendering_spec.md` — make the drawn road honour the road model:
-  lane widths, road class, two-way carriageways, lane kinds (implemented; 4 phases)
-- `specs/ramps_and_tapers_spec.md` — the joins between roads: arm positions, link
-  alignment, lane-drop tapers, gores (implemented; 4 phases)
-- `specs/road_markings_spec.md` — the paint on the road: stop and give-way lines,
-  crossings, lane arrows, lane lines (implemented; 5 phases — 1–4 in one pass,
-  then **reopened** for Phase 5, the two-headed arrow, added, reviewed in 3
-  scoped rounds and shipped on 2026-07-28). The worked example of
-  `spec-authoring.md` §6.1 — and of §7's phase-level gate, which is the reason
-  its Review log carries two sets of rounds.
-- `specs/signs_and_text_spec.md` — letters in the drawing: the embedded font,
-  painted road text, and roadside signs (implemented; 4 phases)
-- `specs/junction_semantics_spec.md` — what a junction *means*: control and
-  right-of-way rule (**Phase 1 implemented; Phases 2–4, the turn movements, were
-  shipped and then cut** on 2026-07-28 — see its §0. The turns a junction permits
-  are paint on the approach now, not a relation in the model)
-- `specs/network_yaml_spec.md` — import and export Assimilator's `network.yaml`:
-  the serde mirror, the two directions and their asymmetry, and the four
-  `#[serde(default)]` fields that fail silently (**Phases 1–2 implemented;
-  Phases 3–4 cut** — Zukai does not write `network.yaml`, see below)
-- `specs/signal_plans_spec.md` — the stages a signalized junction cycles
-  through (**all 4 phases cut** — a plan is a table, and this project prints
-  pictures; kept only as the record of why)
-- `specs/lane_arrows_spec.md` — which lane goes where, said with paint on the
-  approach instead of arcs across the pad: a marking you can drag, a marking
-  anchored to the junction end, import painting the lanes from the file's own
-  lane data, and the removal of the movement arcs and the movement list
-  (implemented; 5 phases, built 1–3, 5, 4 — Phase 5 was resequenced ahead of
-  Phase 4 once Phase 3's dev pass measured that the junction pad painted over the
-  arrows it had just placed; reviewed in 2 rounds). **It removes what
-  `junction_semantics_spec.md` shipped**, which is why it is its own spec rather
-  than a phase of that one (`spec-authoring.md` §6.1).
+**Which phase of this produces the picture?** The question at the top of this file is
+the one a spec's phases have to answer. A phase whose output is a panel, a table, or a
+file no reader ever sees is argued for explicitly, not assumed.
 
-**`rules/` — current-state reference (the *what is*).** Terse, authoritative maps
-of subsystems, read on demand. Unlike specs, rules describe the code as it is now;
-keep them current when the code changes (hand-maintained — no `/sync-rules` skill
-yet; add one if the rules corpus grows enough to regenerate). Seed rules only when
-there's real cross-file knowledge worth extracting, not for every file.
-
-- `rules/document-model.md` — the three-part `Document`, the geometry-free/
-  presentation split, and the Rust↔TypeScript mirror discipline
-- `rules/persistence.md` — the save/open path: toolbar → dialog+IPC glue → Rust
-  commands → reducer, and the normalize-at-one-boundary rule
-- `rules/history.md` — undo/redo: the snapshot stack in the reducer, the
-  document-identity signal, drag coalescing, and the three trigger surfaces
-- `rules/diagram-export.md` — SVG export: the `Diagram`/`Canvas` split, the
-  two-importer CSS rule, the pure/DOM/Tauri layers, why an export is not a
-  document, and the embedded font — the second stylesheet, the four rules that
-  keep the canvas and the file asking for the same face, and the WKWebView
-  measurement that proved a raster keeps it
-- `rules/road-rendering.md` — how a link becomes a road: the one lane-width
-  derivation everything descends from, class-as-token, the carriageway pairing
-  rule and its positive-offset trap, lane kinds, the one hatch `<pattern>` that
-  cannot be a CSS rule, the junction arms that carry their own position, the
-  three tests a joint passes before it tapers, the arm pair a gore is drawn
-  between, and the arms and radii that left the render body once a marking needed
-  to measure to the rim they size
-- `rules/road-markings.md` — the paint a human places: the one metre/unit
-  boundary, the lane that falls out of the click, the kind-aware Inspector
-  controls, why the marking layer is a sibling and not a child of the road, the
-  tiling that makes containment a property rather than a clamp, the one number
-  that bounds all six turn-arrow directions, the lane line that runs *along* the
-  road and replaces the divider it lands on, the third `Selection` arm and the
-  three failures the compiler does not catch, what removes a marking, the
-  seventh kind — text set along the road, centred by arithmetic rather than
-  `dominant-baseline`, and the panel's first `<input>` — the end a marking
-  measures from: the involution that lets one function serve both directions, why
-  the frame flip lives inside the two functions that already convert rather than
-  making a third, and the one half of it no test can see — and the arrow's second
-  head: a field rather than an enum variant because only one of the two costs a
-  version bump, the *other* frame flip (a rotation about the band centre, not
-  `anchor.at`, since a rear `left` is left for the driver it faces), the shaft
-  that shortens only when a rear branch was **built**, and the two controls now
-  writing one payload, which is why neither may rebuild it and why the merge is a
-  named function in `state.ts` — plus the half of *that* no test can see either
-- `rules/signs.md` — the objects beside the road: why a sign is node-shaped
-  rather than marking-shaped, the bare `Vec2` in `layout.signs`, the four actions
-  and their three coalescing keys, clear-instead-of-cascade and the map-vs-filter
-  identity trap it hides, the layer that is topmost rather than under the glyphs,
-  the plate that sizes itself to its label, the deliberately conservative
-  `needsText`, the two pointer dead zones, the fourth `Selection` arm the compiler
-  only half catches, and the vocabulary — shape first and colour second, the one
-  box the chrome is grown from whatever a kind paints, the roundel's ring that is
-  fat because the type size is fixed, and the one place that ordering runs out:
-  the destination panel, which colour has to separate because shape cannot
-- `rules/junctions.md` — what a junction *means* rather than looks like: **which
-  turns it permits is not recorded there**, and that absence is the largest thing
-  in the file (the turns are `turn_arrow` paint on the approach, there is no
-  relation in the model and nothing derives one, the `MovementKind` vocabulary
-  left for the mirror, and what the change cost — an arrow names no exit road,
-  which a destination plate answers); the three records keyed by one `NodeId` and
-  which of them a hand-edited file may omit; the glyph/control split and the
-  one-way traffic between them; the nudge and its "only from the default glyph"
-  clause; why clearing `rule` belongs to the control action but guarding it does
-  not; the two identity returns no behavioural test sees; the **two** cascade
-  answers left now that a `Junction` needs none (and why its link arm's identity
-  holds by construction rather than by a pre-check); the glyph's own drawing, with
-  nothing between the pad and the stop bars — pinned as a literal slice, because
-  an index comparison passed while sixteen arcs sat there; and the one turn
-  vocabulary left in the model, which is a grep rather than a test
-- `rules/network-yaml.md` — the format Zukai reads but does not own **and does
-  not write**: two formats with two owners and why the module is not
-  `persist.rs`, the `schema_version` header that is real *and* not a struct field
-  (read above serde, so the probe takes an `Option` and an absent one must be
-  accepted), the **three** enums reused rather than redeclared and the fourth
-  that is now declared *here* — `MovementKind` moved in when a junction's turns
-  became paint, because the only thing left that names a turn that way is the
-  file being read, which also retires the hyphen as a hazard — and the one test
-  that keeps all four honest across the move, the scale and the y that is stated
-  as a compass bearing
-  because a mirrored network is self-consistently wrong, what import discards —
-  the geometry, and the right-of-way detail as well, on the rule that a field
-  nothing draws is a field nothing carries — versus the one thing it *demotes*
-  (`point` seeds the layout, or the page renders blank), the whole **struct** it
-  now reads without carrying (`NetworkMovement` is parsed, becomes paint, and
-  reaches no model type at all — which is what separates *mirror what is drawn*
-  from *carry*, in its sharpest form), the two projects' opposite
-  lane numberings and the single involution that reconciles them at this boundary
-  — for both the arrows and the lane array, which carried the bug invisibly —
-  the one thing import *mints*, the defaults
-  seeded rather than derived, and how a network reaches the editor: Open's path
-  one format over, a command that is a shell around the pure conversion, and the
-  two differences that are the whole of Phase 2 (dirty and pathless, so Save
-  cannot write a schematic back over Assimilator's file; and never remembered as
-  a recent, because "Open Recent" opens through `load_document`)
-
-Specs are authoritative for *intent and plan*; `rules/`, this file, and the code
-are authoritative for *current state*. When a shipped phase changes what a rule
-documents, update the rule (and the roadmap in project memory) in the same pass.
+Specs are authoritative for *intent and plan*; `rules/`, this file, and the code are
+authoritative for *current state*. When a shipped phase changes what a rule documents,
+update the rule (and the roadmap in project memory) in the same pass.

@@ -1,3 +1,23 @@
+---
+title: persistence
+sources:
+  - src/App.tsx
+  - src/components/Toolbar.tsx
+  - src/editor/files.ts
+  - src/editor/menu.ts
+  - src/editor/state.ts
+  - src/model/document.ts
+  - src-tauri/src/lib.rs
+  - src-tauri/src/persist.rs
+  - src-tauri/src/recent.rs
+covers: >
+  the .zkai save/open path end to end — trigger, dialog and IPC, Rust commands,
+  reducer, the normalize-at-one-boundary rule, the close guard — plus the
+  JS-built native menu and how recents are stored and pruned
+max_lines: 110
+generated: null
+---
+
 # Persistence (save / open)
 
 How a `.zkai` document gets to disk and back. Spans Rust and TypeScript; the

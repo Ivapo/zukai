@@ -1,3 +1,25 @@
+---
+title: road-rendering
+sources:
+  - src/components/Diagram.tsx
+  - src/components/Inspector.tsx
+  - src/editor/export.tsx
+  - src/editor/geometry.ts
+  - src/editor/state.ts
+  - src/model/document.ts
+  - src/model/types.ts
+  - src/styles.css
+  - src/styles/diagram.css
+  - src-tauri/src/model/layout.rs
+covers: >
+  how a link becomes a picture of a road: the one lane-width derivation
+  everything descends from, class as a token, two-way carriageways and the arms
+  that follow them, alignment, tapers, gores, lane kinds and the hatch, and the
+  painted centreline
+max_lines: 250
+generated: null
+---
+
 # Road rendering
 
 How a link becomes a picture of a road: lane geometry, road class, two-way

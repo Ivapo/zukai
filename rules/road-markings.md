@@ -1,3 +1,27 @@
+---
+title: road-markings
+sources:
+  - src/App.tsx
+  - src/components/Canvas.tsx
+  - src/components/Diagram.tsx
+  - src/components/Inspector.tsx
+  - src/components/Toolbar.tsx
+  - src/editor/export.tsx
+  - src/editor/geometry.ts
+  - src/editor/state.ts
+  - src/model/types.ts
+  - src/styles.css
+  - src/styles/diagram.css
+  - src-tauri/src/model/decoration.rs
+covers: >
+  the paint a human places on a road: the anchor and the one metre/unit
+  boundary, placement from the click, the importer as second author, dragging,
+  the kind-aware controls, what each of the seven kinds paints, and what removes
+  a marking
+max_lines: 250
+generated: null
+---
+
 # Road markings
 
 The paint a human places on a road: how a marking is anchored, how the tool

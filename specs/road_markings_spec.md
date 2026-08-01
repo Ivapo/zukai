@@ -497,7 +497,7 @@ discipline to observe and no `cargo` gate beyond the pre-commit hook's.
 ### 2.11 The two-headed arrow (added 2026-07-28, reopening — Phase 5)
 
 Everything above this line shipped on 2026-07-25 and is left as it shipped
-(`spec-authoring.md §6.1`). This section is the reopening, and it adds one thing
+(`/Users/ivapo/.claude/skills/spec-driven-dev/spec-authoring.md §6.1`). This section is the reopening, and it adds one thing
 §2.7's table cannot express: **an arrow with a head at each end**, for a lane
 carrying traffic both ways.
 
@@ -970,7 +970,7 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
 
 ### Phase 5 — The two-headed arrow  (added 2026-07-28; reviewed 2026-07-28)
 
-Added by reopening (`spec-authoring.md §6.1`). Phases 1–4 are untouched and this
+Added by reopening (`/Users/ivapo/.claude/skills/spec-driven-dev/spec-authoring.md §6.1`). Phases 1–4 are untouched and this
 depends on all of them. It passed its own scoped review round (§7's phase-level
 gate) in three rounds on 2026-07-28 and **is cleared to implement**.
 

@@ -845,7 +845,7 @@ before the paint is legible would break the rule this order exists to keep.
   build is green in either order. What Phase 4 would have done is make the lift
   *smaller* — it deletes `MovementShape`, one of `Arm`'s consumers — which is a
   convenience, not a precondition, and not worth leaving Phase 3's output
-  unreadable to collect. Nothing is renumbered (`spec-authoring.md` §6.1); only
+  unreadable to collect. Nothing is renumbered (`/Users/ivapo/.claude/skills/spec-driven-dev/spec-authoring.md` §6.1); only
   the order the phases are built in moves, and no phase's own scope changes, so
   no further review round is owed.
 - **One hand-off Phase 4 must not lose.** Phase 4's scope removes `Diagram.tsx`'s

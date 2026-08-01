@@ -1,3 +1,22 @@
+---
+title: junctions
+sources:
+  - src/components/Diagram.tsx
+  - src/components/Inspector.tsx
+  - src/editor/state.ts
+  - src/model/document.ts
+  - src/model/types.ts
+  - src/styles.css
+  - src-tauri/src/model/graph.rs
+  - src-tauri/src/network/mod.rs
+covers: >
+  what a junction means rather than what it looks like — control and rule, which
+  layer owns each part, the glyph-versus-control split and its nudge, the two
+  actions, and the one turn vocabulary left in the model
+max_lines: 200
+generated: null
+---
+
 # Junctions
 
 What a junction *means*, as opposed to what it looks like: `Junction.control` and

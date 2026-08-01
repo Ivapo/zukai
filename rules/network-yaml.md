@@ -1,3 +1,21 @@
+---
+title: network-yaml
+sources:
+  - src-tauri/src/network/mod.rs
+  - src-tauri/src/network/import.rs
+  - src-tauri/src/lib.rs
+  - src/editor/files.ts
+  - src/editor/menu.ts
+  - src/editor/state.ts
+covers: >
+  reading Assimilator's network.yaml: the serde mirror and what earns a place in
+  it, the header and version probe, the scale and the two lane-numbering
+  conventions, what import throws away and the turn arrows it mints, and why
+  there is no writer
+max_lines: 200
+generated: null
+---
+
 # `network.yaml`
 
 Assimilator's file format — the one thing the two projects share, and the only
