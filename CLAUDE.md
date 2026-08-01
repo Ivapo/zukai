@@ -110,8 +110,8 @@ has no `/review-spec` or `/sync-rules` command:
 
 ```bash
 SDD=/Users/ivapo/.claude/skills/spec-driven-dev
-python3 $SDD/bin/spec-lint .                 # validate specs/ and rules/
-python3 $SDD/bin/spec-lint . --write-index   # regenerate both INDEX.md files
+$SDD/bin/spec-lint .                 # validate specs/ and rules/
+$SDD/bin/spec-lint . --write-index   # regenerate both INDEX.md files
 # review a spec:      $SDD/loops/review-spec.md
 # regenerate a rule:  $SDD/loops/sync-rules.md
 ```
