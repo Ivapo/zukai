@@ -68,8 +68,12 @@ cd src-tauri && cargo build    # build the Rust backend
 Zukai uses a two-tier documentation system: `specs/` are design plans, `rules/` are
 current-state reference. Both are checked by a linter; neither is catalogued here.
 
-**`specs/` — design plans (the *why* and the how).** Before building a non-trivial
-feature, write a spec: a frontmatter header (`id`, `title`, `status`, `last_updated`,
+**`specs/` — design plans (the *why* and the how).** When a conversation settles on a
+feature, work **§6.1's ordered test** before assuming a new document — step 0 asks
+whether a decision changed at all (code only → fix the code, and the commit is the
+record), and step 2, appending a phase to the spec that already owns the subject, is
+the commonest real answer. Where the test says a spec is wanted, it is: a frontmatter
+header (`id`, `title`, `status`, `last_updated`,
 and a `phases:` list carrying each phase's `reviewed` / `shipped` / `cut` dates), a
 Goal anchored to a concrete usage example, the design, open questions, and **numbered
 implementation phases**. Each phase is strictly sequential and sized to **one
@@ -117,10 +121,15 @@ $SDD/bin/spec-lint . --write-index   # regenerate both INDEX.md files
 ```
 
 **Standing plan-mode rule:** when planning a phase of a spec, always include, as
-explicit plan steps, (1) a **commit plan** (what gets committed, the message, whether
-to push) and (2) a **reconciliation step** (which `rules/`, `CLAUDE.md`, or
+explicit plan steps, (1) a **commit plan** — what gets committed, the message, whether
+to push; a phase is **one plan, one push, and as many commits as the work wants**,
+because the push is the unit something can gate and no count of commits is — and (2) a
+**reconciliation step** (which `rules/`, `CLAUDE.md`, or
 project-memory roadmap entries the phase changes — or "none needed"). These are
-default steps, not things to request each time. And **never plan or implement a phase
+default steps, not things to request each time. **And when the exit gate passes, write
+that phase's `shipped` date into `phases[]`** — the review loop owns `reviewed` and
+nothing else owns `shipped`, so a phase that shipped and was never dated reads as
+unbuilt for as long as nobody notices. And **never plan or implement a phase
 that has not passed the review loop** (§7): `status: draft` blocks everything in the
 spec, *and* a phase appended to an already-accepted one (§6.1) is blocked until its
 own scoped round sets that phase's `reviewed` date. The gate is on the phase, not the
