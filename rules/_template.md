@@ -11,10 +11,13 @@ generated: YYYY-MM-DD          # when the loop last ran. null ⇒ never
 
 # <Subsystem>
 
-**What is true right now.** This file tracks the code, so it is rewritten freely —
-there is no audit trail to protect here and no dated correction note. If it
-disagrees with the code, the file is wrong. The *why* lives in the spec that owns
-the subject (`specs/<name>_spec.md`); this is the *what is*.
+**What is true right now.** This file tracks the code, so it is corrected freely —
+there is no audit trail to protect here and no dated correction note. Freely of
+ceremony, not from a blank file: `/sync-rules` verifies what is here against
+`sources` and corrects what has drifted, so a fact no source states — an outcome,
+a closed question, a measurement — survives the pass. If it disagrees with the
+code, the file is wrong. The *why* lives in the spec that owns the subject
+(`specs/<name>_spec.md`); this is the *what is*.
 
 Keep it under the cap. A cap holds only where something regenerates against it,
 which is what `sources` and `covers` are for: they let `/sync-rules` re-derive this
