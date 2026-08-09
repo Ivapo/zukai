@@ -11,13 +11,13 @@ covers: >
   drag coalescing, the trap where an action deleting nothing must return the
   same doc, what resets history, and the three trigger surfaces
 max_lines: 160
-generated: null
+generated: 2026-08-08
 ---
 
 # Undo / Redo
 
 How document history works. Frontend only — nothing here crosses IPC or reaches
-disk. The design rationale lives in `specs/undo_redo_spec.md`; hand-maintained.
+disk. The design rationale lives in `specs/undo_redo_spec.md`.
 
 ## Snapshots, not inverse commands
 
@@ -37,8 +37,9 @@ caps `past`; the oldest snapshot is dropped on overflow (`pushPast`).
 
 ## The one signal: document identity
 
-`recordHistory(prev, next, key)` runs on the result of **every** editing action and
-decides history and `dirty` in one pass:
+`recordHistory(prev, next, key)` runs on the result of **every** editing action —
+it is the reducer's `default:` arm, so `setTool` and `setView` pass through it too
+— and decides history and `dirty` in one pass:
 
 - `next.doc !== prev.doc` → an undoable change. **Push** `prev.doc` onto `past`
   (or **replace** — see coalescing), clear `future`, set `dirty: true`.
@@ -51,23 +52,24 @@ decides history and `dirty` in one pass:
 ## Coalescing — a drag is one undo step
 
 A node drag dispatches one `moveNode` per pointer-move (`onPointerMove`,
-`src/components/Canvas.tsx`); pointer-up dispatches nothing. So `coalesceKeyFor`
-gives `moveNode` the key `"moveNode:<id>"`, `moveSign` the key `"moveSign:<id>"`
-and `moveMarking` the key `"markingDrag:<id>"` — **three drags**, the third since
-lane arrows Phase 1 gave a marking a position of its own to move — and every
-other edit `null`:
+`src/components/Canvas.tsx`); pointer-up only clears the drag ref and dispatches
+nothing. So `coalesceKeyFor` gives `moveNode` the key `"moveNode:<id>"`,
+`moveSign` the key `"moveSign:<id>"` and `moveMarking` the key
+`"markingDrag:<id>"` — **three drags**, the third since lane arrows Phase 1 gave a
+marking a position of its own to move — and every other edit `null`:
 
 - key non-null **and** equal to `state.coalesceKey` → the gesture is still open:
   update `doc`, leave `past` alone.
 - otherwise → push a new entry.
 
 **The run is broken by the leading `select`.** Every drag starts with
-`onNodePointerDown` dispatching `select`, which leaves `doc` unchanged and
-therefore resets `coalesceKey` — so move #1 pushes and moves #2…N replace, with no
-Canvas involvement. A future high-frequency gesture *without* that leading dispatch
-would silently merge with the previous one; that is the point to add an explicit
-end-of-gesture action (spec OQ-2). Consequence worth knowing: a wheel-zoom mid-drag
-dispatches `setView`, which also resets the key, so one drag becomes two undo steps.
+`onNodePointerDown` / `onMarkingPointerDown` / `onSignPointerDown` dispatching
+`select`, which leaves `doc` unchanged and therefore resets `coalesceKey` — so
+move #1 pushes and moves #2…N replace, with no Canvas involvement. A future
+high-frequency gesture *without* that leading dispatch would silently merge with
+the previous one; that is the point to add an explicit end-of-gesture action (spec
+OQ-2). Consequence worth knowing: a wheel-zoom mid-drag dispatches `setView`,
+which also resets the key, so one drag becomes two undo steps.
 
 **The third drag is the one whose reducer has to refuse a no-op**, and it is the
 odd one out. `moveNode`/`moveSign` rebuild `doc` unconditionally, so a pointer-move
@@ -135,22 +137,29 @@ The **sign** arm has two places to delete from (`doc.signs` and
 a `map` where `keepMarkings` is a `filter`, so it cannot recover identity from a
 length comparison and pre-checks instead — otherwise every link deletion in a
 document with signs would hand history a fresh array to stop sharing
-(`rules/signs.md`).
+(`rules/signs.md`). The **link** arm needs no such helper for junctions: a
+`Junction` names no link, so `doc.junctions` is left untouched by construction.
 
 ## What resets history, and what must not touch it
 
-- `loadDocument` / `newDocument` install a whole document → `past: []`,
-  `future: []`, `coalesceKey: null`. There is nothing to undo across a file
-  boundary, and history is never written to `.zkai`.
+- **All three file boundaries** — `loadDocument`, `newDocument` and
+  `importDocument` — go through one `install()` helper, which clears `past`,
+  `future` and `coalesceKey` along with `selection`, `linkFrom` and the view.
+  There is nothing to undo across a file boundary, and history is never written to
+  `.zkai`. Only `currentPath` and `dirty` differ between the three: an import
+  arrives **dirty and pathless**, because a `network.yaml` is not a `.zkai`.
 - `markSaved` / `setRecents` leave **all three** fields alone, `coalesceKey`
   included. `setRecents` returns `state` by identity for an unchanged list (the
   menu rebuild keys off that identity, and `state.test.ts` asserts it), so it must
   not spread a new object just to clear a key.
 - `undo` / `redo` (`restore`) are identity no-ops at the ends of the stacks. When
   they do move, they clear `linkFrom` (a half-drawn link may start at a node the
-  undo removed), revalidate the selection — kept iff its id still exists in the new
-  doc, else `null` — and set `dirty: true` unconditionally. That over-reports:
-  undoing back to the last-saved document still reads as dirty (spec OQ-1).
+  undo removed), revalidate the selection through `selectionValid` — kept iff its
+  id still exists in the new doc, else `null` — and set `dirty: true`
+  unconditionally. That over-reports: undoing back to the last-saved document
+  still reads as dirty (spec OQ-1). `selectionValid` is a `never`-checked
+  `switch`, and that is a scar: every id is a bare `type X = string`, so a new
+  `Selection` arm falls silently through a binary test and stops surviving undo.
 
 ## Triggers
 
@@ -163,5 +172,4 @@ All three dispatch the same `{ type: "undo" }` / `{ type: "redo" }`:
 | Native menu | Edit submenu (`src/editor/menu.ts`) — Zukai's items **replace** Tauri's predefined Undo/Redo, which drive webview text editing, not the document |
 
 The menu items are always enabled and no-op at the ends; the toolbar carries the
-disabled affordance, so no per-flip IPC. Ctrl+Y is browser-only by design: a
-`MenuItem` carries exactly one accelerator.
+disabled affordance, so no per-flip IPC. Ctrl+Y is browser-only by design — a `MenuItem` carries exactly one accelerator.
