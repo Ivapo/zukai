@@ -7,6 +7,7 @@ sources:
   - src/editor/menu.ts
   - src/editor/state.ts
   - src/model/document.ts
+  - src-tauri/capabilities/default.json
   - src-tauri/src/lib.rs
   - src-tauri/src/persist.rs
   - src-tauri/src/recent.rs

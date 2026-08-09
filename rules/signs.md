@@ -17,7 +17,7 @@ covers: >
   than marking-shaped, the four actions, what removes one, the topmost sign
   layer and what a sign is drawn from, the shape-then-colour vocabulary, and the
   panel
-max_lines: 200
+max_lines: 250
 generated: 2026-08-08
 ---
 

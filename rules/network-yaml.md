@@ -12,7 +12,7 @@ covers: >
   it, the header and version probe, the scale and the two lane-numbering
   conventions, what import throws away and the turn arrows it mints, and why
   there is no writer
-max_lines: 200
+max_lines: 300
 generated: 2026-08-08
 ---
 

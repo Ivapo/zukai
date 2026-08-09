@@ -16,7 +16,7 @@ covers: >
   the SVG/PNG export path: the one render tree and its two consumers, which
   paint travels inside the file, the pure/DOM/Tauri layers, how bounds and the
   margin are derived, and the self-contained-file constraints that fail silently
-max_lines: 200
+max_lines: 275
 generated: 2026-08-08
 ---
 

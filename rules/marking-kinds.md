@@ -12,7 +12,7 @@ covers: >
   what each of the seven marking kinds paints: the marking layer and its order,
   the per-kind shapes and their chrome, the turn arrow and its second head, the
   lane line and the boundary it replaces, and text and the font it cost
-max_lines: 200
+max_lines: 230
 generated: 2026-08-09
 ---
 

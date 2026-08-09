@@ -15,7 +15,7 @@ covers: >
   boundary, the rim an end anchor measures to, placement from the click, the
   importer as second author, dragging, the kind-aware controls, what removes a
   marking, and the third Selection arm
-max_lines: 250
+max_lines: 280
 generated: 2026-08-09
 ---
 

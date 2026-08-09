@@ -15,7 +15,7 @@ covers: >
   how a link becomes a picture of a road: the one lane-width derivation
   everything descends from, class as a token, two-way carriageways, alignment,
   lane kinds and the hatch, and the painted centreline
-max_lines: 200
+max_lines: 210
 generated: 2026-08-09
 ---
 
