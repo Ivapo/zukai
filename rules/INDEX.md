@@ -10,17 +10,17 @@
   the undo/redo snapshot stack in the reducer: the document-identity signal, drag coalescing, the trap where an action deleting nothing must return the same doc, what resets history, and the three trigger surfaces
 - **[junctions](junctions.md)** — generated 2026-08-08 · 8 sources · 200/200 lines
   what a junction means rather than what it looks like — control and rule, which layer owns each part, the glyph-versus-control split and its nudge, the two actions, and the one turn vocabulary left in the model
-- **[marking-kinds](marking-kinds.md)** — generated 2026-08-08 · 7 sources · 218/200 lines
+- **[marking-kinds](marking-kinds.md)** — generated 2026-08-09 · 7 sources · 225/200 lines
   what each of the seven marking kinds paints: the marking layer and its order, the per-kind shapes and their chrome, the turn arrow and its second head, the lane line and the boundary it replaces, and text and the font it cost
 - **[network-yaml](network-yaml.md)** — generated 2026-08-08 · 6 sources · 281/200 lines
   reading Assimilator's network.yaml: the serde mirror and what earns a place in it, the header and version probe, the scale and the two lane-numbering conventions, what import throws away and the turn arrows it mints, and why there is no writer
 - **[persistence](persistence.md)** — generated 2026-08-08 · 9 sources · 110/110 lines
   the .zkai save/open path end to end — trigger, dialog and IPC, Rust commands, reducer, the normalize-at-one-boundary rule, the close guard — plus the JS-built native menu and how recents are stored and pruned
-- **[road-joints](road-joints.md)** — generated 2026-08-08 · 6 sources · 144/160 lines
+- **[road-joints](road-joints.md)** — generated 2026-08-09 · 6 sources · 160/160 lines
   what is drawn where links meet a node: the arms and the two radii, the rim three things measure to, taper wedges at a through joint, and the gore between two separating arms
-- **[road-markings](road-markings.md)** — generated 2026-08-08 · 9 sources · 280/250 lines
+- **[road-markings](road-markings.md)** — generated 2026-08-09 · 9 sources · 277/250 lines
   the marking as an object a human owns: the anchor and the one metre/unit boundary, the rim an end anchor measures to, placement from the click, the importer as second author, dragging, the kind-aware controls, what removes a marking, and the third Selection arm
-- **[road-rendering](road-rendering.md)** — generated 2026-08-08 · 10 sources · 219/200 lines
+- **[road-rendering](road-rendering.md)** — generated 2026-08-09 · 10 sources · 207/200 lines
   how a link becomes a picture of a road: the one lane-width derivation everything descends from, class as a token, two-way carriageways, alignment, lane kinds and the hatch, and the painted centreline
 - **[signs](signs.md)** — generated 2026-08-08 · 11 sources · 227/200 lines
   the objects a human stands beside the road: why a sign is node-shaped rather than marking-shaped, the four actions, what removes one, the topmost sign layer and what a sign is drawn from, the shape-then-colour vocabulary, and the panel
