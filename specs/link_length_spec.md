@@ -15,7 +15,7 @@ phases:
     cut: null
     by: null
   - name: "Phase 2 — Import fills it from the geometry it discards"
-    reviewed: null
+    reviewed: 2026-08-09
     shipped: null
     cut: null
     by: null
@@ -263,26 +263,38 @@ Everything above landed as designed. Five things worth carrying to Phase 2:
 *Produces the observable: **yes** — an imported network stops being roads at the
 wrong size and becomes a diagram that states its own dimensions.*
 
-- **Scope:** `src-tauri/src/network/import.rs:network_to_document` computes each
-  link's length by summing the segments of `src-tauri/src/network/mod.rs:NetworkLink`'s
-  `geometry` — a `Vec<[f64; 2]>` in metres with at least two points, today
-  discarded whole — and writes it to `Link::length`. Nothing else about import
-  changes: the polyline is still thrown away, and the canvas layout is untouched
+- **Scope:** import computes each link's length by summing the segments of
+  `src-tauri/src/network/mod.rs:NetworkLink`'s `geometry` — a `Vec<[f64; 2]>` in
+  metres, documented as "at least 2 points", today discarded whole — and writes
+  it to `Link::length`. The landing site is
+  `src-tauri/src/network/import.rs:import_link`, the helper where `Link` is
+  built and where Phase 1 left `length: None` with a comment naming this phase
+  (`network_to_document` only calls it). Nothing else about import changes: the
+  polyline itself is still thrown away, and the canvas layout is untouched
   (§1.1).
 - **Exit gate:**
   1. `cargo test` green; both committed fixtures import with a length on every
      link, and the values match a hand-summed polyline to within a float slack.
+     Every fixture polyline is two points, so the fixtures cannot tell a segment
+     sum from an endpoint chord — an inline-YAML link whose polyline has **three
+     or more points**, bent so the sum exceeds the endpoint distance, is the
+     assertion that separates the two.
   2. The **founding claim still holds**: `the_semantic_graph_carries_no_coordinates`
      passes unchanged — a length is a scalar, not geometry, and no coordinate
      reaches `doc.nodes`.
   3. A `network.yaml` whose `geometry` has exactly two points still imports, and
-     one with a degenerate zero-length polyline yields `None` rather than `0`.
-  4. Dev pass: import `t_junction`, read a ~500 m label on the long arm while the
-     arm is still 1285 canvas units long — the decoupling, visible in one screen.
-- **Close-out:** `rules/network-yaml.md` gains the geometry-to-length line and
-  loses "discarded whole"; `network_yaml_spec.md` OQ-2 is annotated with the
-  answer this spec gives it, and the layout half is recorded there as the
-  remaining question.
+     a degenerate one yields `None` rather than `0` — **including empty and
+     one-point geometry, without a panic**: the "at least two points" above is a
+     doc comment, not a parse invariant, so such a file reaches `import_link`
+     today.
+  4. Dev pass: import `t_junction`, read a ~500 m label on either 500 m arm
+     while the arm is still ~1285 canvas units long — the decoupling, visible in
+     one screen.
+- **Close-out:** `rules/network-yaml.md` gains the geometry-to-length line, and
+  its "**`geometry` polylines are discarded** — the founding claim" narrows: the
+  polyline still is, its total no longer. `network_yaml_spec.md` OQ-2 is
+  annotated with the answer this spec gives it, and the layout half is recorded
+  there as the remaining question.
 
 <!--
 The review record is a sibling file, not a section: it lives at
