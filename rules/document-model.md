@@ -33,11 +33,9 @@ Terse by design — read the rustdoc in `src-tauri/src/model/` for field detail.
 Every collection is defaulted and elided when empty: a new document on disk is `schema_version` and `metadata` alone.
 
 Ids are string newtypes (`ids.rs`, minted by the private `string_id!` macro) so
-ids imported from Assimilator keep their names; `LaneIdx` is a plain `u32`. **Two
-of the six name nothing in a `Document`:** `MovementId` is read by the
-`network.yaml` mirror and never stored (`rules/network-yaml.md`), and `PhaseId` is
-a leftover of the cut signal plans, referenced nowhere, whose rustdoc still links
-`graph::Phase` — **a type that no longer exists**.
+ids imported from Assimilator keep their names; `LaneIdx` is a plain `u32`. **One
+of the five names nothing in a `Document`:** `MovementId` is read by the
+`network.yaml` mirror and never stored (`rules/network-yaml.md`).
 
 ## Invariants
 

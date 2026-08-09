@@ -4,7 +4,7 @@
 
 - **[diagram-export](diagram-export.md)** — generated 2026-08-08 · 11 sources · 260/275 lines
   the SVG/PNG export path: the one render tree and its two consumers, which paint travels inside the file, the pure/DOM/Tauri layers, how bounds and the margin are derived, and the self-contained-file constraints that fail silently
-- **[document-model](document-model.md)** — generated 2026-08-08 · 7 sources · 130/130 lines
+- **[document-model](document-model.md)** — generated 2026-08-08 · 7 sources · 128/130 lines
   the three parts of a Document and what separates them, the invariants, the Rust-TypeScript mirror discipline and its one instructive exception, and what does and does not move SCHEMA_VERSION
 - **[history](history.md)** — generated 2026-08-08 · 5 sources · 160/160 lines
   the undo/redo snapshot stack in the reducer: the document-identity signal, drag coalescing, the trap where an action deleting nothing must return the same doc, what resets history, and the three trigger surfaces

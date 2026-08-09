@@ -65,10 +65,6 @@ string_id!(
     MovementId
 );
 string_id!(
-    /// Identifies a signal [`Phase`](super::graph::Phase).
-    PhaseId
-);
-string_id!(
     /// Identifies a [`Sign`](super::decoration::Sign).
     SignId
 );
