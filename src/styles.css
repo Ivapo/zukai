@@ -236,6 +236,11 @@ body {
   touch-action: none;
   cursor: default;
   display: block;
+  /* The drawing is drawn, never read: a drag that sweeps across a sign's label
+     or a link's length would otherwise start a native text selection and leave
+     the glyphs highlighted. Here rather than in `diagram.css`, which travels
+     inside exported pictures, where a selection rule would mean nothing. */
+  user-select: none;
 }
 
 .grid-dot {
