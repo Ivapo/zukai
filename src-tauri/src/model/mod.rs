@@ -144,6 +144,9 @@ mod tests {
                 to_node: "N2".into(),
                 lanes: lanes(),
                 median_gap: 0.5,
+                // Stated on one link and not the other, so the round trip
+                // carries both halves of the field.
+                length: Some(1800.0),
             },
             Link {
                 id: "L2".into(),
@@ -151,6 +154,7 @@ mod tests {
                 to_node: "N3".into(),
                 lanes: lanes(),
                 median_gap: 0.5,
+                length: None,
             },
         ];
         doc.junctions = vec![Junction {
@@ -298,7 +302,30 @@ links:
         let lane = &doc.links[0].lanes[0];
         assert_eq!(lane.width, 3.5);
         assert_eq!(doc.links[0].median_gap, 0.5);
+        // A road that says nothing about how long it is. Deliberately *not*
+        // defaulted to a number: absent is the one representation of "states no
+        // length", and a zero would be a claim (link-length spec §2.1).
+        assert!(doc.links[0].length.is_none());
         // Absent layout deserializes to an empty (not missing) layout.
         assert!(doc.layout.nodes.is_empty());
+    }
+
+    /// A link that states no length writes **no key at all**, which is what keeps
+    /// every `.zkai` written before the field byte-identical — and is why the
+    /// field costs no [`SCHEMA_VERSION`] bump (link-length spec §2.1).
+    ///
+    /// Both halves, because only the first is a choice: `null` would round-trip
+    /// just as well and would change every file it touched.
+    #[test]
+    fn an_unstated_length_writes_no_key() {
+        let doc = sample();
+        let yaml = serde_yaml::to_string(&doc).expect("serialize");
+
+        // `L1` states 1800 m; `L2` states nothing, and there is exactly one
+        // `length:` in the file rather than two.
+        assert_eq!(yaml.matches("length:").count(), 1, "{yaml}");
+        assert!(yaml.contains("length: 1800"), "{yaml}");
+        assert!(!yaml.contains("length: null"), "{yaml}");
+        assert_eq!(SCHEMA_VERSION, 2);
     }
 }

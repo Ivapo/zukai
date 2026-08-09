@@ -86,6 +86,7 @@ mod tests {
                 kind: None,
             }],
             median_gap: 0.5,
+            length: None,
         }];
         doc
     }

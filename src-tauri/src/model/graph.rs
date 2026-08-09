@@ -61,6 +61,17 @@ pub struct Link {
     /// Gap to the opposing carriageway centreline, metres (Assimilator default).
     #[serde(default = "default_median_gap")]
     pub median_gap: f64,
+    /// How long the road really is, metres — the human's claim about the world,
+    /// and **not** a measurement of the drawing. The drawing is a diagram, so the
+    /// two are decoupled: changing this moves nothing on the canvas, and moving a
+    /// node changes nothing here (link-length spec §2.2).
+    ///
+    /// `None` means the road states no length, which every document written
+    /// before this field means. It is neither zero nor "unknown pending
+    /// measurement". Elided when absent, so those documents stay byte-identical
+    /// and the field costs no `SCHEMA_VERSION` bump.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub length: Option<f64>,
 }
 
 /// A single lane within a [`Link`].

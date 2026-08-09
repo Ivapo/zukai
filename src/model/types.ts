@@ -49,6 +49,12 @@ export interface Link {
   to_node: NodeId;
   lanes: Lane[];
   median_gap: number;
+  /**
+   * How long the road really is, metres — an annotation the human owns, not a
+   * measurement of the drawing. Absent means the road states no length; Rust
+   * elides the key for such a link.
+   */
+  length?: number;
 }
 
 /** How a junction is controlled. */

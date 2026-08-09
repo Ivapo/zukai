@@ -181,6 +181,9 @@ fn import_link(link: NetworkLink) -> Link {
         to_node: link.to_node,
         lanes,
         median_gap: link.median_gap,
+        // The file states a length in its `geometry` polyline, which this phase
+        // still discards whole. Phase 2 of the link-length spec sums it here.
+        length: None,
     }
 }
 
