@@ -5,6 +5,7 @@ import {
   CROSSWALK_DEPTH,
   GIVE_WAY_DEPTH,
   GORE_LENGTH,
+  LABEL_GAP,
   LANE_LINE_GAP,
   LANE_PX,
   ROAD_MARGIN,
@@ -2035,6 +2036,122 @@ describe("signs", () => {
       '<g class="diagram"></g>',
     );
     expect(renderToStaticMarkup(<Diagram doc={sample()} />)).not.toContain("sign");
+  });
+});
+
+/**
+ * The length a link states (link-length spec Phase 1) — the drawing's only
+ * derived text, and the only one whose whole point is that it does **not** move
+ * the picture it sits beside.
+ */
+describe("the length a link states", () => {
+  /** The drawn width of the one-lane road below, which the label steps off. */
+  const W = LANE_PX + ROAD_MARGIN;
+
+  /** A road due east, stating `metres` — or stating nothing. */
+  function stated(metres?: number): Document {
+    const doc = run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "addNode", pos: { x: 120, y: 0 } },
+      { type: "startLink", from: "N1" },
+      { type: "completeLink", to: "N2" },
+    ).doc;
+    // Written onto the link directly rather than through the action, so this
+    // suite tests the drawing and not the reducer.
+    return metres === undefined
+      ? doc
+      : { ...doc, links: [{ ...doc.links[0], length: metres }] };
+  }
+
+  /** The road's own casing path, which is the whole of "the drawing". */
+  function casing(svg: string): string {
+    return svg.match(/class="road-casing" d="([^"]+)" stroke-width="([^"]+)"/)!.slice(1).join(" ");
+  }
+
+  it("sets the length beside the road, upright and centred", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={stated(1800)} />);
+    const y = W / 2 + LABEL_GAP + BASELINE_DROP;
+
+    expect(svg).toContain(
+      `<text class="link-length" x="60" y="${y}"` +
+        ' font-family="Overpass Mono" font-size="6" text-anchor="middle"' +
+        ` transform="rotate(0 60 ${y})">1800m</text>`,
+    );
+  });
+
+  /**
+   * **The founding example, asserted on the markup.** `CLAUDE.md`: a link reads
+   * `1800m`, and changing it to `1500m` does not move the drawing. Compared on
+   * the casing's own path string, because that is what "the drawing" is.
+   */
+  it("changes the words and nothing else when the length changes", () => {
+    const before = renderToStaticMarkup(<Diagram doc={stated(1800)} />);
+    const after = renderToStaticMarkup(<Diagram doc={stated(1500)} />);
+
+    expect(before).toContain(">1800m</text>");
+    expect(after).toContain(">1500m</text>");
+    expect(casing(after)).toBe(casing(before));
+    // And the label's own position is the road's, not the number's: a longer
+    // string is centred on the same point rather than pushed off it.
+    expect(casing(after)).toBe(casing(renderToStaticMarkup(<Diagram doc={stated(200)} />)));
+    expect(after.replace("1500m", "1800m")).toBe(before);
+  });
+
+  /** Derived, so a link that states nothing emits nothing at all — which is what
+   *  keeps every document written before the field rendering as it did. */
+  it("draws nothing for a road that states no length", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={stated()} />);
+
+    expect(svg).not.toMatch(/<text[\s>]|link-length|font-family/);
+    // Byte-identical to the same road drawn by the suites above.
+    expect(casing(svg)).toBe(casing(renderToStaticMarkup(<Diagram doc={stated(1800)} />)));
+  });
+
+  /** Above the junction pad, which is opaque asphalt — a label drawn before the
+   *  node layer would be painted over while passing every other assertion here.
+   *  Below the signs, which stay the topmost thing in the drawing. */
+  it("is drawn above the roads and pads, and below the signs", () => {
+    const base = stated(1800);
+    const doc = run(
+      { ...initialState(), doc: base },
+      { type: "setNodeKind", id: "N2", kind: "junction" },
+      { type: "addSign", pos: { x: 60, y: 40 } },
+      { type: "setSignKind", id: "S1", kind: { type: "custom", label: "TOLL" } },
+    ).doc;
+    const svg = renderToStaticMarkup(<Diagram doc={doc} />);
+
+    expect(svg.indexOf("road-casing")).toBeLessThan(svg.indexOf("link-length"));
+    expect(svg.indexOf("jn-pad")).toBeLessThan(svg.indexOf("link-length"));
+    expect(svg.indexOf("link-length")).toBeLessThan(svg.indexOf("sign-label"));
+  });
+
+  /** The half-turn, at the level the reader sees it: two opposed carriageways
+   *  both read left to right, where painted text on the same pair would not. */
+  it("reads the same way up on both carriageways of a divided road", () => {
+    const base = run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "addNode", pos: { x: 120, y: 0 } },
+      { type: "startLink", from: "N1" },
+      { type: "completeLink", to: "N2" },
+      { type: "startLink", from: "N2" },
+      { type: "completeLink", to: "N1" },
+    ).doc;
+    const doc: Document = {
+      ...base,
+      links: base.links.map((l) => ({ ...l, length: 1800 })),
+    };
+    const svg = renderToStaticMarkup(<Diagram doc={doc} />);
+
+    expect(svg.match(/class="link-length"/g)).toHaveLength(2);
+    expect(svg.match(/transform="rotate\(0 /g)).toHaveLength(2);
+    // ...and on opposite sides of the shared centreline, outside the pair.
+    const ys = [...svg.matchAll(/class="link-length" x="60" y="(-?[\d.]+)"/g)].map(
+      (m) => Number(m[1]),
+    );
+    expect(ys).toHaveLength(2);
+    expect(ys[0] * ys[1]).toBeLessThan(0);
   });
 });
 

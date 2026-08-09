@@ -46,6 +46,13 @@ function signed(label: string): Document {
   };
 }
 
+/** {@link road}, stating how long it really is — and carrying nothing else that
+ *  draws a glyph, which is what the third arm of the font gate is tested on. */
+function stated(metres: number): Document {
+  const base = road(3);
+  return { ...base, links: [{ ...base.links[0], length: metres }] };
+}
+
 /** {@link signed}, but a destination panel — the widest sign the drawing can make. */
 function destination(text: string): Document {
   const base = signed("");
@@ -794,6 +801,47 @@ describe("road markings in an exported file", () => {
       expect(diagramSvg(signed("TOLL"), box)).toContain(
         'font-family="Overpass Mono"',
       );
+    });
+
+    /**
+     * **The third arm, and the trap it closes** (link-length spec §2.5). A length
+     * label is a `<text>` the tree emits from a link rather than from a marking or
+     * a sign, so a document carrying one and nothing else would have exported an
+     * SVG **naming Overpass Mono without carrying its bytes** — the viewer
+     * substitutes whatever it has, and the PNG path bakes that in permanently.
+     *
+     * The isolation is the whole assertion: no sign, no text marking, nothing but
+     * the road and the length it states.
+     */
+    it("embeds the face for a document whose only text is a length", () => {
+      const svg = diagramSvg(stated(1800), box);
+
+      expect(svg.match(/@font-face/g)).toHaveLength(1);
+      expect(svg.match(/<style>/g)).toHaveLength(2);
+      expect(svg).toContain("The Overpass Project Authors");
+      expect(svg).toContain('font-family="Overpass Mono"');
+      expect(svg).toContain(">1800m</text>");
+      expect(svg.match(/<text[\s>]/g)).toHaveLength(1);
+      expectSelfContained(svg);
+      // The isolation, asserted on the drawing rather than on the file: the
+      // paint for every kind travels in `diagram.css` whether it is used or not.
+      expect(diagramInner(stated(1800))).not.toMatch(/sign|marking/);
+    });
+
+    /** The other half, and the one that would fail if the arm were left out of
+     *  `needsText` while the label still drew: a road stating nothing pays
+     *  nothing, exactly as it did before the field existed. */
+    it("costs a road that states no length nothing at all", () => {
+      const svg = diagramSvg(road(3), box);
+
+      expect(svg).not.toMatch(/@font-face|<text[\s>]|font-family/);
+      expect(svg.match(/<style>/g)).toHaveLength(1);
+    });
+
+    /** A label is fill, `getBBox` measures fill, and it sits inside the measured
+     *  group — so the frame grows to include it by construction (§2.5). */
+    it("needs no more stroke allowance than the road it is set beside", () => {
+      expect(strokeAllowance(stated(1800))).toBe(strokeAllowance(road(3)));
     });
   });
 });

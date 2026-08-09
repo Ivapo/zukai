@@ -40,12 +40,14 @@ import {
   carriageways,
   drawnPolyline,
   endDirection,
+  formatLength,
   gore,
   gorePair,
   junctionArms,
   laneBands,
   laneLineOffsets,
   lateralShift,
+  lengthLabel,
   markingArrow,
   markingBar,
   markingForm,
@@ -202,6 +204,41 @@ export function Diagram({
         );
       })}
 
+      {/* The lengths the roads state, above every road, wedge, marking and
+          junction pad — a pad is opaque asphalt, and a label swallowed by one
+          would still pass every source-order assertion. Below the signs, which
+          stay the topmost thing.
+
+          **Derived, so there is no component and no key beyond the link's own**
+          (link-length §2.3): a length label has no id, no hit target and no
+          `Selection` arm, and a link that states nothing emits literally
+          nothing — so a document written before the field renders exactly as it
+          did, empty ones included. */}
+      {doc.links.map((link) => {
+        if (link.length === undefined) return null;
+        const pts = drawnPolyline(doc, link, offsets);
+        if (!pts) return null;
+        const run = lengthLabel(pts, roadWidth(link.lanes, linkStyle(doc, link.id)));
+        if (!run) return null;
+        return (
+          <text
+            key={link.id}
+            className="link-length"
+            x={run.at.x}
+            y={run.at.y}
+            // Attributes rather than rules in `diagram.css`, for the reason
+            // painted road text's are — that stylesheet travels inside every
+            // exported picture and most of them embed no typeface (§2.3).
+            fontFamily={FONT_FAMILY}
+            fontSize={run.size}
+            textAnchor="middle"
+            transform={`rotate(${run.angle} ${run.at.x} ${run.at.y})`}
+          >
+            {formatLength(link.length)}
+          </text>
+        );
+      })}
+
       {/* Signs last, so they are the topmost thing in the drawing. Markings sit
           *below* the junction glyphs because a pad is the intersection's own
           surface and paint under one is genuinely covered; a sign stands beside
@@ -261,7 +298,7 @@ function needsHatch(doc: Document): boolean {
  * the tree, and one predicate for both is what stops a file carrying a face with
  * no text, or worse, text with no face (signs spec §2.3).
  *
- * **The two arms are deliberately asymmetric.** The marking half counts exactly
+ * **The three arms are deliberately asymmetric.** The marking half counts exactly
  * what {@link markingPaint} emits a `<text>` for — **non-empty** content, an empty
  * one drawing the transverse bar instead — so the font and the glyph cannot
  * disagree. The sign half counts *every* sign, and is deliberately **not** refined
@@ -271,11 +308,18 @@ function needsHatch(doc: Document): boolean {
  * document is a table that can fall out of step with what Phase 3 draws. One
  * conservative predicate, recorded here so a later pass does not read it as an
  * oversight (§2.3).
+ *
+ * **The length half is the marking half's posture**: it is character for
+ * character the test the label layer above opens with, so the two cannot drift.
+ * It over-counts in exactly one case — a link stating a length that has no
+ * drawable polyline — and that is the safe direction, an unused face rather than
+ * a picture naming one it does not carry (link-length §2.5).
  */
 export function needsText(doc: Document): boolean {
   return (
     doc.markings.some((m) => m.kind.type === "text" && m.kind.content !== "") ||
-    doc.signs.length > 0
+    doc.signs.length > 0 ||
+    doc.links.some((l) => l.length !== undefined)
   );
 }
 

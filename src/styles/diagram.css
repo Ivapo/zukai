@@ -221,6 +221,19 @@
   fill: var(--paint-white);
 }
 
+/* The length a link states, set beside the carriageway rather than on it - so it
+   is ink on the paper, not paint on the asphalt, and it is the one run of text
+   here that is not a marking at all.
+
+   The same two omissions as above, for the same reason, and one addition: the
+   label is *derived* from the field rather than placed, so it has no id and
+   nothing selects it. Without this it would still swallow a press, and a drag
+   begun on the characters would select them instead of panning the canvas. */
+.link-length {
+  fill: var(--ink);
+  pointer-events: none;
+}
+
 /* A lane line: the one marking that runs *along* the road rather than across it,
    for the whole length of the link. It replaces the divider it lands on rather
    than being drawn over one, which is a rule in `Diagram.tsx` rather than here -
