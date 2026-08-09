@@ -2,21 +2,25 @@
 
 # Rules
 
-- **[diagram-export](diagram-export.md)** — never regenerated · 11 sources · 304/200 lines
+- **[diagram-export](diagram-export.md)** — generated 2026-08-08 · 11 sources · 260/200 lines
   the SVG/PNG export path: the one render tree and its two consumers, which paint travels inside the file, the pure/DOM/Tauri layers, how bounds and the margin are derived, and the self-contained-file constraints that fail silently
-- **[document-model](document-model.md)** — never regenerated · 7 sources · 122/130 lines
+- **[document-model](document-model.md)** — generated 2026-08-08 · 7 sources · 130/130 lines
   the three parts of a Document and what separates them, the invariants, the Rust-TypeScript mirror discipline and its one instructive exception, and what does and does not move SCHEMA_VERSION
-- **[history](history.md)** — never regenerated · 5 sources · 152/160 lines
+- **[history](history.md)** — generated 2026-08-08 · 5 sources · 160/160 lines
   the undo/redo snapshot stack in the reducer: the document-identity signal, drag coalescing, the trap where an action deleting nothing must return the same doc, what resets history, and the three trigger surfaces
-- **[junctions](junctions.md)** — never regenerated · 8 sources · 255/200 lines
+- **[junctions](junctions.md)** — generated 2026-08-08 · 8 sources · 200/200 lines
   what a junction means rather than what it looks like — control and rule, which layer owns each part, the glyph-versus-control split and its nudge, the two actions, and the one turn vocabulary left in the model
-- **[network-yaml](network-yaml.md)** — never regenerated · 6 sources · 429/200 lines
+- **[marking-kinds](marking-kinds.md)** — generated 2026-08-08 · 7 sources · 218/200 lines
+  what each of the seven marking kinds paints: the marking layer and its order, the per-kind shapes and their chrome, the turn arrow and its second head, the lane line and the boundary it replaces, and text and the font it cost
+- **[network-yaml](network-yaml.md)** — generated 2026-08-08 · 6 sources · 281/200 lines
   reading Assimilator's network.yaml: the serde mirror and what earns a place in it, the header and version probe, the scale and the two lane-numbering conventions, what import throws away and the turn arrows it mints, and why there is no writer
-- **[persistence](persistence.md)** — never regenerated · 9 sources · 100/110 lines
+- **[persistence](persistence.md)** — generated 2026-08-08 · 9 sources · 110/110 lines
   the .zkai save/open path end to end — trigger, dialog and IPC, Rust commands, reducer, the normalize-at-one-boundary rule, the close guard — plus the JS-built native menu and how recents are stored and pruned
-- **[road-markings](road-markings.md)** — never regenerated · 12 sources · 832/250 lines
-  the paint a human places on a road: the anchor and the one metre/unit boundary, placement from the click, the importer as second author, dragging, the kind-aware controls, what each of the seven kinds paints, and what removes a marking
-- **[road-rendering](road-rendering.md)** — never regenerated · 10 sources · 459/250 lines
-  how a link becomes a picture of a road: the one lane-width derivation everything descends from, class as a token, two-way carriageways and the arms that follow them, alignment, tapers, gores, lane kinds and the hatch, and the painted centreline
-- **[signs](signs.md)** — never regenerated · 11 sources · 347/200 lines
+- **[road-joints](road-joints.md)** — generated 2026-08-08 · 6 sources · 144/160 lines
+  what is drawn where links meet a node: the arms and the two radii, the rim three things measure to, taper wedges at a through joint, and the gore between two separating arms
+- **[road-markings](road-markings.md)** — generated 2026-08-08 · 9 sources · 280/250 lines
+  the marking as an object a human owns: the anchor and the one metre/unit boundary, the rim an end anchor measures to, placement from the click, the importer as second author, dragging, the kind-aware controls, what removes a marking, and the third Selection arm
+- **[road-rendering](road-rendering.md)** — generated 2026-08-08 · 10 sources · 219/200 lines
+  how a link becomes a picture of a road: the one lane-width derivation everything descends from, class as a token, two-way carriageways, alignment, lane kinds and the hatch, and the painted centreline
+- **[signs](signs.md)** — generated 2026-08-08 · 11 sources · 227/200 lines
   the objects a human stands beside the road: why a sign is node-shaped rather than marking-shaped, the four actions, what removes one, the topmost sign layer and what a sign is drawn from, the shape-then-colour vocabulary, and the panel
