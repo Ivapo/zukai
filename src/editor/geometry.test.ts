@@ -36,6 +36,7 @@ import {
   GORE_LENGTH,
   GoreArm,
   JointEnd,
+  LABEL_GAP,
   LANE_LINE_GAP,
   LANE_PX,
   MARKING_PITCH,
@@ -62,12 +63,14 @@ import {
   classWidthFactor,
   distance,
   drawnPolyline,
+  formatLength,
   gore,
   gorePair,
   junctionRadius,
   laneBands,
   laneLine,
   laneLineOffsets,
+  lengthLabel,
   markingAnchor,
   markingArrow,
   markingTeeth,
@@ -1874,6 +1877,137 @@ describe("textWidth and markingText", () => {
 
     const run = markingText(anchor(offside.offset, offside.width));
     expect(run.at.y).toBeLessThan(0);
+  });
+});
+
+/**
+ * The length a link states (link-length spec Phase 1) — the drawing's one run of
+ * text that is *not* paint, so every assertion here is the inverse of one above.
+ */
+describe("formatLength and lengthLabel", () => {
+  const W = roadWidth(defaults(2));
+  /** A straight road from `a` to `b`, as `drawnPolyline` would hand one over. */
+  function road(a: Vec2, b: Vec2): Vec2[] {
+    return [a, b];
+  }
+
+  it("spells a length the way the drawing states it", () => {
+    expect(formatLength(1800)).toBe("1800m");
+    // Rounded to the nearest metre, in both directions - a length arriving from a
+    // summed polyline is not a whole number and must not print eleven digits.
+    expect(formatLength(1499.6)).toBe("1500m");
+    expect(formatLength(1500.4)).toBe("1500m");
+    expect(formatLength(0.4)).toBe("0m");
+  });
+
+  /**
+   * **The invariant, stated as a type rather than as a value.** §2.2 forbids the
+   * drawing being sized from `Link.length`, and the enforcement is that there is
+   * no length here to size it from: the run depends on the polyline and the road
+   * width and on nothing else. A regression would have to *add a parameter*,
+   * which no accident does.
+   */
+  it("takes no length at all, so no length can move the drawing", () => {
+    expect(lengthLabel.length).toBe(2);
+  });
+
+  it("sits beside the road at its midpoint, clear of the asphalt", () => {
+    const run = lengthLabel(road({ x: 0, y: 0 }, { x: 100, y: 0 }), W)!;
+
+    // Halfway along, and `text-anchor="middle"` does the rest.
+    expect(run.at.x).toBeCloseTo(50);
+    // Clear of the casing by the gap, with the baseline dropped below the run's
+    // centre exactly as a painted word's is.
+    expect(run.at.y).toBeCloseTo(W / 2 + LABEL_GAP + BASELINE_DROP);
+    expect(run.at.y - BASELINE_DROP).toBeGreaterThan(W / 2);
+    expect(run.size).toBe(TEXT_SIZE);
+    expect(run.angle).toBe(0);
+  });
+
+  /**
+   * **The half-turn, which is the whole difference from `markingText`.** That
+   * function pins `180` for a westbound road because real paint reads upside
+   * down; a label is read by a reader of the figure, so the same road gives `0`.
+   * Both vertical roads land on `-90`, so a figure's vertical labels all read
+   * bottom-to-top rather than flipping with the traffic.
+   */
+  it("turns a backwards run upright, unlike the paint it is not", () => {
+    const west = lengthLabel(road({ x: 100, y: 0 }, { x: 0, y: 0 }), W)!;
+    expect(west.angle).toBe(0);
+    expect(markingText({ at: { x: 0, y: 0 }, dir: { x: -1, y: 0 }, span: { offset: 0, width: LANE_PX } }).angle).toBe(180);
+
+    expect(lengthLabel(road({ x: 0, y: 100 }, { x: 0, y: 0 }), W)!.angle).toBe(-90);
+    expect(lengthLabel(road({ x: 0, y: 0 }, { x: 0, y: 100 }), W)!.angle).toBe(-90);
+  });
+
+  /**
+   * The drop's sign follows the turn. Unturned, a westbound label would sit a
+   * whole cap height nearer the road than an eastbound one — the failure is a
+   * plausible half-offset rather than a visible mistake, so it is pinned as the
+   * two runs being the *same* distance from their roads.
+   */
+  it("keeps the same clearance whichever way the road runs", () => {
+    const east = lengthLabel(road({ x: 0, y: 0 }, { x: 100, y: 0 }), W)!;
+    const west = lengthLabel(road({ x: 100, y: 0 }, { x: 0, y: 0 }), W)!;
+
+    // Opposite sides of the same ground: each is on its own right of travel.
+    expect(east.at.y).toBeGreaterThan(0);
+    expect(west.at.y).toBeLessThan(0);
+    // Compared at the run's *centre*, which is the baseline less the drop — the
+    // same subtraction for both, because both runs are upright on screen. The
+    // two centres are the same distance out, on opposite sides.
+    expect(east.at.y - BASELINE_DROP).toBeCloseTo(W / 2 + LABEL_GAP);
+    expect(west.at.y - BASELINE_DROP).toBeCloseTo(-(W / 2 + LABEL_GAP));
+    // Which is the assertion that fails if the drop stops following the turn:
+    // the two baselines are *not* mirror images, and only the centres are.
+    expect(east.at.y).not.toBeCloseTo(-west.at.y);
+  });
+
+  /**
+   * **OQ-2's real question, answered by the sign convention rather than by a
+   * choice.** `carriageways` steps each carriageway out by a positive offset in
+   * its own frame, so each one's right of travel points away from the shared
+   * centreline — the two labels land outside the pair, never in the median where
+   * they would collide.
+   */
+  it("puts a divided road's two labels outside the pair", () => {
+    const base = emptyDocument("divided");
+    const doc: Document = {
+      ...base,
+      nodes: [
+        { id: "N1", type: "endpoint" },
+        { id: "N2", type: "endpoint" },
+      ],
+      links: [
+        { id: "L1", from_node: "N1", to_node: "N2", lanes: defaults(2), median_gap: DEFAULT_MEDIAN_GAP },
+        { id: "L2", from_node: "N2", to_node: "N1", lanes: defaults(2), median_gap: DEFAULT_MEDIAN_GAP },
+      ],
+      layout: {
+        ...base.layout,
+        nodes: { N1: { pos: { x: 0, y: 0 } }, N2: { pos: { x: 120, y: 0 } } },
+      },
+    };
+    const offsets = carriageways(doc);
+    const runs = doc.links.map((link) => {
+      const pts = drawnPolyline(doc, link, offsets)!;
+      return { carriageway: pts[0].y, label: lengthLabel(pts, roadWidth(link.lanes))! };
+    });
+
+    // The two carriageways step to opposite sides of `y = 0`...
+    expect(runs[0].carriageway * runs[1].carriageway).toBeLessThan(0);
+    // ...and each label is further out than its own carriageway, on the same side.
+    for (const { carriageway, label } of runs) {
+      expect(Math.sign(label.at.y)).toBe(Math.sign(carriageway));
+      expect(Math.abs(label.at.y)).toBeGreaterThan(Math.abs(carriageway));
+    }
+  });
+
+  /** Nothing to walk, so nothing to draw — `pointAlongPolyline`'s own posture,
+   *  and the reason the renderer can skip the element entirely. */
+  it("draws nothing for a road with no length to walk", () => {
+    expect(lengthLabel([], W)).toBeUndefined();
+    expect(lengthLabel([{ x: 5, y: 5 }], W)).toBeUndefined();
+    expect(lengthLabel(road({ x: 5, y: 5 }, { x: 5, y: 5 }), W)).toBeUndefined();
   });
 });
 

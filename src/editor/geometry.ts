@@ -1353,9 +1353,13 @@ function spanCells(span: LaneBand): { centres: number[]; pitch: number } {
  * The normal is {@link markingBar}'s, which is {@link laneBands}' and
  * {@link offsetPolyline}'s: positive is the right of travel, and no kind gets to
  * pick a second sign convention.
+ *
+ * Takes a bare {@link PolylinePoint} rather than a {@link MarkingAnchor} — it
+ * never reads the band — so {@link lengthLabel}, which has no band to read, steps
+ * off a road in this same frame instead of writing the arithmetic out again.
  */
 function markingPoint(
-  anchor: MarkingAnchor,
+  anchor: PolylinePoint,
   across: number,
   along: number,
 ): Vec2 {
@@ -1742,6 +1746,82 @@ export function markingText(anchor: MarkingAnchor): TextRun {
   return {
     at,
     angle: (Math.atan2(anchor.dir.y, anchor.dir.x) * 180) / Math.PI,
+    size: TEXT_SIZE,
+  };
+}
+
+/**
+ * How far clear of the road's edge a length label's centre sits, in world units.
+ *
+ * A schematic build constant like {@link MARKING_PITCH}, settled in the app. It
+ * measures to the run's *centre*, so the paper actually showing between the
+ * casing and the glyphs is this less half a cap height (link-length §2.3).
+ */
+export const LABEL_GAP = 8;
+
+/**
+ * A length as the drawing states it: metres to the nearest whole one, an `m` and
+ * no space — `1800m`, `CLAUDE.md`'s own example.
+ *
+ * **One function, so two links cannot disagree about how a length reads.** The
+ * number is stored bare and formatted here, at the point of drawing, which is
+ * OQ-1's resolution: the model carries a quantity in the one unit everything else
+ * in it uses, and the spelling is the drawing's business (§2.4).
+ */
+export function formatLength(metres: number): string {
+  return `${Math.round(metres)}m`;
+}
+
+/**
+ * Where a link's length label goes: beside the carriageway at its midpoint,
+ * clear of the asphalt, and the right way up.
+ *
+ * **It takes no length**, and that is load-bearing rather than tidy. §2.2 forbids
+ * the drawing being sized from `Link.length`; a function with no such parameter
+ * cannot do it, whatever a later edit intends. {@link markingText} takes no
+ * content for the same shape of reason.
+ *
+ * Three decisions, each the inverse of the painted-text kind's
+ * ({@link markingText}, and the table in §2.3):
+ *
+ * - **Beside the road, not on it.** Half the road's width plus {@link LABEL_GAP}
+ *   to the *right of travel*, which is {@link markingPoint}'s positive `across`.
+ *   The side is derived rather than picked: {@link carriageways} steps each
+ *   carriageway of a divided road out by a **positive** offset in its own frame,
+ *   so each one's right of travel points away from their shared centreline and
+ *   the two labels land outside the pair rather than in the median (OQ-2).
+ * - **Upright.** A westbound road paints its words upside down because a driver
+ *   reads them; a label is read by a reader of the figure, so a run that would
+ *   set backwards is turned through half a circle into `(-90, 90]`. Every
+ *   vertical road then reads bottom-to-top.
+ * - **Derived.** No id, no hit target, no `Selection` arm — the caller redraws it
+ *   from the field, or draws nothing.
+ *
+ * The baseline drop's **sign follows the flip**: a turned run's own "down" is the
+ * other way about, so adding the drop unturned would sit the label half a cap
+ * height off the gap it was given. `undefined` for a polyline with no length to
+ * walk, {@link pointAlongPolyline}'s own posture.
+ */
+export function lengthLabel(
+  points: Vec2[],
+  width: number,
+): TextRun | undefined {
+  const mid = pointAlongPolyline(points, polylineLength(points) / 2);
+  if (!mid) return undefined;
+
+  // Due south counts as backwards so that a vertical road reads bottom-to-top
+  // whichever way its traffic runs, rather than flipping with the link's
+  // direction — which the reader of a figure cannot see.
+  const flip = mid.dir.x < 0 || (mid.dir.x === 0 && mid.dir.y > 0);
+  const raw = (Math.atan2(mid.dir.y, mid.dir.x) * 180) / Math.PI;
+
+  return {
+    at: markingPoint(
+      mid,
+      width / 2 + LABEL_GAP + (flip ? -BASELINE_DROP : BASELINE_DROP),
+      0,
+    ),
+    angle: flip ? raw - Math.sign(raw) * 180 : raw,
     size: TEXT_SIZE,
   };
 }
