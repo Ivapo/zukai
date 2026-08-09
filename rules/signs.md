@@ -18,7 +18,7 @@ covers: >
   layer and what a sign is drawn from, the shape-then-colour vocabulary, and the
   panel
 max_lines: 250
-generated: 2026-08-08
+generated: 2026-08-09
 ---
 
 # Signs
@@ -185,11 +185,12 @@ what rather than a phase gate. **The active button is `disabled`, not merely
 highlighted**: a sign's kind is the *whole* payload, so re-picking would reset its
 field.
 
-Three kinds add a control and no action, `setSignKind` carrying the whole tagged
-kind. **Limit** is the lane stepper's control, ±10, disabled at both ends rather
-than clamping silently. **Symbol** is a warning's pictogram name, shown and never
-drawn. **Destination** is a direction sign's words, which the plate grows to fit;
-no arrow beside them, since `Direction` is `{ text }` and nothing else.
+Four kinds add a control and no action, `setSignKind` carrying the whole tagged
+kind. **Limit** is the lane stepper's control, ±10 across `10..130`, disabled at
+both ends rather than clamping silently. **Label** is a `custom` sign's words.
+**Symbol** is a warning's pictogram name, shown and never drawn. **Destination**
+is a direction sign's words, which the plate grows to fit; no arrow beside them,
+since `Direction` is `{ text }` and nothing else.
 
 ## `needsText` is conservative about signs, and the asymmetry is the design
 
@@ -199,8 +200,9 @@ a `<text>` for; **signs** count `doc.signs.length > 0`, whatever the kind and
 label. A sign with an empty label draws a plate and no `<text>`, and the face
 travels anyway — refining that would put the kind vocabulary in the export path.
 `strokeAllowance` needed **no** change: the widest stroke in the sign layer is the
-triangle's border at 3, so half stays under the `2` floor, and `getBBox` measures
-fill. `export.test.ts` pins both.
+roundel's ring at `SIGN_RING` (4, an attribute rather than a rule — the triangle's
+3 is only the widest in `diagram.css`), so half of it *meets* the `2` floor rather
+than passing it, and `getBBox` measures fill. `export.test.ts` pins both.
 
 ## The pointer handlers, and the two dead zones
 

@@ -54,10 +54,10 @@ export const PNG_SCALE = 2;
  * stroke width. The dominant overhang is the road casing: drawn at
  * `roadWidth(lanes)` with a round linecap, it extends half that past each
  * polyline end — 37.5 world units for a road of 8 default lanes, so a flat
- * 24-unit margin would have sliced the end-cap off every road of 5 lanes or
- * more. Deriving the allowance from `roadWidth` means neither a change to
- * `LANE_PX` nor a document whose lanes are wider than the default can silently
- * reintroduce that.
+ * 24-unit margin would have sliced the end-cap off every road of 6 default
+ * lanes or more (5 lands flush, overhanging exactly 24). Deriving the allowance
+ * from `roadWidth` means neither a change to `LANE_PX` nor a document whose
+ * lanes are wider than the default can silently reintroduce that.
  *
  * The road class is part of that width (`classWidthFactor`), so it is passed
  * here too: a class that ever draws *wider* than the default would otherwise

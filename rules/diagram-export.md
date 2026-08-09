@@ -17,7 +17,7 @@ covers: >
   paint travels inside the file, the pure/DOM/Tauri layers, how bounds and the
   margin are derived, and the self-contained-file constraints that fail silently
 max_lines: 275
-generated: 2026-08-08
+generated: 2026-08-09
 ---
 
 # Diagram export (SVG, PNG)
@@ -125,10 +125,11 @@ strokeAllowance = max(2, …roadWidth(link.lanes, linkStyle(doc, link.id)) / 2)
 
 The road casing is drawn at `roadWidth` with a round linecap, so it overhangs each
 polyline end by half that — **37.5 units at 8 default lanes**, which is why a flat
-24 clipped the end-cap off every road of 5 lanes or more. `roadWidth` sums each
-`Lane.width` rather than multiplying a lane count, so the allowance follows a
-document whose lanes are wider than the default. **Each road is measured at its
-own class**, because `classWidthFactor` is part of the drawn width
+24 clipped the end-cap off every road of **6** default lanes or more; 5 overhangs
+exactly 24 and lands flush. `roadWidth` sums each `Lane.width` rather than
+multiplying a lane count, so the allowance follows a document whose lanes are
+wider than the default. **Each road is measured at its own class**, because
+`classWidthFactor` is part of the drawn width
 (`rules/road-rendering.md`): every factor is ≤ 1 today, so a miss would only
 over-pad, but a class that ever drew *wider* would reintroduce exactly the
 clipping this function exists to prevent. `.jn-ring` is the one stroke not

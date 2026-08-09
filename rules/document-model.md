@@ -13,7 +13,7 @@ covers: >
   Rust-TypeScript mirror discipline and its one instructive exception, and what
   does and does not move SCHEMA_VERSION
 max_lines: 130
-generated: 2026-08-08
+generated: 2026-08-09
 ---
 
 # Document Model
@@ -30,7 +30,8 @@ Terse by design — read the rustdoc in `src-tauri/src/model/` for field detail.
 | **Layout** (presentation) | `layout.rs` — `Layout`, `Vec2`, `NodeView`, `LinkView`, `JunctionView`, `JunctionGlyph`, `LinkStyle`, `LinkAlign` | ❌ |
 | **Decorations** (Zukai-native) | `decoration.rs` — `Marking`, `MarkingKind`, `LinkEnd`, `Sign`, `SignKind` | ❌ Assimilator has no equivalent |
 
-Every collection is defaulted and elided when empty: a new document on disk is `schema_version` and `metadata` alone.
+Every collection is defaulted and elided when empty — except `layout`, defaulted but **not** elided, so a new
+document on disk is `schema_version`, `metadata` and a bare `layout: {}`, its four sub-maps elided inside it.
 
 Ids are string newtypes (`ids.rs`, minted by the private `string_id!` macro) so
 ids imported from Assimilator keep their names; `LaneIdx` is a plain `u32`. **One
@@ -63,8 +64,9 @@ of the five names nothing in a `Document`:** `MovementId` is read by the
 stay in sync by hand until `ts-rs` codegen arrives. String-literal unions match
 serde's `snake_case` exactly (`NodeKind = "endpoint" | "junction" | "waypoint"`),
 so a document built in the frontend serializes to the YAML Rust reads. A Rust
-field elided by `skip_serializing_if` is **optional** in TS (`align?`, `anchor?`,
-`back?`, `bends?`) — the mirror's one systematic asymmetry.
+field elided by `skip_serializing_if` is **optional** in TS (`align?`,
+`allowed_classes?`, `anchor?`, `back?`, `bends?`) — the mirror's one systematic
+asymmetry, the nine elided collections excepted: `normalizeDocument` fills those.
 
 `document.ts` mirrors three *values* as well: `DEFAULT_LANE_WIDTH`,
 `DEFAULT_SPEED_LIMIT` and `DEFAULT_MEDIAN_GAP` restate `graph.rs`'s three
