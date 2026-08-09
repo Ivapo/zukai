@@ -116,6 +116,10 @@ export type EditAction =
   | { type: "setLaneKind"; id: LinkId; lane: LaneIdx; kind: LaneKind }
   | { type: "setLinkStyle"; id: LinkId; style: LinkStyle }
   | { type: "setLinkAlign"; id: LinkId; align: LinkAlign }
+  // `length?`, not `length: number | null`: absent is the one representation,
+  // and here it is also the whole meaning — a road that states no length. The
+  // rule `setMarkingLane`'s `lane?` already follows.
+  | { type: "setLinkLength"; id: LinkId; length?: number }
   | { type: "addMarking"; link: LinkId; position: number; lane?: LaneIdx }
   | { type: "setMarkingKind"; id: MarkingId; kind: MarkingKind }
   | { type: "setMarkingLane"; id: MarkingId; lane?: LaneIdx }
@@ -289,6 +293,11 @@ function sameList(a: string[], b: string[]): boolean {
  * kinds and can never be typed into in the same breath — switching between them
  * *is* a pick — so sharing one key would only make the runs indistinguishable in
  * the stack for no gain.
+ *
+ * **A link's Length is the fifth field and takes the carve-out too**, in the one
+ * shape it has here: `1800` is four keystrokes and one undo step, while clearing
+ * the field back to "states nothing" closes the run — deleting a length is a
+ * separate edit from typing one, exactly as deleting a word is.
  */
 function coalesceKeyFor(action: EditAction): string | null {
   if (action.type === "moveNode") return `moveNode:${action.id}`;
@@ -302,6 +311,8 @@ function coalesceKeyFor(action: EditAction): string | null {
     return action.kind.symbol === "" ? null : `signSymbol:${action.id}`;
   if (action.type === "setSignKind" && action.kind.type === "direction")
     return action.kind.text === "" ? null : `signText:${action.id}`;
+  if (action.type === "setLinkLength")
+    return action.length === undefined ? null : `linkLength:${action.id}`;
   return null;
 }
 
@@ -462,6 +473,9 @@ function editReducer(state: EditorState, action: EditAction): EditorState {
 
     case "setLinkAlign":
       return setLinkAlign(state, action.id, action.align);
+
+    case "setLinkLength":
+      return setLinkLength(state, action.id, action.length);
 
     case "addMarking":
       return addMarking(state, action.link, action.position, action.lane);
@@ -1301,6 +1315,48 @@ function setLinkAlign(
           [id]: align === "centre" ? view : { ...view, align },
         },
       },
+    },
+  };
+}
+
+/**
+ * Say how long the road really is, or stop saying.
+ *
+ * **The one action in the reducer that must not touch the drawing** (link-length
+ * §2.2). It writes `doc.links` and nothing else, so `doc.layout` — where every
+ * drawn position lives — survives **by reference**, which is the assertable form
+ * of "the picture did not move". Its mirror image is `moveNode`, which writes
+ * only `doc.layout` and so cannot reach the number.
+ *
+ * `undefined` clears the key rather than storing a value, **absent being the one
+ * representation** as ever ({@link setMarkingLane}) — and here absent is also the
+ * whole meaning: a road that states no length is not a road of length zero.
+ *
+ * The guard rejects anything that is not a finite positive number, so `0`, `NaN`
+ * and a negative never reach the document from any caller. `0` is excluded
+ * deliberately and not by oversight: it would draw `0m` on a road, which is a
+ * claim rather than the absence of one.
+ */
+function setLinkLength(
+  state: EditorState,
+  id: LinkId,
+  length: number | undefined,
+): EditorState {
+  const { doc } = state;
+  if (!findLink(doc, id)) return state;
+  if (length !== undefined && !(Number.isFinite(length) && length > 0)) {
+    return state;
+  }
+
+  return {
+    ...state,
+    doc: {
+      ...doc,
+      links: doc.links.map((l) => {
+        if (l.id !== id) return l;
+        const { length: _dropped, ...rest } = l;
+        return length === undefined ? rest : { ...rest, length };
+      }),
     },
   };
 }

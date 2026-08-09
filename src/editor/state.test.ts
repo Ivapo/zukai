@@ -358,6 +358,124 @@ describe("link alignment", () => {
   });
 });
 
+/**
+ * How long a road says it is (link-length spec Phase 1) — the one field in the
+ * document whose whole design is that it is **decoupled** from the drawing, so
+ * two of the tests below assert on references rather than on values.
+ */
+describe("the length a link states", () => {
+  /** `L1` itself, which the length is stored on — the semantic graph, not the
+   *  layout, because a length is a fact about the road rather than about paper. */
+  function link(state: EditorState) {
+    return state.doc.links[0];
+  }
+
+  it("states a length, in metres, on the link itself", () => {
+    const start = twoNodesLinked();
+    const set = reducer(start, { type: "setLinkLength", id: "L1", length: 1800 });
+
+    expect(link(set).length).toBe(1800);
+    expect(set.dirty).toBe(true);
+    // Nothing else about the road came with it — the lanes are the same array.
+    expect(link(set).lanes).toBe(link(start).lanes);
+  });
+
+  /**
+   * Absent is the one representation, and here it is also the whole meaning: a
+   * road that states no length is not a road of length zero. `setMarkingLane`'s
+   * rule, and what keeps a document that says nothing byte-identical on save.
+   */
+  it("clears back to no key at all, not to a zero", () => {
+    const back = run(
+      twoNodesLinked(),
+      { type: "setLinkLength", id: "L1", length: 1800 },
+      { type: "setLinkLength", id: "L1" },
+    );
+
+    expect(link(back).length).toBeUndefined();
+    expect("length" in link(back)).toBe(false);
+  });
+
+  /** Typing `1800` is four keystrokes and one undo step; clearing the field is a
+   *  separate edit, the carve-out `markingText`'s key already takes. */
+  it("collapses a typed length into one undo step, and clearing into another", () => {
+    const typed = run(
+      twoNodesLinked(),
+      { type: "setLinkLength", id: "L1", length: 1 },
+      { type: "setLinkLength", id: "L1", length: 18 },
+      { type: "setLinkLength", id: "L1", length: 180 },
+      { type: "setLinkLength", id: "L1", length: 1800 },
+    );
+    expect(link(typed).length).toBe(1800);
+
+    const cleared = reducer(typed, { type: "setLinkLength", id: "L1" });
+    expect(link(reducer(cleared, { type: "undo" })).length).toBe(1800);
+    expect(link(run(cleared, { type: "undo" }, { type: "undo" })).length).toBeUndefined();
+  });
+
+  /**
+   * **The first half of the invariant** (§2.2): dragging a node changes the
+   * picture and leaves the label alone. Asserted by reference on the link, since
+   * `moveNode` writes only `doc.layout.nodes` — a version that rebuilt `doc.links`
+   * would pass any value assertion and still hand history a fresh array.
+   */
+  it("survives a node drag untouched, by reference", () => {
+    const stated = reducer(twoNodesLinked(), {
+      type: "setLinkLength",
+      id: "L1",
+      length: 1800,
+    });
+
+    const dragged = reducer(stated, {
+      type: "moveNode",
+      id: "N2",
+      pos: { x: 40, y: 40 },
+    });
+
+    // The drawing moved...
+    expect(dragged.doc.layout.nodes.N2.pos).toEqual({ x: 40, y: 40 });
+    // ...and the road's own record of itself did not, down to the array holding it.
+    expect(dragged.doc.links).toBe(stated.doc.links);
+    expect(link(dragged).length).toBe(1800);
+  });
+
+  /**
+   * **The second half, and the one this action could break** (§2.2): editing the
+   * label leaves the drawing alone. `doc.layout` is where every drawn position
+   * lives, so an untouched layout *is* an untouched drawing — and it is the
+   * assertable form, `drawnPolyline` minting a fresh array on every call.
+   */
+  it("leaves the whole layout identical by reference", () => {
+    const start = twoNodesLinked();
+
+    const stated = reducer(start, { type: "setLinkLength", id: "L1", length: 1800 });
+    expect(stated.doc.layout).toBe(start.doc.layout);
+
+    // Both directions of the field, since only one of them rewrites the entry.
+    const changed = reducer(stated, { type: "setLinkLength", id: "L1", length: 1500 });
+    expect(changed.doc.layout).toBe(start.doc.layout);
+    expect(reducer(changed, { type: "setLinkLength", id: "L1" }).doc.layout).toBe(
+      start.doc.layout,
+    );
+  });
+
+  /** A no-op arm has to return the document by identity, or `recordHistory`
+   *  pushes a snapshot for a change that never happened. */
+  it("dispatches nothing to the document for a value that is not a length", () => {
+    const start = twoNodesLinked();
+
+    for (const length of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(reducer(start, { type: "setLinkLength", id: "L1", length }).doc).toBe(
+        start.doc,
+      );
+    }
+    // And a link that is not there.
+    expect(reducer(start, { type: "setLinkLength", id: "L9", length: 1800 }).doc).toBe(
+      start.doc,
+    );
+  });
+});
+
 describe("undo / redo", () => {
   it("undo restores the previous document and redo reinstates it", () => {
     const start = initialState();

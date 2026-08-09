@@ -518,6 +518,10 @@ export function Inspector({ state, dispatch }: InspectorProps) {
         </div>
       </Field>
 
+      <Field label="Length (m)">
+        <LinkLength id={link.id} length={link.length} dispatch={dispatch} />
+      </Field>
+
       <button
         className="danger"
         onClick={() => dispatch({ type: "deleteSelection" })}
@@ -766,6 +770,53 @@ function MarkingText({
           kind: { type: "text", content: e.target.value },
         })
       }
+    />
+  );
+}
+
+/**
+ * How long this road really is — the human's claim about the world, typed in
+ * metres (link-length spec §2.6).
+ *
+ * **A text field rather than a stepper**, on two counts: a stepper for 1800 m is
+ * absurd, and the empty string is the route back to *states nothing*, which no
+ * stepper has. Controlled by the document, {@link MarkingText}'s rule.
+ *
+ * Text that parses to no finite positive number **dispatches nothing at all**, so
+ * a half-typed value never reaches the document and never draws. The visible cost
+ * is that a trailing `.` is eaten by the round trip through the number — accepted
+ * rather than fixed with a second copy of the value here, since a length in metres
+ * is a whole number and a local copy could disagree with the drawing after an undo.
+ */
+function LinkLength({
+  id,
+  length,
+  dispatch,
+}: {
+  id: LinkId;
+  length?: number;
+  dispatch: (action: Action) => void;
+}) {
+  return (
+    <input
+      className="text-field"
+      type="text"
+      inputMode="decimal"
+      value={length === undefined ? "" : String(length)}
+      placeholder="1800"
+      spellCheck={false}
+      autoComplete="off"
+      onChange={(e) => {
+        const text = e.target.value.trim();
+        if (text === "") {
+          dispatch({ type: "setLinkLength", id });
+          return;
+        }
+        const metres = Number(text);
+        if (Number.isFinite(metres) && metres > 0) {
+          dispatch({ type: "setLinkLength", id, length: metres });
+        }
+      }}
     />
   );
 }
