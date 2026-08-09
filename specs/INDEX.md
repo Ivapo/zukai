@@ -24,3 +24,5 @@
   Fixed-time signal plans. All four phases were cut — a plan is a table, its only drawable form is a stage diagram, and this project prints network figures. Kept as the record of why: read §0 and stop there.
 - **[lane-arrows](lane_arrows_spec.md)** — `zk-011` · accepted · done
   Lane arrows become how a junction's turns are shown — painted on the approach lanes, seeded from an imported network, and replacing the dashed arcs across the pad. Includes the two things that have to exist first: a marking you can drag, and a marking that measures from the junction end.
+- **[link-length](link_length_spec.md)** — `zk-012` · accepted · pending
+  A link states its real length as a label on the drawing — an annotation the human owns, decoupled from the drawn length, and filled on import from the one thing import throws away.
