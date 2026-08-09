@@ -10,12 +10,13 @@ sources:
   - src/model/types.ts
   - src/styles.css
   - src/styles/diagram.css
+  - src-tauri/src/model/graph.rs
   - src-tauri/src/model/layout.rs
 covers: >
   how a link becomes a picture of a road: the one lane-width derivation
   everything descends from, class as a token, two-way carriageways, alignment,
-  lane kinds and the hatch, and the painted centreline
-max_lines: 210
+  lane kinds and the hatch, the painted centreline, and the length a link states
+max_lines: 250
 generated: 2026-08-09
 ---
 
@@ -37,11 +38,17 @@ derived from the model.
 it.** Almost every quantity below comes from a field the document already carried
 — `Lane.width`, `Lane.kind`, `Link.median_gap`, `LinkView.style`. When something
 looks wrong, the first question is which field is not being read, not which
-constant to tune. `LinkView.align` is the one thing genuinely added: nothing in
-the model distinguishes "4 lanes becomes 3 by losing the nearside lane" from
-"…the offside lane", since `Link` carries an ordered `lanes` array and no
-statement about how two links' lanes correspond across a shared node. Which side
-a lane goes is a drawing decision, so it is a **presentation** field.
+constant to tune. `LinkView.align` is the one thing genuinely added *to draw the
+road*: nothing in the model distinguishes "4 lanes becomes 3 by losing the
+nearside lane" from "…the offside lane", since `Link` carries an ordered `lanes`
+array and no statement about how two links' lanes correspond across a shared
+node. Which side a lane goes is a drawing decision, so it is a **presentation**
+field.
+
+`Link.length` is the instructive contrast and the subsystem's one **semantic**
+addition — a fact about the road rather than a drawing decision, so it lives in
+`graph.rs` and drives nothing about the road's geometry at all. Its own section
+is below.
 
 ## Lane geometry: one derivation, everything downstream
 
@@ -208,19 +215,54 @@ solid one, visible at every dash gap. And the lane line's own offset runs
 compared as numbers, so an equivalent-but-different one differs in the last bit
 and the divider survives under the line. The rest is `rules/marking-kinds.md`.
 
+## The length a link states, and the invariant under it
+
+**A number on the drawing is an annotation, never a measurement of the drawing.**
+`Link.length` (metres, optional, `graph.rs`) is how long the road really is; the
+drawn polyline is a diagram of that road. A link labelled `1800m` retyped as
+`1500m` **does not move** — `CLAUDE.md`'s founding example, built by
+`specs/link_length_spec.md`. Absent means the road states no length, not zero.
+
+**Two directions are forbidden, and they are what the tests assert:** nothing
+computes `Link.length` *from* the canvas (`polylineLength` and `drawnPolyline`
+must not reach it), and nothing sizes the canvas *from* `Link.length` (it must
+not reach `drawnPolyline`, `roadWidth`, `laneBands` or a node position). The
+second is enforced by shape rather than by discipline — `lengthLabel(points,
+width)` takes **no length**, so nothing it returns can depend on one. The
+regression tests are **reference** checks rather than value ones: a `moveNode`
+leaves `doc.links` identical, and a `setLinkLength` leaves `doc.layout`
+identical, an untouched layout being an untouched drawing.
+
+**The label is derived, so it is not a `Marking`**: no id, no hit target, no
+`Selection` arm, and a link stating nothing emits no element at all.
+`lengthLabel` puts it at the drawn polyline's midpoint, `roadWidth / 2 +
+LABEL_GAP` to the **right of travel**, turned upright into `(-90, 90]` — the
+inverse of `markingText`, which is paint and does not flip. The side is *derived*
+rather than chosen: `carriageways` steps each carriageway out by a positive
+offset in its own frame, so both labels of a divided road land outside the pair.
+`formatLength` is the one spelling (`1800m`, nearest metre). The label is a third
+`<text>` the drawing can emit, hence a third arm of `needsText` —
+`rules/diagram-export.md`.
+
 ## Where each piece lives
 
 `geometry.ts` owns everything pure — `laneBands`/`laneWidths`, `roadWidth`,
 `classWidthFactor`, `carriageways`, `alignmentShift`,
 `drawnPolyline`/`lateralShift`, `offsetPolyline`/`segmentNormals` and the
 constants (`LANE_PX`, `ROAD_MARGIN`, `UNITS_PER_METRE`, `MIN_ROAD_WIDTH`,
-`DRIVE_SIDE`, `SCHEMATIC_MEDIAN`) — under `geometry.test.ts`. `Diagram.tsx` holds
-`RoadShape`, `arrowTriangle` and `HatchPattern`/`needsHatch` through
-`renderToStaticMarkup`; the joint shapes beside them are `rules/road-joints.md`'s.
-Paint is `diagram.css`; `setLaneKind`/`setLinkLanes`/`setLinkAlign` are
-`state.ts`; the controls are `Inspector.tsx`, chrome CSS in `styles.css`.
-`LinkView.align` is this rule's one model exception, mirrored in `types.ts` and
-`layout.rs` and read through `linkAlign`/`linkStyle`. It needed no version bump —
+`DRIVE_SIDE`, `SCHEMATIC_MEDIAN`, `LABEL_GAP`) plus `lengthLabel`/`formatLength`
+— under `geometry.test.ts`. `Diagram.tsx` holds
+`RoadShape`, `arrowTriangle`, `HatchPattern`/`needsHatch` and the derived label
+layer through `renderToStaticMarkup`; the joint shapes beside them are
+`rules/road-joints.md`'s.
+Paint is `diagram.css`; `setLaneKind`/`setLinkLanes`/`setLinkAlign`/
+`setLinkLength` are `state.ts`; the controls are `Inspector.tsx`, chrome CSS in
+`styles.css` — which is also where `user-select: none` sits, so a drag across a
+text run does not select its glyphs.
+This rule has **two** model additions, and they sit in different layers for
+different reasons: `LinkView.align` in `layout.rs` (presentation) and
+`Link.length` in `graph.rs` (semantic), both mirrored in `types.ts`, the first
+read through `linkAlign`/`linkStyle`. Neither needed a version bump —
 a field is free, a variant is not, which is why the `gore` glyph next door did.
 The one cross-subsystem obligation is `strokeAllowance` (`export.tsx`), which must
 keep measuring roads at their own lane widths **and their own class** or wide

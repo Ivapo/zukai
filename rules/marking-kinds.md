@@ -198,12 +198,15 @@ the constraint is *satisfied*, not repealed, and governs every future glyph.
   returns `{ at, angle, size }`, and the **content is not an argument**, because
   `text-anchor="middle"` centres the string. `textWidth(content)` is the separate
   function for the case that does care, which is a sign plate.
-- **It is the one thing in the drawing set at an angle**, and it earns it: paint
-  turns with the road. There is deliberately **no upright flip** — a westbound
-  road paints text upside down on screen and the right way up for its driver.
+- **It is the one *marking* set at an angle**, and it earns it: paint turns with
+  the road. There is deliberately **no upright flip** — a westbound road paints
+  text upside down on screen and the right way up for its driver. A link's length
+  label is the deliberate inverse on every count (it *does* flip, sits beside the
+  carriageway, and is derived rather than placed): `rules/road-rendering.md`.
 - **Centred across the band by arithmetic, not `dominant-baseline`**, whose
   support in a rasterized SVG is what fails silently in the PNG path.
-  `BASELINE_DROP` is that arithmetic, and a sign's label takes the same number.
+  `BASELINE_DROP` is that arithmetic, and a sign's label and a length label take
+  the same number.
   `ADVANCE` (0.616) and `CAP_HEIGHT` (0.7) are the **face's own** metrics, pinned
   as literals so a face swap fails a test rather than resizing everything.
 - **Empty content draws the placeholder bar**, which is why it can join the picker

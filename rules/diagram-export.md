@@ -136,12 +136,13 @@ clipping this function exists to prevent. `.jn-ring` is the one stroke not
 modelled and needs none — it is centred so its outer edge lands on the coincident
 `.jn-edge` circle, pure geometry `getBBox` already has.
 
-**A taper wedge, a gore, painted text and a sign plate need no allowance either,
-and that is a conclusion rather than luck.** `getBBox` excludes stroke but
-*includes* fill, and all four are fill inside the measured `<g>`. A wedge's
-corners sit on the casing rim the allowance is derived from; a gore's sit inside
-the lane region; a plate is fill with a 1-unit outline, half of which is under the
-`2` floor. `export.test.ts` pins the unchanged allowance for every one of them,
+**A taper wedge, a gore, painted text, a sign plate and a length label need no
+allowance either, and that is a conclusion rather than luck.** `getBBox` excludes
+stroke but *includes* fill, and all five are fill inside the measured `<g>`. A
+wedge's corners sit on the casing rim the allowance is derived from; a gore's sit
+inside the lane region; a plate is fill with a 1-unit outline, half of which is
+under the `2` floor; a length label sits beside the road with no stroke at all.
+`export.test.ts` pins the unchanged allowance for every one of them,
 including a 19-character destination — the only element whose extent is unbounded
 by a build constant.
 
@@ -238,13 +239,19 @@ has, and the PNG bakes that in permanently. Four rules hold it together, each a
 separate way to get it wrong:
 
 - **`needsText(doc)` (exported from `Diagram.tsx`) gates the whole thing**, on
-  `needsHatch`'s model. Two arms counting different things **on purpose**: for
+  `needsHatch`'s model. Three arms counting different things **on purpose**: for
   markings it counts exactly what `markingPaint` emits a `<text>` for — non-empty
   content — so one predicate answers both "is there a glyph" and "is there a face";
   for **signs** it counts every sign, label or no label, because refining it to
   "kinds that draw a glyph" would put the sign vocabulary in the export path, where
   it can fall out of step with the drawing. A sign with an empty label carries
   ≈18 kB for no glyph — the deliberate price, pinned so it reads as a decision.
+  The third arm, **a link stating a `length`**, takes the marking half's posture:
+  it is the label layer's own first test, character for character, so the two
+  cannot drift. It over-counts only for a link whose polyline is undrawable, which
+  is the safe direction. Adding a fourth thing that draws a `<text>` and *not* an
+  arm here is the failure this whole section exists to prevent — the drawing would
+  name a face the file does not carry (`rules/road-rendering.md`).
 - **The `@font-face` is a second `<style>`, emitted *after* `diagram.css`'s.** Not
   a rule inside it, which travels in every export and would name a face most files
   have no bytes for; and not an `@import`, which is the forbidden external

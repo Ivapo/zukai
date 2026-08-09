@@ -11,7 +11,7 @@ note: >
 phases:
   - name: "Phase 1 — A link states its length"
     reviewed: 2026-08-09
-    shipped: null
+    shipped: 2026-08-09
     cut: null
     by: null
   - name: "Phase 2 — Import fills it from the geometry it discards"
@@ -230,6 +230,34 @@ phase a human can type one and see it on the canvas and in an exported file.*
   `rules/road-rendering.md` if the subsystem proves too small to earn a file —
   decide at close-out, not now. `rules/document-model.md` gains the field;
   `rules/diagram-export.md`'s `needsText` arms go from two to three.
+
+#### As built (shipped 2026-08-09)
+
+Everything above landed as designed. Five things worth carrying to Phase 2:
+
+- **The close-out decision went to `rules/road-rendering.md`**, not a file of its
+  own: one field, one pure function and one element is thin for a rule, and that
+  file already owns `drawnPolyline` — the exact thing §2.2 constrains. Its
+  `max_lines` moved 210 → 235 and `graph.rs` joined its `sources`.
+- **OQ-2 was answered by derivation rather than by taste**, which the spec did not
+  expect. `carriageways` steps each carriageway out by a *positive* offset in its
+  own frame, so each one's right of travel points away from the shared centreline:
+  putting the label on the right of travel lands a divided road's two labels
+  **outside** the pair by construction. Confirmed in the app and pinned in both
+  `geometry.test.ts` and `Diagram.test.tsx`. `LABEL_GAP = 8`, settled in the app.
+- **The upright flip has a second half the design did not name**: the baseline
+  drop's *sign* must follow the turn, or a westbound label sits a whole cap height
+  nearer its road than an eastbound one. A plausible half-offset rather than a
+  visible mistake, so it is pinned as the two runs' centres being mirror images
+  while their baselines are not.
+- **`lengthLabel` takes no length, and that is the enforcement of §2.2's second
+  half** — a function with no such parameter cannot size anything from one,
+  whatever a later edit intends. Asserted as `lengthLabel.length === 2`.
+- **The dev pass turned up one pre-existing defect**, fixed in the same push: the
+  canvas had no `user-select`, so any drag sweeping across a text run selected its
+  glyphs. Reachable since signs Phase 1 for a sign's label; found here because the
+  gesture that shows this feature off is exactly the gesture that triggers it.
+  Fixed in `styles.css`, which does not travel into exports.
 
 ### Phase 2 — Import fills it from the geometry it discards
 *Produces the observable: **yes** — an imported network stops being roads at the

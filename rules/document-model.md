@@ -65,7 +65,7 @@ stay in sync by hand until `ts-rs` codegen arrives. String-literal unions match
 serde's `snake_case` exactly (`NodeKind = "endpoint" | "junction" | "waypoint"`),
 so a document built in the frontend serializes to the YAML Rust reads. A Rust
 field elided by `skip_serializing_if` is **optional** in TS (`align?`,
-`allowed_classes?`, `anchor?`, `back?`, `bends?`) — the mirror's one systematic
+`allowed_classes?`, `anchor?`, `back?`, `bends?`, `length?`) — the mirror's one systematic
 asymmetry, the nine elided collections excepted: `normalizeDocument` fills those.
 
 `document.ts` mirrors three *values* as well: `DEFAULT_LANE_WIDTH`,
