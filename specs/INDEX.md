@@ -12,7 +12,7 @@
   Make the drawn road honour the road model — class, lane widths, lane kinds, and two-way carriageways that don't sit on top of each other.
 - **[ramps-and-tapers](ramps_and_tapers_spec.md)** — `zk-005` · accepted · done
   Draw the transitions between roads — lane-count tapers, ramp gores, and junction interiors that follow a divided road's carriageways.
-- **[road-markings](road_markings_spec.md)** — `zk-006` · accepted · partial
+- **[road-markings](road_markings_spec.md)** — `zk-006` · accepted · done
   Render and place road-surface markings — stop and give-way lines, crossings, lane arrows, lane lines. Paint only; signs and any painted text wait on font embedding.
 - **[signs-and-text](signs_and_text_spec.md)** — `zk-007` · accepted · done
   Put text and roadside signs in the drawing — the font that must travel inside an exported file, painted road text, and the sign vocabulary.

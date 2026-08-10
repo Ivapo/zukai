@@ -10,10 +10,11 @@ sources:
   - src-tauri/src/model/decoration.rs
 covers: >
   what each of the seven marking kinds paints: the marking layer and its order,
-  the per-kind shapes and their chrome, the turn arrow and its second head, the
-  lane line and the boundary it replaces, and text and the font it cost
-max_lines: 230
-generated: 2026-08-09
+  the per-kind shapes and their chrome, the turn arrow with its staggered forks
+  and its second head, the lane line and the boundary it replaces, and text and
+  the font it cost
+max_lines: 250
+generated: 2026-08-10
 ---
 
 # Marking kinds
@@ -99,10 +100,11 @@ the lane the marking spans.
 ### The turn arrow: one shaft, one branch per direction
 
 A shared through/right lane is **one arrow with two branches**, so every branch
-leaves the shaft's far end. Five directions are straight stubs (`through` 0°,
-slight ∓30°, hard ∓90°, negative being left of travel); `u_turn` is a 180° hook
-turning back alongside the shaft with its head pointing **at the driver**, hooking
-*left* — the U-turn side under the right-hand traffic `laneBands` assumes.
+leaves **the same shaft** — each at the point its own direction picks, not at its
+far end. Five directions are straight stubs (`through` 0°, slight ∓30°, hard ∓90°,
+negative being left of travel); `u_turn` is a 180° hook turning back alongside the
+shaft with its head pointing **at the driver**, hooking *left* — the U-turn side
+under the right-hand traffic `laneBands` assumes.
 
 - **The one kind drawn as two elements**: stems stroked, heads filled. A single
   filled outline would close the hook across its own chord and fill the half-disc
@@ -116,8 +118,25 @@ turning back alongside the shaft with its head pointing **at the driver**, hooki
 - **The proportions were decided in the app.** The first pass drew as a thin line
   with a tick; what reads as an arrow is a **short shaft and a chunky head**.
 
-**A known limit, inherent rather than a bug:** three or more directions in a
-narrow lane run their heads together, and six draw a starburst.
+**`BRANCH_STAGGER` is why three turns no longer draw a star.** One shared fork put
+every head the same `reach` from one point, across a band only `2 * ARROW_REACH`
+wide; each direction now forks its own share of the way upstream, separating the
+heads **along** the road, the axis with room. Measured: no two heads intersect at
+any direction set, minimum 0.487 units of asphalt between them on a default lane.
+
+- **A table, not a formula on the bearing** — the slights are equally hard, so a
+  formula gives them one fork, and two ±30° heads share no fork without meeting.
+- **A fraction of the stagger budget**, `TURN_ARROW_LENGTH - 2 * reach` (twice the
+  fork), not of the band: `s ≤ 1` is then **both** the footprint bound and the
+  fork-stays-on-the-shaft bound at every width, by construction. A band with no
+  budget floors to `0` — the old shared fork, never a downstream one.
+- **Per-direction, not per-count**, so toggling one direction cannot move another
+  head. The price: every arrow but a lone `through` changed shape.
+- **Only the pair that needs it is split** — `left`/`right` are across-disjoint at
+  a shared fork and share one, the symmetric barbs a painted arrow has.
+
+The suite asserts disjointness to **three** branches — what a real approach
+carries — and containment at all six.
 
 #### The second head, and the one frame flip that keeps it honest
 

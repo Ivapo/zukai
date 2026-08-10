@@ -36,7 +36,7 @@ phases:
     by: null
   - name: "Phase 6 — Three branches that read as three turns"
     reviewed: 2026-08-10
-    shipped: null
+    shipped: 2026-08-10
     cut: null
     by: null
 
@@ -404,6 +404,13 @@ travel direction; the sixth is not:
 So a shared through/right lane draws one shaft with two branches, and a U-turn
 lane draws a shaft with a hook rather than a head on a stub. Every branch is
 clipped to stay inside the band, which is what bounds the hook's radius.
+
+> **CORRECTED 2026-08-10 — "every branch leaving the shaft's far end" no longer
+> describes the paint; see §2.12.** One fork for all branches is exactly what drew
+> a four-pointed star at three directions. Each branch now leaves the shaft at the
+> point its own direction picks, `through` alone keeping the far end. The bearing
+> table above is untouched and the containment rule below still holds — the
+> stagger moves forks *along* the road, not across the band.
 
 Three constraints, each of which a plausible implementation gets wrong:
 
@@ -826,7 +833,16 @@ holds it, and the gate deliberately asserts nothing either way at those sizes.
   re-dragging the moment a node moves. `Marking.anchor` is the fix, and it takes
   neither option here: metres stay absolute (§2.2 holds) and the **end** they are
   measured from becomes selectable.
-- **OQ-7** — **Are four, five or six branches reachable?** §2.12.4 commits Phase
+- **OQ-7** — **Are four, five or six branches reachable?** **RESOLVED (Phase 6,
+  2026-08-10) — yes, all of them, and round 2 called it exactly.** The shipped
+  `BRANCH_STAGGER` keys each offset to the direction alone, so a branch's geometry
+  does not depend on its company; the gate's 41 subsets include all 15 *pairs*, and
+  every pair being disjoint entails every set of every size is. Measured on a
+  default lane the tightest pair clears by **0.487 units**, and every narrower lane
+  clears by more. The gate still asserts nothing above three — that silence is
+  deliberate and is left as shipped, since a suite that pinned six would be pinning
+  a size no road carries. The original question and its history follow. §2.12.4
+  commits Phase
   6 to heads that are disjoint up to **three** branches and contained at all six,
   on the grounds that three is what a real approach carries. Everything above
   three is the untested region — including six, whose first-draft impossibility
@@ -1341,3 +1357,73 @@ phase-level gate) in two rounds on 2026-08-10 and **is cleared to implement**.
   `rules/road-markings.md`, which is the marking as an object a human owns
   rather than what it paints; and `import.rs`, whose setback derives from a
   constant that does not move.
+- **Shipped 2026-08-10.** 396 vitest (up 5), 68 `cargo test` **unchanged**, no
+  `SCHEMA_VERSION` move (still 2). One file of production code changed, exactly as
+  scoped. Three decisions the phase settled, none of them pinned by the scope:
+  - **The offset is a fraction of the arrow's *stagger budget*, not of the band
+    and not in world units** — and that turned §2.12.2's three separate bounds
+    into one. The budget is `TURN_ARROW_LENGTH - 2 * reach`, which is exactly
+    `2 * forkAt`, so `s ≤ 1` **simultaneously** keeps the u-turn head inside the
+    footprint (its apex lands at `-L/2 + budget * (1 - s)`) and keeps every fork
+    on the shortened two-headed shaft. Keyed to the band instead, both bounds fail
+    on an imported lane wider than about 3.6 m, which `network.yaml` can supply and
+    nothing would have caught: the gate measures a 3.5 m lane. Floored at zero, so
+    a band whose reach alone spends the arrow's length collapses to Phase 3's
+    single fork rather than staggering *downstream*.
+  - **Only the pair that needs splitting is split, and the dev pass is what
+    decided it.** §2.12.2 kept the uniform split "for tidiness" and granted the
+    tuning pass the freedom to drop it "if the budget ever pinches". The budget did
+    not pinch — legibility did. `left`/`right` are across-disjoint at any shared
+    fork, so all the split can buy is sub-unit, and at 0.74 units the barbs drew a
+    pair that is symmetric *except for a wobble*, which reads as a slip. Sharing
+    one fork draws the symmetric barbs a real painted arrow has. The slights, which
+    genuinely overlap across the band, keep theirs.
+  - **Values settled in the app against a measure, not by eye.** The table is
+    `through 0 · slight_right 0.35 · slight_left 0.55 · left = right 0.75 ·
+    u_turn 0.9`, minimum head gap **0.487 units** on a default lane, 0.697 on
+    `local`, 0.907 on `ramp`. The search that produced them is the same
+    separating-axis test the suite now runs, so the constant and its gate are one
+    measurement.
+
+  Four things worth carrying forward that the spec did not predict:
+  - **The gate's own mutation had to be built twice to be worth running.** A naive
+    count-keyed rule (spread evenly in `directions` order) fails the disjointness
+    test *and* the invariance one, which proves nothing about the invariance
+    assertion. The rule §2.12.2 actually rejects — rank the subset by hardness,
+    then spread by count — passes disjointness and fails **only** invariance,
+    exactly as the gate predicted. A mutation that is easier to kill than the real
+    alternative is not the mutation the gate asked for.
+  - **Phase 5's frame assertions catch the stagger trap too**, and both of them.
+    Applying the offset outside the frame fails `draws a two-way left-turn lane
+    symmetric about the band centre` as well as the new three-branch one — so the
+    new assertion is a widening of the net rather than the only strand in it.
+  - **Two existing tests moved and one more than the spec named.** §2.12.2 named
+    "every existing assertion on the coordinates of a branch that is not
+    `through`"; that is `gives a multi-direction arrow one shaft` and `hooks the
+    u-turn back at the driver` in `geometry.test.ts` — and **`carries a rear head
+    into the drawing` in `Diagram.test.tsx`**, which the gate did not list. Its
+    `min x` comparison is unmeetable by construction now: a `left` fork is
+    necessarily upstream of the marking's position once the chain of separations is
+    satisfied (it needs ≥ 0.52 of the budget), so the rear head lands *downstream*.
+    The extent of the two heads together replaces it, which says the same thing
+    without naming an end.
+  - **A lone `u_turn` is the ugliest thing this shipped**, and it is the accepted
+    price of set-invariance rather than a defect: its fork is 0.9 of the way up the
+    budget, so the arrow draws a hook with roughly six units of bare shaft
+    downstream of it. Confirmed by eye and left alone — a count-keyed rule would
+    fix it and reintroduce the thing §2.12.2 rejects.
+
+  The dev pass ran on Vite at **port 1426** (1420 *and* 1425 were both held),
+  driven through Playwright as lane arrows Phase 1 established. Both gestures
+  passed: a hand-painted `left + through + right` reads as three turns rather than
+  a star, and all six read as a crowded but separated cluster. For the import half
+  the **dump-the-document** technique from lane arrows Phase 4 was reused — an
+  `#[ignore]`d Rust test wrote `import_network(cross-4)` to JSON, a throwaway
+  vitest rendered it through the real `diagramSvg`, both scaffolds deleted after.
+  Its eight arrows are all two-branch (`through+right` ×4, `left+through` ×4) and
+  clear each other by **5.13 units**, far above the worst case. Two gotchas beyond
+  the one that rule already records: `diagramSvg(doc, null)` frames a *blank*
+  document, so a harness with no DOM to run `measureDiagram` must pass its own
+  bounds or export a 70×70 corner of the drawing; and the browser cannot open the
+  export directly, since navigating to the `.svg` times out — wrap it in an HTML
+  page instead.

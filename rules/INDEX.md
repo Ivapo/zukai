@@ -10,8 +10,8 @@
   the undo/redo snapshot stack in the reducer: the document-identity signal, drag coalescing, the trap where an action deleting nothing must return the same doc, what resets history, and the three trigger surfaces
 - **[junctions](junctions.md)** — generated 2026-08-08 · 8 sources · 200/200 lines
   what a junction means rather than what it looks like — control and rule, which layer owns each part, the glyph-versus-control split and its nudge, the two actions, and the one turn vocabulary left in the model
-- **[marking-kinds](marking-kinds.md)** — generated 2026-08-09 · 7 sources · 228/230 lines
-  what each of the seven marking kinds paints: the marking layer and its order, the per-kind shapes and their chrome, the turn arrow and its second head, the lane line and the boundary it replaces, and text and the font it cost
+- **[marking-kinds](marking-kinds.md)** — generated 2026-08-10 · 7 sources · 246/250 lines
+  what each of the seven marking kinds paints: the marking layer and its order, the per-kind shapes and their chrome, the turn arrow with its staggered forks and its second head, the lane line and the boundary it replaces, and text and the font it cost
 - **[network-yaml](network-yaml.md)** — generated 2026-08-10 · 6 sources · 313/315 lines
   reading Assimilator's network.yaml: the serde mirror and what earns a place in it, the header and version probe, the scale and the fitted factor that places nodes, the two lane-numbering conventions, what import throws away, the one number it keeps off the polyline, and the turn arrows it mints, and why there is no writer
 - **[persistence](persistence.md)** — generated 2026-08-08 · 10 sources · 110/110 lines
