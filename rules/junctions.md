@@ -63,7 +63,7 @@ A junction is not an object. It is three records keyed by the same `NodeId`:
 |---|---|---|---|
 | `Node { type: "junction" }` | `doc.nodes` | semantic | shaped for it |
 | `Junction { node_id, control, rule? }` | `doc.junctions` | semantic | shaped for it |
-| `JunctionView { glyph, rotation, scale }` | `doc.layout.junctions[id]` | presentation | **no** |
+| `JunctionView { glyph, scale }` | `doc.layout.junctions[id]` | presentation | **no** |
 
 `setNodeKind` mints and destroys the second and third together, so all three
 normally arrive at once — but **each is independently absent-able in a hand-edited
@@ -85,11 +85,9 @@ The decision the whole subsystem descends from, and the reason the fix for "the
 drawing has signal heads but the file says unsignalized" is not "make the Glyph
 picker write `control`".
 
-- **`JunctionView.glyph` is presentation** — one of six drawings, dropped on
+- **`JunctionView.glyph` is presentation** — one of five drawings, dropped on
   export, chosen because it reads well on the page. `roundabout` and `gore` carry
-  no control meaning at all, and `t_junction` names a *shape*, not a rule — a
-  shape the arms now draw on their own, which is why it is on its way out
-  (`specs/junction_glyphs_spec.md` Phase 2).
+  no control meaning at all; there is no `t_junction` at all (below).
 - **`Junction.control` is semantics** — two values, orthogonal to how the
   intersection is drawn. A signalised junction drawn as a plain pad is a
   legitimate schematic choice; a roundabout can be signalised.
@@ -103,8 +101,8 @@ has **its own row**, and the traffic between them runs **one way only**.
 the whole rule: `generic` + `signal` → `signalized_cross`; `signalized_cross` +
 `unsignalized` → `generic`; **anything else is unchanged**. `generic` is what
 `setNodeKind` mints, so it is the glyph *nobody chose*, while `roundabout`,
-`gore`, `priority_cross` and `t_junction` are each a human's deliberate pick. One
-action, two writes, one undo step.
+`gore` and `priority_cross` are each a human's deliberate pick. One action, two
+writes, one undo step.
 
 **Nothing in `setJunctionView` has a twin of this.** Presentation may follow
 semantics; semantics never follows presentation. Picking a glyph — Signals
@@ -217,16 +215,19 @@ spelling, and the pair was a standing reading hazard. It still exists in
 `network/mod.rs`, where it is the *file format's* vocabulary and the hyphen is
 simply correct. A grep, not a runtime assertion.
 
-## Cut, and one known gap
+## The sixth glyph, and why there are five
 
-Nothing below is scheduled work. **The turn movements are cut** — model relation,
+`t_junction` drew a plain pad exactly like `generic`, deferred twice (ramps OQ-7,
+junction semantics OQ-5) until `specs/junction_glyphs_spec.md` **removed the
+variant**: once every pad follows its arms, a three-arm node draws as a T with
+nobody picking anything. That cost the project's **first migration** — removing a
+variant breaks a *newer* build reading an *older* file, so `TJunction` stays
+load-only in `layout.rs` and `persist.rs:migrate` folds it to `Generic`, with no
+`SCHEMA_VERSION` move (`rules/persistence.md`).
+
+## Cut
+
+Nothing here is scheduled work. **The turn movements are cut** — model relation,
 drawn arcs, panel list and Derive, all four. **Signal plans are cut entirely**,
 Phase 1 included: a plan is a table, its only drawable form is a stage diagram,
 and this project prints network figures.
-
-**The gap that was here is closed, and by the pass it named.** `t_junction` drew a
-plain pad, like `generic` (ramps OQ-7, declined as junction semantics OQ-5), on the
-reasoning that the glyph vocabulary is presentation and wants a rendering pass.
-That pass is `specs/junction_glyphs_spec.md`: its Phase 1 made **every** pad follow
-its arms, so a three-arm node draws as a T with nobody picking anything, and Phase 2
-retires the variant that promised to.

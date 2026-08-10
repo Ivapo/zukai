@@ -744,7 +744,16 @@ directions of the two links it already found.
   first commit. The last sentence above was the load-bearing one — a centreline
   *is* a painted line, so it is paint a human places rather than a property a
   road carries. Nothing infers it, which is what a field would have been for.
-- **OQ-7 — left open by decision (Phase 4), for the junction-semantics spec.**
+- **OQ-7 — RESOLVED 2026-08-10 by `specs/junction_glyphs_spec.md`, and not the
+  way this question framed it.** The proposal below was taken (leave it; name the
+  thing precisely), and it was handed on twice more — junction semantics OQ-5
+  re-deferred it explicitly. The pass that finally took it did **not** give
+  `t_junction` the branch this question imagined. It made **every** pad follow its
+  arms, so a three-arm node draws as a T with nobody picking anything (Phase 1),
+  and then **removed the variant** as a control that could no longer change a pixel
+  (Phase 2). Worth reading as a case where three specs' worth of deferral was
+  right: the branch was never the answer, and building it in Phase 4 here would
+  have shipped work the correct fix deletes. The original text follows.
   Phase 4 took the proposal below: this spec's glyph work was the gore, and
   `t_junction` still falls through to the plain pad. Nothing in Phase 4 made it
   worse, and the branch it would need is the same one the gore now sits beside.

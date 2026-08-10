@@ -13,9 +13,10 @@ sources:
   - src-tauri/src/recent.rs
 covers: >
   the .zkai save/open path end to end — trigger, dialog and IPC, Rust commands,
-  reducer, the normalize-at-one-boundary rule, the close guard — plus the
-  JS-built native menu and how recents are stored and pruned
-max_lines: 110
+  the version probe and the one migration arm, reducer, the
+  normalize-at-one-boundary rule, the close guard — plus the JS-built native menu
+  and how recents are stored and pruned
+max_lines: 122
 generated: 2026-08-08
 ---
 
@@ -42,7 +43,18 @@ in Rust (`std::fs` + `serde_yaml`) so the on-disk shape has one owner. No
 `load_document` **probes the version before deserializing**: a minimal
 `VersionProbe` reads `schema_version` alone, so a *newer* file is refused with a
 readable message rather than a serde error from inside `Document`. Older files
-fall straight through — no migration arm is needed (`rules/document-model.md`).
+fall straight through to `migrate`.
+
+**There is one migration arm, and the probe is exactly why it must exist.**
+`migrate` folds the retired `t_junction` glyph to `generic` (`rules/junctions.md`).
+A removed enum *variant* is the one change the probe cannot turn into a readable
+message: such a file declares an older-or-equal version, passes, and then fails
+inside serde on the whole document. So the variant stays in the Rust enum as
+load-only and is normalized here instead, with **no `SCHEMA_VERSION` move** — the
+arm is what saves the old file. A removed *field* needs no arm at all
+(`rules/document-model.md`). Both halves are pinned by a hand-authored fixture
+under `src-tauri/tests/fixtures/zkai/`, committed because this build cannot write
+one.
 
 ## Rules that are easy to break
 

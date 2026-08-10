@@ -26,5 +26,5 @@
   Lane arrows become how a junction's turns are shown — painted on the approach lanes, seeded from an imported network, and replacing the dashed arcs across the pad. Includes the two things that have to exist first: a marking you can drag, and a marking that measures from the junction end.
 - **[link-length](link_length_spec.md)** — `zk-012` · accepted · done
   A link states its real length as a label on the drawing — an annotation the human owns, decoupled from the drawn length, and filled on import from the one thing import throws away.
-- **[junction-glyphs](junction_glyphs_spec.md)** — `zk-013` · accepted · partial
+- **[junction-glyphs](junction_glyphs_spec.md)** — `zk-013` · accepted · done
   The junction pad follows the roads that meet at it, instead of being a disc — which is what makes a three-arm node read as a T, and what retires the glyph that promised to.

@@ -12,7 +12,7 @@ covers: >
   the three parts of a Document and what separates them, the invariants, the
   Rust-TypeScript mirror discipline and its one instructive exception, and what
   does and does not move SCHEMA_VERSION
-max_lines: 130
+max_lines: 135
 generated: 2026-08-09
 ---
 
@@ -49,7 +49,7 @@ of the five names nothing in a `Document`:** `MovementId` is read by the
   are not the road's. The module rustdoc in `graph.rs` and `layout.rs` still
   describes an export step; that writer was cut in `979a60d`.
 - A **junction is a plain graph node** (`type: junction`) plus a `Junction`
-  record and a `JunctionView { glyph, rotation, scale }`, keyed by `node_id` — a
+  record and a `JunctionView { glyph, scale }`, keyed by `node_id` — a
   record *about* a node rather than an entity beside it, which is why
   `findJunction` is the one finder in `document.ts` not reading `.id`. The glyph
   is a render hint and the arms are the incident links, so there is no composite
@@ -98,7 +98,11 @@ variant that took the version to **2**.
 **A *removed* field costs no bump either** — the reading-direction mirror of a new
 one. `a_zkai_saved_with_movements_still_loads_and_writes_none` asserts both
 halves: serde ignores the stale `movements:` key on the way in, and it is gone on
-the way back out.
+the way back out. `JunctionView.rotation` left the same way. **A removed
+*variant* is the expensive one, and it wants an arm rather than a bump**: an older
+file breaks a *newer* build, which no version guards, since it declares an
+older-or-equal version and so passes the probe. `JunctionGlyph::TJunction` stays
+load-only and `persist.rs:migrate` normalizes it away (`rules/persistence.md`).
 
 Three things move together on a bump, and the third is easy to miss:
 
@@ -107,8 +111,9 @@ Three things move together on a bump, and the third is easy to miss:
   *above* the constant. Left behind it the test silently stops testing anything —
   the probe passes and, since every `Document` field but `schema_version` and
   `metadata` is defaulted, so does the full parse, so `expect_err` fails.
-- A **migration arm is only needed if the bump breaks an older file.** Neither
-  bump so far does, and `still_loads_a_version_1_file` pins it.
+- A **migration arm is not a bump's companion.** Neither bump so far broke an
+  older file (`still_loads_a_version_1_file` pins it); the one arm that exists
+  came from a *removal*, at no bump at all.
 
 Pair every defaulted field with a `skip_serializing_if` so a document that never
 set it saves byte-for-byte as before — `Vec::is_empty` for `bends` and for

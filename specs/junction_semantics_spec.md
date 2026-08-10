@@ -443,9 +443,15 @@ the same.
   and a lane-pair matrix at a 4-arm junction is a large editor for something the
   schematic does not show. Likely wanted by the export spec rather than by this
   one. (design-call; deferred.)
-- **OQ-5** — **`t_junction`'s plain pad** (ramps OQ-7, inherited). §2.8 declines
-  it here and says why. It wants a rendering pass, not this one. (design-call;
-  re-deferred, explicitly.)
+- **OQ-5 — RESOLVED 2026-08-10 by `specs/junction_glyphs_spec.md`.**
+  ~~`t_junction`'s plain pad~~ (ramps OQ-7, inherited). §2.8's declination was
+  right, and the rendering pass it named came: that spec's Phase 1 made **every**
+  pad follow its arms, so a three-arm node draws as a T without anyone picking
+  anything, and Phase 2 then **removed the variant** rather than drawing it — a
+  glyph naming a fact the arms already carry is a control that cannot change a
+  pixel. The reasoning recorded here ("the glyph vocabulary is presentation and
+  belongs to a rendering pass, not to the semantic one") is what that spec cites
+  as its own warrant. (was: design-call, re-deferred explicitly.)
 - **OQ-6 RESOLVED — `M_<from>_<to>`** (round 1). `nextId` (`document.ts:129-138`)
   parses a **numeric** suffix, so it could not produce `graph.rs:145`'s documented
   example `M_L1_L3` anyway; and the `M` prefix is already what markings use

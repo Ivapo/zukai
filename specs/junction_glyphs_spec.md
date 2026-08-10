@@ -16,7 +16,7 @@ phases:
     by: null
   - name: "Phase 2 — Retire the glyph the arms made redundant"
     reviewed: 2026-08-10
-    shipped: null
+    shipped: 2026-08-10
     cut: null
     by: null
 
@@ -416,8 +416,15 @@ and as the wedge and the gore both were (`zk-005` §2.7).
 
 ## 3. Open questions
 
-- **OQ-1** — **`JunctionView.rotation` is dead, and this makes it permanently
-  dead. Remove it?** It is declared in **both** mirrors
+- **OQ-1 — RESOLVED in Phase 2: removed, folded in as proposed.** ~~Remove
+  `JunctionView.rotation`?~~ Taken by the user on the Phase 2 plan. It went in the
+  same pass, and the inventory below was exact — the four `tsc`-caught
+  constructions and the one `cargo`-caught read were the whole of it, each found
+  by its own compiler rather than by grep. The fixture that tests the migration
+  carries a `rotation:` key too, so **one file pins both directions of §2.4's
+  table**: a removed *variant* needs the arm, a removed *field* needs nothing.
+  *(was: design call. The original text follows.)* It is declared in **both**
+  mirrors
   (`src/model/types.ts:JunctionView`, `src-tauri/src/model/layout.rs`) and is
   **read by nothing that draws** — there is no Inspector control for it. Five
   test sites touch it, all Phase 2 work if this is taken: **four** construct it
@@ -436,12 +443,17 @@ and as the wedge and the gore both were (`zk-005` §2.7).
   *(design call; proposed: leave Phase 1 alone and fold it into Phase 2, which is
   already in both mirrors — or open a Phase 3 if review would rather it stood on
   its own.)*
-- **OQ-2** — **Does dropping a variant bump `SCHEMA_VERSION` to 3?** §2.4 argues
-  the bump buys only a label, since the migration is what actually saves the old
-  file and a v2 document is a valid v3 one. The counter-argument is that the
-  format's *vocabulary* genuinely narrowed, and a version is how a reader is told.
-  *(design call; proposed: no bump, and record the reasoning where the last bump
-  is recorded.)*
+- **OQ-2 — RESOLVED in Phase 2: no bump, as proposed.** ~~Does dropping a variant
+  bump `SCHEMA_VERSION` to 3?~~ Taken by the user on the Phase 2 plan. The constant
+  stays **2**: the migration arm is what saves the old file and a v2 document is a
+  valid v2 document, so the bump would buy only a label while moving six sites.
+  The counter-argument — the format's *vocabulary* genuinely narrowed, and a
+  version is how a reader is told — is outweighed rather than refuted. The
+  reasoning is recorded where the last bump is (`rules/document-model.md`), and the
+  part worth having is that it is **pinned rather than merely written down**: an
+  `assert_eq!(SCHEMA_VERSION, 2)` sits inside the migration test, on
+  `a_zkai_saved_with_movements_still_loads_and_writes_none`'s model.
+  *(was: design call.)*
 - **OQ-3 — RESOLVED during review: leave the median open, and Phase 1 draws it.**
   The draft asked what happens between two arms that nearly coincide, and the
   premise was geometrically wrong: two arms 5° apart have axes only `r · sin 5°`
@@ -669,3 +681,50 @@ in round 0 if any is.*
   `rules/persistence.md`, whose "no migration arm is needed" this phase falsifies
   — it is the first one; `zk-005` OQ-7 and `zk-008` OQ-5 both record that this
   landed and how; the project-memory roadmap.
+
+#### As built (2026-08-10)
+
+Shipped as designed, with **both open questions taken as proposed** (OQ-1 fold the
+`rotation` removal in, OQ-2 no bump). 424 vitest (up 1), `cargo test` 69 (up 1) —
+one new test each, exactly the predicted moves, and the `cargo` count asserted
+rather than assumed because this phase edits a file `import.rs` reads with
+`include_str!`. Four things worth carrying forward:
+
+- **The commit order was decided by a failing test, not by the plan.** The plan
+  put the glyph retirement first and the `rotation` removal second; the migration
+  test asserts the re-saved file contains **neither** spelling, so it was red until
+  the field was gone. Reordering was the fix — a phase's commits each have to be
+  green on their own, and the narrative order is the thing that gives way. Worth
+  knowing before the next phase that folds an OQ into a headline change.
+- **A hand-authored fixture is a different kind of object from a copied one**, and
+  the README beside it exists to say so. `tests/fixtures/network/` holds bytes
+  another project produced; this one holds bytes *this* project can no longer
+  produce, so the standing instruction is inverted: never regenerate it by saving
+  from the app. Doing that yields a valid document that tests nothing, and it
+  passes quietly, because what it would then assert about the output is already
+  what the test expects.
+- **Three mutations, each failing a distinct test**, since a green first run is not
+  evidence: dropping the `migrate` call (the glyph assertion), restoring `rotation`
+  to the Rust struct with its one construction site patched so it compiles (the
+  `rotation` assertion — the unpatched version fails at compile time instead, which
+  is the weaker guard and not the one being checked), and putting `t_junction` back
+  in the TypeScript union (`error TS2578: Unused '@ts-expect-error' directive`,
+  which is the whole reason that line is written as a directive rather than left to
+  a compile error).
+- **Two rules were at their line cap and the caps moved**, which is a decision
+  rather than a slip. `rules/junctions.md` absorbed the change by trading prose it
+  had just falsified and landed at exactly 215. `rules/persistence.md` (110) and
+  `rules/document-model.md` (130) had **no falsified prose of equal length to
+  trade** — they gained a mechanism neither had, the first migration arm — so they
+  went to 122 and 135. Compressing to fit would have starved the one genuinely new
+  fact in the phase.
+
+The dev pass was split, because this shell has no accessibility permission and
+System Events reports the Tauri window as having none: the drawing was checked by
+rendering the fixture's document through the real export path **twice**, once with
+the retired glyph (via a cast) and once with `generic`, and asserting the two SVGs
+are byte-identical — which is the "unchanged by construction" claim measured
+rather than eyeballed. The picker was checked against the built bundle, which
+carries the five remaining labels and no `T-junction`. What no test covers, and did
+not need to, is the file dialog itself; `load_document` → `save_document` on a real
+file is what the Rust test walks.

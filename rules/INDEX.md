@@ -4,18 +4,18 @@
 
 - **[diagram-export](diagram-export.md)** — generated 2026-08-09 · 11 sources · 272/275 lines
   the SVG/PNG export path: the one render tree and its two consumers, which paint travels inside the file, the pure/DOM/Tauri layers, how bounds and the margin are derived, and the self-contained-file constraints that fail silently
-- **[document-model](document-model.md)** — generated 2026-08-09 · 7 sources · 130/130 lines
+- **[document-model](document-model.md)** — generated 2026-08-09 · 7 sources · 135/135 lines
   the three parts of a Document and what separates them, the invariants, the Rust-TypeScript mirror discipline and its one instructive exception, and what does and does not move SCHEMA_VERSION
 - **[history](history.md)** — generated 2026-08-08 · 5 sources · 160/160 lines
   the undo/redo snapshot stack in the reducer: the document-identity signal, drag coalescing, the trap where an action deleting nothing must return the same doc, what resets history, and the three trigger surfaces
-- **[junctions](junctions.md)** — generated 2026-08-08 · 8 sources · 214/215 lines
+- **[junctions](junctions.md)** — generated 2026-08-08 · 8 sources · 215/215 lines
   what a junction means rather than what it looks like — control and rule, which layer owns each part, the glyph-versus-control split and its nudge, the two actions, and the one turn vocabulary left in the model
 - **[marking-kinds](marking-kinds.md)** — generated 2026-08-10 · 7 sources · 246/250 lines
   what each of the seven marking kinds paints: the marking layer and its order, the per-kind shapes and their chrome, the turn arrow with its staggered forks and its second head, the lane line and the boundary it replaces, and text and the font it cost
 - **[network-yaml](network-yaml.md)** — generated 2026-08-10 · 6 sources · 313/315 lines
   reading Assimilator's network.yaml: the serde mirror and what earns a place in it, the header and version probe, the scale and the fitted factor that places nodes, the two lane-numbering conventions, what import throws away, the one number it keeps off the polyline, and the turn arrows it mints, and why there is no writer
-- **[persistence](persistence.md)** — generated 2026-08-08 · 10 sources · 110/110 lines
-  the .zkai save/open path end to end — trigger, dialog and IPC, Rust commands, reducer, the normalize-at-one-boundary rule, the close guard — plus the JS-built native menu and how recents are stored and pruned
+- **[persistence](persistence.md)** — generated 2026-08-08 · 10 sources · 121/122 lines
+  the .zkai save/open path end to end — trigger, dialog and IPC, Rust commands, the version probe and the one migration arm, reducer, the normalize-at-one-boundary rule, the close guard — plus the JS-built native menu and how recents are stored and pruned
 - **[road-joints](road-joints.md)** — generated 2026-08-10 · 6 sources · 243/245 lines
   what is drawn where links meet a node: the arms and the two radii, the rim three things measure to, the pad that follows the arms inside it, taper wedges at a through joint, and the gore between two separating arms — its triangle, its chevrons, and the one derivation that faces them at the driver
 - **[road-markings](road-markings.md)** — generated 2026-08-09 · 9 sources · 277/280 lines
