@@ -35,7 +35,7 @@ phases:
     cut: null
     by: null
   - name: "Phase 6 — Three branches that read as three turns"
-    reviewed: null
+    reviewed: 2026-08-10
     shipped: null
     cut: null
     by: null
@@ -676,34 +676,59 @@ pass has caught this. **Real approaches routinely serve left + through + right**
 so the first real import is the failure, and it fails as a *picture*: a star
 states nothing about the junction.
 
-#### 2.12.2 The rule: a branch forks where its bearing says, not where every other branch does
+#### 2.12.2 The rule: a branch forks where its direction says, not where every other branch does
 
 **Separate the heads along the road, which is the axis with room.** The lane is
 one band wide and the arrow is `TURN_ARROW_LENGTH` long, so the fix moves each
-branch's fork upstream in proportion to how hard it turns: `through` (bearing 0)
-keeps today's fork and runs to the arrow's end, and the harder a branch turns the
-earlier it leaves the shaft. This is what painted road arrows do, and it needs no
-new field, no new constant in the model, and no `SCHEMA_VERSION` move.
+branch's fork upstream: `through` keeps today's fork and runs to the arrow's end,
+and the other directions leave the shaft earlier. This is what painted road
+arrows do, and it needs no new field, no new constant in the model, and no
+`SCHEMA_VERSION` move.
 
-**The fork offset is a function of the branch's own bearing, not of how many
-branches there are.** A count-keyed rule makes a two-branch arrow and a
-three-branch arrow disagree about where a `right` head sits, so an arrow would
-visibly rearrange itself when an unrelated direction is toggled. Keying on
-bearing costs one thing and it is stated rather than hidden: **every existing
-multi-branch arrow changes shape**, so Phase 5's "every existing arrow test still
-passes untouched" does not transfer, and the gate below says which tests move
-instead.
+**The offset is a per-direction table, sibling to `BRANCH_BEARING` — not a
+formula on the bearing.** A formula was this section's first draft and review
+round 1 measured it failing its own gate: "the harder a branch turns, the
+earlier it forks" gives the two slights (equal hardness, ±30°) the **same**
+fork, and two ±30° heads sharing a fork intersect at *every* fork position on
+the shipped head proportions. So each of the **six** directions carries its own
+offset — which also gives `u_turn` a key, the one direction `BRANCH_BEARING`
+deliberately has no entry for. The table's shape is hardness-ordered with every
+**mirror pair split**; which of a pair forks earlier, and the exact values, are
+decided in the app, the way every marking constant in this spec has been.
+(Splitting *every* pair is one constraint stronger than the geometry demands —
+round 2 verified `left`/`right` are across-disjoint at any shared fork, so only
+the slights *need* it. The uniform rule is kept for tidiness, and the tuning
+pass has that freedom if the budget ever pinches.) Three
+constraints bound them: `through` is `0`; every offset is `≥ 0` (branches move
+upstream only); and the u-turn's is at most `TURN_ARROW_LENGTH - 2 * reach`
+(≈ 7.44 units on a default lane), the point where the hook's head leaves the
+±`TURN_ARROW_LENGTH / 2` footprint that
+`holds the shaft still, and inside the footprint, whatever the directions`
+(`geometry.test.ts`) pins. That budget is comfortable: pairs separate at ~1 unit
+of fork difference (measured, round 1), and at most three branches need
+separating inside ~7 units.
+
+**Per-direction is what makes the arrow set-invariant.** A count-keyed rule
+makes a two-branch arrow and a three-branch arrow disagree about where a `right`
+head sits, so an arrow would visibly rearrange itself when an unrelated
+direction is toggled. Keying each direction's offset to the direction alone
+costs one thing and it is stated rather than hidden: **every arrow except a lone
+`through` changes shape** — a lone `left` forks where `left` always forks. So
+Phase 5's "every existing arrow test still passes untouched" does not transfer,
+and the gate below says which tests move instead.
 
 **Two things this must not touch**, both load-bearing and both already tested:
 
 - **Containment.** Every point of every branch stays within `ARROW_REACH * width`
-  of the band centre (Phase 3's rule, and what `ARROW_REACH` *means*). Staggering
-  moves forks *along* the road, so the across-band extent is unchanged by
-  construction — but the u-turn hook's radius is derived from `reach` and its
-  fork, so it is the one branch where that is not obvious.
+  of the band centre (Phase 3's rule, and what `ARROW_REACH` *means*).
+  Staggering moves forks *along* the road, so the across-band extent is
+  unchanged by construction — the hook included, whose radius is
+  `(reach - headHalf) / 2` and fork-independent; its fork moves only its
+  *position* along the road, which is the footprint constraint above, not the
+  across-band one.
 - **The frame flip.** `back` branches are built by negating both terms
-  (§2.11), which carries any bearing-keyed fork offset into the oncoming frame
-  for free **provided the offset is applied inside the frame** rather than added
+  (§2.11), which carries the per-direction offsets into the oncoming frame
+  for free **provided each is applied inside the frame** rather than added
   to the returned point. Applied outside, a rear branch staggers the wrong way
   along the road and a two-way left-turn lane draws asymmetrically — the same
   silent-mirror class §2.11 and `lane_arrows_spec.md` §2.5.1 both record.
@@ -723,15 +748,22 @@ spends the length the arrow already has.
   turn is worse than one that draws it badly — the arrow would state something
   false about the junction rather than something crowded.
 
-#### 2.12.4 What six branches do, and why the gate stops short of them
+#### 2.12.4 Where the gate stops, and why
 
-Six branches cannot be made disjoint inside one band: six heads each
-`ARROW_HEAD_HALF * 2 * width` wide do not fit around a circle of radius
-`ARROW_REACH * width`. Phase 3 already said no road carries six directions in a
-lane, and that remains true. So the rule this phase commits to is **disjoint up
-to three branches, contained at all six** — three being what a real approach
-carries, and containment being what stops a hand-edited document painting over
-its neighbour. Whether four and five are reachable is **OQ-7**.
+The rule this phase commits to is **disjoint up to three branches, contained at
+all six** — three being what a real approach carries (Phase 3's "no road
+carries six directions in a lane" still holds), and containment being what
+stops a hand-edited document painting over its neighbour.
+
+**No impossibility is claimed beyond three.** This section's first draft argued
+six heads provably cannot fit around the reach circle; review round 1
+re-derived the arithmetic and it was wrong (six head-widths ≈ 2.04 bands
+against a circumference ≈ 2.64 — they fit by that measure), and the shared-fork
+premise it rested on is exactly what §2.12.2 abolishes. What is actually
+measured is narrower: a **mirror pair sharing a fork** always collides, which
+is what forced the per-direction split. Whether four, five or six staggered
+branches come out disjoint is untested arithmetic, not a proven wall — **OQ-7**
+holds it, and the gate deliberately asserts nothing either way at those sizes.
 
 ## 3. Open questions
 
@@ -794,16 +826,23 @@ its neighbour. Whether four and five are reachable is **OQ-7**.
   re-dragging the moment a node moves. `Marking.anchor` is the fix, and it takes
   neither option here: metres stay absolute (§2.2 holds) and the **end** they are
   measured from becomes selectable.
-- **OQ-7** — **Are four and five branches reachable?** §2.12.4 commits Phase 6 to
-  heads that are disjoint up to **three** branches and contained at all six, on
-  the grounds that three is what a real approach carries and six provably does not
-  fit. Four and five are the untested middle: a staggered fork may separate them
-  for free, or may not, and the answer is arithmetic rather than judgement — it
-  falls out of the head width against the reach once the stagger's constant is
-  chosen. Deliberately **not** a gate clause, because a phase that must make five
-  branches legible is a different and much larger geometry problem than one that
-  must stop a real approach reading as a star. (answerable-from-code, after Phase
-  6 lands; recorded so the gate's silence is visible rather than an omission.)
+- **OQ-7** — **Are four, five or six branches reachable?** §2.12.4 commits Phase
+  6 to heads that are disjoint up to **three** branches and contained at all six,
+  on the grounds that three is what a real approach carries. Everything above
+  three is the untested region — including six, whose first-draft impossibility
+  argument did not survive review (round 1 re-derived it; see §2.12.4). The
+  staggered forks may separate four or more for free, or may not, and the answer
+  is arithmetic rather than judgement: it falls out of the head proportions
+  against the offset table once its values are chosen in the app. Deliberately
+  **not** a gate clause, because a phase that must make five branches legible is
+  a different and much larger geometry problem than one that must stop a real
+  approach reading as a star. **Round 2 then observed the question answers
+  itself**: every pair of directions is one of the 41 subsets, and per-direction
+  offsets make head geometry set-invariant, so a gate-passing implementation has
+  *all* pairs disjoint — which entails every size disjoint. So this OQ is
+  expected to close on the day the suite goes green, and stays open only until
+  someone reads the green run and says so. (answerable-from-code, after Phase 6
+  lands; recorded so the gate's silence is visible rather than an omission.)
 
 ## 4. Implementation phases
 
@@ -1220,26 +1259,27 @@ gate) in three rounds on 2026-07-28 and **is cleared to implement**.
 ### Phase 6 — Three branches that read as three turns  (added 2026-08-10)
 
 Added by reopening (`/Users/ivapo/.claude/skills/spec-driven-dev/spec-authoring.md §6.1`). Phases 1–5 are untouched and this
-depends on Phase 3 and Phase 5. **It has not passed its scoped review round
-(§7's phase-level gate) and must not be planned or implemented until it has.**
+depends on Phase 3 and Phase 5. It passed its own scoped review round (§7's
+phase-level gate) in two rounds on 2026-08-10 and **is cleared to implement**.
 
 - **Scope:** §2.12 — an arrow's branches fork at staggered points so their heads
   do not collide. **TypeScript only** — no model change, no Rust, no
   `SCHEMA_VERSION` move, no new action, no panel control, and
   `TURN_ARROW_LENGTH` does not move (§2.12.2, which is what keeps `import.rs`
   and its two hand-mirror tests out of this phase).
-  - `geometry.ts` — `markingArrow`'s single `fork` becomes a per-branch offset
-    keyed on the branch's own bearing: `through` keeps today's value and the
-    harder a branch turns, the further upstream it leaves the shaft. One new
-    module constant carries the stagger, in the manner of `ARROW_REACH` and
-    beside it. The offset is applied **inside** the frame, so §2.11's flip
-    carries it into the oncoming driver's frame with no second expression —
-    the one line where getting it wrong draws a plausible, asymmetric two-way
-    left-turn lane.
+  - `geometry.ts` — `markingArrow`'s single `fork` becomes a per-direction
+    offset from a **table sibling to `BRANCH_BEARING`**, all six directions
+    keyed (`u_turn` included — it has no bearing to key on): `through` is `0`
+    and keeps today's fork, every mirror pair is split, and the values are
+    settled in the app within §2.12.2's three constraints. Each offset is
+    applied **inside** the frame, so §2.11's flip carries it into the oncoming
+    driver's frame with no second expression — the one line where getting it
+    wrong draws a plausible, asymmetric two-way left-turn lane.
   - `stub` and `hook` keep their bodies. They already take the frame as a
     parameter (Phase 5's dividend), so a per-branch fork is an argument rather
-    than an edit to either — and `hook`'s radius is derived from `reach` and its
-    fork, which is the one branch where containment does not hold by inspection.
+    than an edit to either. The hook's radius is fork-independent
+    (`(reach - headHalf) / 2`), so its fork moves only its position along the
+    road — the footprint constraint §2.12.2 caps.
   - **Nothing else has a call site.** `Diagram.tsx` maps over
     `TurnArrow.branches` and does not know where a branch started, and the
     Inspector names directions rather than geometry.
@@ -1254,9 +1294,17 @@ depends on Phase 3 and Phase 5. **It has not passed its scoped review round
     same test so a regression reads as the case a real approach carries.
   - **Containment still holds for all 63 subsets**, including six — Phase 3's
     rule, restated here because the stagger moves forks along a road whose ends
-    are not what `ARROW_REACH` bounds, and because `hook` derives its radius from
-    the fork it is given (§2.12.2). Sizes 4 and 5 are asserted **contained but
-    not disjoint**, which is OQ-7 stated as a test rather than left as silence.
+    are not what `ARROW_REACH` bounds (§2.12.2). Sizes 4–6 are asserted
+    **contained only**: no disjointness assertion is made at those sizes in
+    either direction, which is OQ-7's untested region left visibly untested
+    rather than silently — a stagger that happens to separate four heads must
+    not fail the suite.
+  - **`holds the shaft still, and inside the footprint, whatever the directions`
+    passes unedited.** It pins the shaft byte-equal across direction sets and
+    every point inside ±`TURN_ARROW_LENGTH / 2`, which is what §2.12.2's u-turn
+    cap answers to; if it needs editing, the stagger has left the arrow's own
+    footprint and `ARROW_SETBACK_METRES`'s "one arrow-length clear" claim in
+    `import.rs` is no longer describing this arrow.
   - **Phase 5's two frame-flip assertions pass unedited**: a `back: ["left"]`
     head on the opposite side of the band, and a two-way left-turn lane symmetric
     under a 180° rotation about the band centre. If either needs editing, the
@@ -1265,13 +1313,16 @@ depends on Phase 3 and Phase 5. **It has not passed its scoped review round
     same `back` — since a staggered fork is the first thing that could make the
     two ends disagree along the road while still passing both.
   - **The tests that legitimately change are named rather than discovered**:
-    every existing assertion on a *multi-branch* arrow's coordinates. Phase 5's
-    "every existing arrow test passes untouched" does not transfer (§2.12.2) —
-    the shape is deliberately different — so the gate is that single-branch
-    arrows are byte-identical and multi-branch ones move, which is the assertion
-    that catches a stagger applied to a lone `through`.
+    every existing assertion on the coordinates of a branch that is not
+    `through`. Phase 5's "every existing arrow test passes untouched" does not
+    transfer (§2.12.2) — the shape is deliberately different, and **a lone
+    `left` moves too**, since per-direction keying means a branch forks where
+    its direction always forks. What must hold instead: a lone **`through`**
+    arrow is byte-identical (its offset is `0`), and every `through` branch in
+    any set keeps today's coordinates — the assertion that catches a stagger
+    applied to the one direction whose offset the table pins.
   - **One mutation, run and recorded**: key the fork offset on the branch
-    *count* instead of the bearing (§2.12.2's rejected rule). It passes the
+    *count* instead of the direction (§2.12.2's rejected rule). It passes the
     disjointness test and fails only an assertion that a `right` head sits in the
     same place whether or not `left` is also painted — so if fewer than one test
     catches it, the gate is short that assertion.
@@ -1280,9 +1331,13 @@ depends on Phase 3 and Phase 5. **It has not passed its scoped review round
     arrows still read. The second half is the one that matters — imported paint
     is what §2.12.1 says made this a defect rather than a curiosity.
 - **Docs touched:** `rules/marking-kinds.md`, whose turn-arrow section states one
-  fork for all branches; `TURN_ARROW_LENGTH`'s doc comment (`geometry.ts`), whose
-  "its footprint along the road does not depend on which directions are chosen"
-  Phase 5 already dented and this one settles; and the project-memory roadmap.
-  **Not** touched: `rules/road-markings.md`, which is the marking as an object a
-  human owns rather than what it paints, and `import.rs`, whose setback derives
-  from a constant that does not move.
+  fork for all branches; **§2.7 of this spec**, whose "every branch leaving the
+  shaft's far end" becomes false the moment this ships and gains its dated
+  `CORRECTED` pointer to §2.12 **at ship time, not before** — until then the
+  sentence still describes the paint; and the project-memory roadmap.
+  **Not** touched: `TURN_ARROW_LENGTH`'s doc comment (`geometry.ts`) — its
+  shipped claim, "the arrow's whole footprint at every direction set", *survives*
+  the stagger, which is exactly what the footprint gate clause proves;
+  `rules/road-markings.md`, which is the marking as an object a human owns
+  rather than what it paints; and `import.rs`, whose setback derives from a
+  constant that does not move.
