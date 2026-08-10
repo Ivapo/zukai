@@ -1536,6 +1536,46 @@ describe("markingArrow", () => {
     return Math.abs((((deg - expected) % 360) + 540) % 360 - 180);
   }
 
+  /**
+   * How far apart two heads are along the axis that separates them best —
+   * **positive when they are disjoint**, negative by the depth of the overlap
+   * when they are not.
+   *
+   * A separating-axis test over the six edge normals, which is exact for convex
+   * shapes and wants no library. This is what "reads as three turns rather than
+   * one star" is made of, measurably: the alternative is eyeballing a rendered
+   * SVG, which is how the star shipped in the first place (markings §2.12).
+   */
+  function headGap(a: [Vec2, Vec2, Vec2], b: [Vec2, Vec2, Vec2]): number {
+    let best = -Infinity;
+    for (const tri of [a, b]) {
+      for (let i = 0; i < 3; i++) {
+        const p = tri[i];
+        const q = tri[(i + 1) % 3];
+        const len = Math.hypot(q.x - p.x, q.y - p.y);
+        const ux = -(q.y - p.y) / len;
+        const uy = (q.x - p.x) / len;
+        const pa = a.map((v) => v.x * ux + v.y * uy);
+        const pb = b.map((v) => v.x * ux + v.y * uy);
+        const gap = Math.max(
+          Math.min(...pa) - Math.max(...pb),
+          Math.min(...pb) - Math.max(...pa),
+        );
+        if (gap > best) best = gap;
+      }
+    }
+    return best;
+  }
+
+  /** Every non-empty direction set — all 63 of them, in `ALL`'s own order. */
+  function subsets(): TurnDirection[][] {
+    const out: TurnDirection[][] = [];
+    for (let mask = 1; mask < 1 << ALL.length; mask++) {
+      out.push(ALL.filter((_, i) => mask & (1 << i)));
+    }
+    return out;
+  }
+
   it("draws a lone through arrow symmetric about its lane's centre", () => {
     const a = markingArrow(anchor(0, LANE_PX), ["through"])!;
     const [branch] = a.branches;
@@ -1555,14 +1595,29 @@ describe("markingArrow", () => {
 
   /**
    * A shared through/right lane is **one arrow with two branches**, not two
-   * arrows — which is the whole of why a branch leaves the shaft's far end rather
-   * than carrying a shaft of its own.
+   * arrows — which is the whole of why a branch leaves the shaft rather than
+   * carrying a shaft of its own.
+   *
+   * Each leaves it at the point its own direction picks (`BRANCH_STAGGER`), so
+   * this is "on the shaft, between its ends" rather than Phase 3's "at its far
+   * end": a `through` branch still forks at the end, and every other direction
+   * forks upstream of it. Both halves are asserted, since a stagger that ran
+   * *past* the tail would still be collinear.
    */
   it("gives a multi-direction arrow one shaft", () => {
     const a = markingArrow(anchor(0, LANE_PX), ["through", "right"])!;
+    const [tail, end] = a.shaft;
 
     expect(a.branches).toHaveLength(2);
-    for (const b of a.branches) expect(b.stem[0]).toEqual(a.shaft[1]);
+    // `through` keeps the shaft's own end; `right` leaves it earlier.
+    expect(a.branches[0].stem[0]).toEqual(end);
+    expect(a.branches[1].stem[0]).not.toEqual(end);
+    for (const b of a.branches) {
+      const fork = b.stem[0];
+      expect(fork.y).toBeCloseTo(end.y);
+      expect(fork.x).toBeLessThanOrEqual(end.x + 1e-9);
+      expect(fork.x).toBeGreaterThanOrEqual(tail.x - 1e-9);
+    }
   });
 
   it("points each direction's head at its tabulated bearing", () => {
@@ -1619,11 +1674,18 @@ describe("markingArrow", () => {
   it("hooks the u-turn back at the driver, on the left of the shaft", () => {
     const a = markingArrow(anchor(0, LANE_PX), ["u_turn"])!;
     const [hook] = a.branches;
-    const fork = a.shaft[1];
+    // Its **own** fork, not the shaft's end — a u-turn is the hardest turn and so
+    // leaves the shaft earliest of the six (`BRANCH_STAGGER`). Measuring the hook
+    // against the shaft's end instead would move this test's subject from "which
+    // way does it turn" to "where does it start", which is the stagger's business.
+    const fork = hook.stem[0];
 
     expect(offBy(hook.head, 180)).toBeLessThan(1);
-    // It leaves the shaft and turns away to the left, never to the right.
-    expect(hook.stem[0]).toEqual(fork);
+    // It leaves the shaft — on it, and short of its end — and turns away to the
+    // left, never to the right.
+    expect(fork.y).toBeCloseTo(a.shaft[1].y);
+    expect(fork.x).toBeGreaterThan(a.shaft[0].x);
+    expect(fork.x).toBeLessThan(a.shaft[1].x);
     expect(Math.min(...hook.stem.map((p) => p.y))).toBeLessThan(-1);
     expect(Math.max(...hook.stem.map((p) => p.y))).toBeCloseTo(0);
     // And it turns: downstream of the fork on the way round, upstream of it by
@@ -1647,6 +1709,103 @@ describe("markingArrow", () => {
         expect(Math.abs(p.x)).toBeLessThanOrEqual(TURN_ARROW_LENGTH / 2 + 1e-9);
       }
     }
+  });
+
+  /**
+   * **The phase** (markings spec §2.12). Every branch used to fork at one point
+   * with every head apex the same radius from it, so left + through + right drew a
+   * four-pointed star — and import mints exactly that set, one arrow per approach
+   * lane from the file's own `from_lanes`, so it is not a curiosity.
+   *
+   * Disjoint up to **three** branches is the rule the gate commits to, three being
+   * what a real approach carries. Note what the 41 sets in fact prove: because
+   * `BRANCH_STAGGER` keys each offset to the direction *alone*, the sets of size
+   * two are all 15 pairs, and a branch's geometry does not depend on its company —
+   * so passing here separates every set of every size (OQ-7).
+   */
+  it("separates the heads of every set of three turns or fewer", () => {
+    for (const directions of subsets().filter((s) => s.length <= 3)) {
+      const a = markingArrow(anchor(0, LANE_PX), directions)!;
+      for (let i = 0; i < a.branches.length; i++) {
+        for (let j = i + 1; j < a.branches.length; j++) {
+          expect(
+            headGap(a.branches[i].head, a.branches[j].head),
+          ).toBeGreaterThan(0);
+        }
+      }
+    }
+
+    // Named on its own, so a regression reads as the case a real approach carries
+    // rather than as "one of 41 subsets".
+    const real = markingArrow(anchor(0, LANE_PX), ["left", "through", "right"])!;
+    const [left, through, right] = real.branches;
+    expect(headGap(left.head, through.head)).toBeGreaterThan(0);
+    expect(headGap(through.head, right.head)).toBeGreaterThan(0);
+    expect(headGap(left.head, right.head)).toBeGreaterThan(0);
+  });
+
+  /**
+   * Phase 3's containment rule, restated at every direction set: the stagger moves
+   * forks **along** the road, whose ends are not what `ARROW_REACH` bounds, so it
+   * has to hold at the sizes the disjointness test above says nothing about.
+   *
+   * Sizes four to six are asserted **contained only**. Whether they also come out
+   * disjoint is OQ-7 — left visibly untested rather than silently, so a stagger
+   * that happens to separate five heads does not fail the suite for it.
+   */
+  it("keeps every direction set inside the band, at every size", () => {
+    for (const style of ["motorway", "ramp"] as LinkStyle[]) {
+      for (const band of laneBands(defaults(3), style)) {
+        const lo = band.offset - band.width / 2;
+        const hi = band.offset + band.width / 2;
+
+        for (const directions of subsets()) {
+          const a = markingArrow(anchor(band.offset, band.width), directions)!;
+
+          for (const p of [...a.shaft, ...a.branches.flatMap((b) => b.stem)]) {
+            expect(p.y - a.stroke / 2).toBeGreaterThan(lo);
+            expect(p.y + a.stroke / 2).toBeLessThan(hi);
+          }
+          for (const p of a.branches.flatMap((b) => b.head)) {
+            expect(p.y).toBeGreaterThan(lo);
+            expect(p.y).toBeLessThan(hi);
+          }
+        }
+      }
+    }
+  });
+
+  /**
+   * **Per-direction, not per-count** (§2.12.2) — the rule that stops an arrow
+   * rearranging itself when an unrelated direction is toggled. An offset keyed on
+   * the branch *count* passes the disjointness test above and fails only here,
+   * which is why this assertion exists rather than being implied by that one.
+   *
+   * It pins the other half at the same time: `through`'s offset is `0`, so a
+   * `through` branch keeps Phase 3's coordinates in every set it appears in.
+   */
+  it("forks each branch where its direction says, not where the others do", () => {
+    for (const d of ALL) {
+      const alone = markingArrow(anchor(0, LANE_PX), [d])!.branches[0];
+
+      for (const directions of subsets().filter((s) => s.includes(d))) {
+        const a = markingArrow(anchor(0, LANE_PX), directions)!;
+        expect(a.branches[directions.indexOf(d)]).toEqual(alone);
+      }
+    }
+  });
+
+  /**
+   * The floor under the stagger budget. A band whose reach alone spends the
+   * arrow's length has no room along the road to separate anything, so the table
+   * collapses to the one shared fork Phase 3 drew — the honest degradation, and
+   * never worse than what shipped. Without the floor the budget goes negative and
+   * every offset staggers *downstream*, past the arrow's own end.
+   */
+  it("forks every branch together on a band with no room to stagger", () => {
+    const a = markingArrow(anchor(0, TURN_ARROW_LENGTH * 4), ALL)!;
+
+    for (const b of a.branches) expect(b.stem[0]).toEqual(a.shaft[1]);
   });
 
   /**
@@ -1697,6 +1856,31 @@ describe("markingArrow", () => {
       const key = (p: Vec2) => `${p.x.toFixed(6)},${p.y.toFixed(6)}`;
 
       expect(a.branches).toHaveLength(2);
+      expect(points(a).map(turned).map(key).sort()).toEqual(
+        points(a).map(key).sort(),
+      );
+    });
+
+    /**
+     * The third assertion the stagger needs, because the pair above cannot see
+     * what it breaks. Both use **one** direction at each end, so a per-direction
+     * fork offset cancels; a set of three, read from both ends, is the first thing
+     * that can make the two ends disagree *along* the road while still putting the
+     * rear head on the right side of the band.
+     *
+     * That is what "the offset goes in through the frame" buys, and what adding it
+     * to the point that comes back out would fail.
+     */
+    it("keeps a staggered arrow symmetric read from either end", () => {
+      const turns: TurnDirection[] = ["left", "through", "right"];
+      const a = markingArrow(anchor(OFFSET, LANE_PX), turns, turns)!;
+      const turned = (p: Vec2) => ({
+        x: 2 * CENTRE.x - p.x,
+        y: 2 * CENTRE.y - p.y,
+      });
+      const key = (p: Vec2) => `${p.x.toFixed(6)},${p.y.toFixed(6)}`;
+
+      expect(a.branches).toHaveLength(6);
       expect(points(a).map(turned).map(key).sort()).toEqual(
         points(a).map(key).sort(),
       );

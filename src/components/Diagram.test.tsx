@@ -1379,11 +1379,16 @@ describe("road markings", () => {
       expect(heads(both)).toHaveLength(2);
       expect(heads(single)).toHaveLength(1);
       expect(both).not.toMatch(/NaN|undefined/);
-      // The rear head sits at the other end of the lane's own stretch of road,
-      // so the arrow grew along the link rather than doubling up on itself.
-      const xs = (svg: string) =>
-        path(svg, "marking-arrow-head").filter((_, i) => i % 2 === 0);
-      expect(Math.min(...xs(both))).toBeLessThan(Math.min(...xs(single)));
+      // The rear head sits at the other end of the lane's own stretch of road, so
+      // the arrow grew along the link rather than doubling up on itself. The
+      // *extent* rather than the near end, because a `left` branch forks upstream
+      // of the marking's position once it is staggered (markings §2.12), which
+      // puts its rear head downstream — the arrow still grew, from the other end.
+      const spread = (svg: string) => {
+        const xs = path(svg, "marking-arrow-head").filter((_, i) => i % 2 === 0);
+        return Math.max(...xs) - Math.min(...xs);
+      };
+      expect(spread(both)).toBeGreaterThan(spread(single));
     });
 
     /**

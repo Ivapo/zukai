@@ -1470,6 +1470,62 @@ const BRANCH_BEARING: Record<Exclude<TurnDirection, "u_turn">, number> = {
 };
 
 /**
+ * How far **upstream** of the shaft's own fork each direction leaves it, as a
+ * fraction of the arrow's stagger budget — the whole of markings spec §2.12.
+ *
+ * Every branch used to fork at one point, so left and right sat 180° apart across
+ * a band only `2 * ARROW_REACH` wide with a head between them, and three
+ * directions drew a four-pointed star. The heads are separated **along the road**
+ * instead, which is the axis with room: `through` keeps the shaft's own fork and
+ * runs to the arrow's end, and the harder a branch turns the earlier it leaves.
+ *
+ * **A table rather than a formula on the bearing**, which was the first draft: the
+ * two slights are equally hard, so a formula gives them the *same* fork, and two
+ * ±30° heads at a shared fork intersect at every fork position there is. So each
+ * of the six carries its own — `u_turn` included, the one direction
+ * {@link BRANCH_BEARING} deliberately has no entry for. The `Record` is
+ * exhaustive, so a seventh {@link TurnDirection} will not build.
+ *
+ * **Per-direction, not per-count**, which is what makes an arrow set-invariant: a
+ * count-keyed rule would visibly rearrange a `right` head when `left` is toggled.
+ * The price, stated rather than hidden, is that *every* arrow but a lone `through`
+ * changed shape when this landed — a lone `left` forks where `left` always forks.
+ *
+ * **A fraction of the budget, not of the band and not in world units.** The budget
+ * is `TURN_ARROW_LENGTH - 2 * reach`, which is exactly twice the shaft's fork, and
+ * keying to it makes `≤ 1` do two jobs at once at every band width **by
+ * construction rather than by a clamp**, as {@link ARROW_REACH} does across the
+ * band and {@link spanCells} does for the tiled kinds:
+ *
+ * - a `u_turn` head apex lands at `-TURN_ARROW_LENGTH / 2 + budget * (1 - s)`, so
+ *   the arrow keeps its footprint — which is what {@link TURN_ARROW_LENGTH}'s own
+ *   claim, and `ARROW_SETBACK_METRES`'s in `import.rs`, rest on;
+ * - a fork lands at `forkAt - s * budget ≥ -forkAt`, so it stays **on** the shaft,
+ *   including the shortened one a rear branch draws (§2.11).
+ *
+ * The order is hardness, and **only the pair that needs splitting is split.** The
+ * spec proposed splitting both, then granted the tuning pass this freedom, and the
+ * app took it: `left` and `right` are across-disjoint at any *shared* fork, so the
+ * split buys nothing there, and a sub-unit one — all the budget can spare — draws
+ * a barb pair that is symmetric except for a wobble, which reads as a slip rather
+ * than as a decision. Sharing draws the barbs a real painted arrow has. The two
+ * slights need it and get it: at ±30° they overlap across the band, so a shared
+ * fork puts their heads through each other at every fork position there is.
+ *
+ * Values settled in the app against the measure the suite now holds — no two heads
+ * intersecting, minimum **0.487 units** of clear asphalt on a default lane, and
+ * wider on every narrower one.
+ */
+const BRANCH_STAGGER: Record<TurnDirection, number> = {
+  through: 0,
+  slight_right: 0.35,
+  slight_left: 0.55,
+  right: 0.75,
+  left: 0.75,
+  u_turn: 0.9,
+};
+
+/**
  * Where a point of a turn arrow lands, from `across` the band and `along` the
  * road — the frame every branch below is built in.
  *
@@ -1483,8 +1539,10 @@ type ArrowFrame = (across: number, along: number) => Vec2;
 /** One direction of a turn arrow: a stem off the shaft, ending in a head. */
 export interface ArrowBranch {
   /**
-   * The fork to the centre of the head's base — one segment for a stub, and an
-   * arc plus a return leg for `u_turn`.
+   * **Its own** fork to the centre of the head's base — one segment for a stub,
+   * and an arc plus a return leg for `u_turn`. Which point on the shaft that fork
+   * is comes from {@link BRANCH_STAGGER}, so two branches of one arrow rarely
+   * share it.
    */
   stem: Vec2[];
   /** `[apex, base, base]`, pointing where the branch goes. */
@@ -1494,7 +1552,10 @@ export interface ArrowBranch {
 /** A turn arrow: one shaft, and one branch per direction. */
 export interface TurnArrow {
   /**
-   * `[tail, fork]` — the one shaft every branch leaves.
+   * `[tail, fork]` — the one shaft every branch leaves, though each leaves it at
+   * the point its own direction picks ({@link BRANCH_STAGGER}) rather than at the
+   * far end. `fork` here is the far end, which is where `through` leaves and
+   * where the paint stops.
    *
    * The same for every *forward* direction set; a rear branch shortens the tail
    * to `-fork`, so the two-headed arrow is symmetric and keeps
@@ -1519,6 +1580,12 @@ export interface TurnArrow {
  * tabulates. The sixth, `u_turn`, is a 180° hook that turns back alongside the
  * shaft with its head pointing **at the driver** — and it hooks *left*, the
  * U-turn side under the right-hand traffic {@link laneBands} already assumes.
+ *
+ * **Each branch leaves the shaft where its own direction says**
+ * ({@link BRANCH_STAGGER}), which is what keeps left + through + right reading as
+ * three turns rather than as a four-pointed star: the heads are separated along
+ * the road, the axis that has room, since the band is only `2 * ARROW_REACH` wide
+ * (markings spec §2.12). `through` alone keeps the shaft's own fork.
  *
  * **The hook's radius is derived, not picked.** §2.7 proposes a quarter of the
  * band width, but that puts the return leg at `2R = width/2` — the band edge,
@@ -1547,9 +1614,16 @@ export function markingArrow(
   const reach = ARROW_REACH * width;
   const headLength = ARROW_HEAD_LENGTH * width;
   const headHalf = ARROW_HEAD_HALF * width;
-  // Where the branches leave the shaft, so a `through` branch's apex lands
-  // exactly on the arrow's downstream end.
-  const fork = TURN_ARROW_LENGTH / 2 - reach;
+  // Where the shaft ends, so a `through` branch's apex lands exactly on the
+  // arrow's downstream end. Every other direction leaves it earlier.
+  const forkAt = TURN_ARROW_LENGTH / 2 - reach;
+  // The room the arrow has to stagger in: `TURN_ARROW_LENGTH - 2 * reach`, which
+  // is twice the fork. Floored at zero so a band too wide to have any — one whose
+  // reach alone spends the arrow's length — collapses to a single shared fork
+  // rather than staggering *downstream*, which is the one thing an offset must
+  // never do. See {@link BRANCH_STAGGER} for what the fraction buys.
+  const budget = Math.max(0, 2 * forkAt);
+  const forkOf = (d: TurnDirection) => forkAt - BRANCH_STAGGER[d] * budget;
 
   /** A point in the arrow's own frame: `across` from the band centre, `along` from `position`. */
   const at: ArrowFrame = (across, along) =>
@@ -1585,7 +1659,11 @@ export function markingArrow(
     ];
   };
 
-  const stub = (frame: ArrowFrame, bearing: number): ArrowBranch => {
+  const stub = (
+    frame: ArrowFrame,
+    bearing: number,
+    fork: number,
+  ): ArrowBranch => {
     const da = Math.sin(bearing);
     const dl = Math.cos(bearing);
     const base = reach - headLength;
@@ -1595,7 +1673,7 @@ export function markingArrow(
     };
   };
 
-  const hook = (frame: ArrowFrame): ArrowBranch => {
+  const hook = (frame: ArrowFrame, fork: number): ArrowBranch => {
     const r = (reach - headHalf) / 2;
     const stem: Vec2[] = [];
     // Centred a radius to the left of the fork, so the arc leaves it heading
@@ -1614,8 +1692,14 @@ export function markingArrow(
       // A direction the model does not name reaches here only from a hand-edited
       // document, and would put a `NaN` bearing into the markup — so it is
       // skipped on the same terms `markingAnchor` skips an unknown link.
-      if (d === "u_turn") built.push(hook(frame));
-      else if (d in BRANCH_BEARING) built.push(stub(frame, BRANCH_BEARING[d]));
+      // The fork goes in through the **frame**, not on to the point that comes
+      // back out, so §2.11's flip carries the stagger into the oncoming driver's
+      // frame with no second expression. Added outside, a rear branch would
+      // stagger the wrong way along the road and a two-way left-turn lane would
+      // draw asymmetrically — plausible, and wrong.
+      if (d === "u_turn") built.push(hook(frame, forkOf(d)));
+      else if (d in BRANCH_BEARING)
+        built.push(stub(frame, BRANCH_BEARING[d], forkOf(d)));
     }
     return built;
   };
@@ -1630,7 +1714,10 @@ export function markingArrow(
     // existing arrow untouched when there is not: `back: []` and a `back` naming
     // only directions the model does not know both keep the single-headed shaft,
     // with no arm of their own.
-    shaft: [at(0, rear.length ? -fork : -TURN_ARROW_LENGTH / 2), at(0, fork)],
+    shaft: [
+      at(0, rear.length ? -forkAt : -TURN_ARROW_LENGTH / 2),
+      at(0, forkAt),
+    ],
     branches: [...branches, ...rear],
     stroke: ARROW_STEM * width,
   };
