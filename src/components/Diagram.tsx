@@ -42,6 +42,8 @@ import {
   endDirection,
   formatLength,
   gore,
+  goreChevrons,
+  goreFlow,
   gorePair,
   junctionArms,
   laneBands,
@@ -126,7 +128,7 @@ export function Diagram({
 
   return (
     <g className="diagram">
-      {needsHatch(doc) && <HatchPattern />}
+      {hasShoulder(doc) && <HatchPattern />}
 
       {doc.links.map((link) => {
         const pts = drawnPolyline(doc, link, offsets);
@@ -270,22 +272,23 @@ export function Diagram({
 const HATCH_ID = "road-hatch";
 
 /**
- * Whether anything in the document references the hatch pattern — a hard
- * shoulder **or** a gore glyph.
+ * Whether anything in the document references the hatch pattern — which is a
+ * hard shoulder, and now nothing else.
  *
- * Both halves matter. The `<defs>` has to stay conditional, because an empty
- * document renders as exactly `<g class="diagram"></g>`; and it has to cover the
- * gore, because a document with a gore and no shoulder would otherwise reference
- * a `<pattern>` that was never emitted. That failure draws an *unpainted*
- * triangle and no markup assertion catches it unless one is written for it
- * (ramps spec §2.5).
+ * The `<defs>` has to stay conditional, because an empty document renders as
+ * exactly `<g class="diagram"></g>`. It briefly covered the `gore` glyph too, and
+ * was called `needsHatch` for it: a gore *borrowed* this pattern for want of one
+ * of its own, so a document with a gore and no shoulder would have referenced a
+ * `<pattern>` that was never emitted and drawn an *unpainted* triangle. Phase 5
+ * gave the gore chevrons of its own, so the borrowing is gone and the predicate
+ * is a shoulder test again — name included (ramps spec §2.9.2).
+ *
+ * **Anything new that references the pattern has to widen this again.** The gore
+ * was that case and is no longer an example of it.
  */
-function needsHatch(doc: Document): boolean {
-  return (
-    doc.links.some((l) => l.lanes.some((lane) => lane.kind === "shoulder")) ||
-    doc.nodes.some(
-      (n) => n.type === "junction" && doc.layout.junctions[n.id]?.glyph === "gore",
-    )
+function hasShoulder(doc: Document): boolean {
+  return doc.links.some((l) =>
+    l.lanes.some((lane) => lane.kind === "shoulder"),
   );
 }
 
@@ -293,7 +296,7 @@ function needsHatch(doc: Document): boolean {
  * Whether anything in the document draws a glyph — the gate on the ≈18 kB
  * `@font-face` an exported picture would otherwise carry for nothing.
  *
- * `needsHatch`'s posture, but **exported**, because its consumer is `export.tsx`
+ * `hasShoulder`'s posture, but **exported**, because its consumer is `export.tsx`
  * rather than this module: the font is emitted by the exporter and the glyph by
  * the tree, and one predicate for both is what stops a file carrying a face with
  * no text, or worse, text with no face (signs spec §2.3).
@@ -1021,6 +1024,7 @@ function GoreShape({
         id: a.id,
         at: { x: a.origin.x - center.x, y: a.origin.y - center.y },
         away: a.dir,
+        outbound: a.outbound,
         // The lane region's half-span, which is exactly `RoadShape`'s own
         // `edgeInset`: a gore is paint bounded by the roads' *painted* edges,
         // not asphalt bounded by their casing rims the way a wedge is.
@@ -1042,13 +1046,17 @@ function GoreShape({
       {/* Two layers, where a shoulder band needs one: a band sits on the casing,
           which supplies its asphalt, but a gore's base is out where the two
           roads have long since separated and there is nothing but paper under
-          it. The hatch pattern is transparent by design, so the surface has to
-          be painted first. */}
+          it. So the surface is painted first and the chevrons ride on it — the
+          reason survives the hatch it was written for, since a chevron on bare
+          paper needs the asphalt under it just as the pattern did. */}
       <polygon className="jn-gore" points={points} />
-      <polygon
-        className="jn-gore-hatch"
-        points={points}
-        fill={`url(#${HATCH_ID})`}
+      {/* What the gore actually says, and the whole of Phase 5: hatching says
+          "not a running lane", chevrons say "go round this, on this side". Which
+          side is `goreFlow`'s one derivation — the pair is already chosen, and
+          this is the only place a gore consults the direction of travel. */}
+      <path
+        className="jn-gore-chevrons"
+        d={polylinesPath(goreChevrons(nose, fa, fb, goreFlow(pair[0], pair[1])))}
       />
       {/* The two legs, as one polyline through the nose so the base stays open.
           No inset of its own, unlike `taperEdge`: the legs lie on the

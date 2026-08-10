@@ -455,23 +455,29 @@ describe("gores in an exported file", () => {
   }
 
   /**
-   * The hatch is the file's one paint-server reference, and a gore is now a
-   * second way to reach it — so the rule it was carved out of has to still hold
-   * for a document that carries a gore and *no* shoulder lane. An in-document
-   * fragment does not taint the canvas the PNG path draws into; anything else
-   * would (`rules/diagram-export.md`, "Standing constraints").
+   * **A gore no longer reaches a paint server at all**, which is the inverse of
+   * what this asserted through Phase 4 and is the point of Phase 5. The hatch was
+   * *borrowed* — a shoulder pattern standing in for paint a gore did not have —
+   * and chevrons are ordinary strokes, so a gored document with no shoulder lane
+   * now carries no `<pattern>` and no `url(` whatsoever.
+   *
+   * The rule the hatch was carved out of therefore has one fewer exception rather
+   * than a second: a paint-server reference must be an in-document fragment, or
+   * it taints the canvas the PNG path draws into (`rules/diagram-export.md`,
+   * "Standing constraints"). The shoulder test above is what still exercises it.
    */
-  it("references the hatch and nothing else, with the stylesheet unchanged in kind", () => {
+  it("reaches no paint server at all, with the stylesheet unchanged in kind", () => {
     const svg = diagramSvg(gored(), { x: 0, y: 0, width: 240, height: 120 });
     const css = embeddedCss(svg);
 
-    expect(svg).toContain('<pattern id="road-hatch"');
-    expect([...svg.matchAll(/url\([^)]*\)/g)].map((m) => m[0])).toEqual([
-      "url(#road-hatch)",
-    ]);
+    expect(svg).not.toContain("<pattern");
+    expect(svg).not.toMatch(/url\(/);
     expectSelfContained(svg);
     expect(css).not.toMatch(/[<&]/);
     expect(css).toContain(".jn-gore");
+    // The paint that replaced it travels as a rule, like every other stroke.
+    expect(css).toContain(".jn-gore-chevrons");
+    expect(svg).toContain('class="jn-gore-chevrons"');
     expect(diagramInner(gored())).not.toMatch(/xlink|href|https?:/);
     expect(svg).not.toMatch(CHROME);
     expect(svg).not.toMatch(/vector-effect/);

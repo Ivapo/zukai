@@ -338,13 +338,27 @@
   stroke-width: 1.5;
 }
 
-/* The gore's surface. The hatch over it is a paint server, which cannot be
-   named here (see `.road-hatch-line`), so it reaches the polygon as an inline
-   attribute; this is the asphalt underneath it. A shoulder band needs no
-   equivalent because the road casing is already under the band, whereas a gore
-   widens out past both roads onto bare paper (ramps spec 2.5). */
+/* The gore's surface - the asphalt the chevrons are painted on. A shoulder band
+   needs no equivalent because the road casing is already under the band, whereas
+   a gore widens out past both roads onto bare paper (ramps spec 2.5). */
 .jn-gore {
   fill: var(--asphalt);
+}
+
+/* The chevrons inside a gore, which say to go round it and which side the driver
+   is on - the thing the borrowed shoulder hatch could not say (ramps spec 2.9).
+   Round joins because a chevron's tip is a corner, and a miter spikes there.
+
+   Nothing here holds the stroke at a constant screen width, deliberately: this is
+   paint on the drawing, so it scales with the drawing, which is what makes a
+   canvas and an exported file paint the same picture. The width may not even be
+   *named* in this file - every export assertion matches it as a substring. */
+.jn-gore-chevrons {
+  fill: none;
+  stroke: var(--paint-white);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .jn-stopbar {

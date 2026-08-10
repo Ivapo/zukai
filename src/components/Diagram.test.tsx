@@ -1027,27 +1027,65 @@ describe("gores", () => {
   });
 
   /**
-   * §2.5's trap, and the only failure mode here that no other assertion catches:
-   * the `<defs>` used to be gated on a hard shoulder alone, so a document with a
-   * gore and no shoulder would reference a `<pattern>` that was never emitted —
-   * and render as an *unpainted* triangle, with the markup otherwise identical.
+   * **The inverse of what this asserted through Phase 4**, and the change is the
+   * phase. A gore used to *borrow* the shoulder's hatch, which is why the
+   * `<defs>` gate had to be widened past a hard shoulder to reach it. With
+   * chevrons of its own the borrowing is gone, so a document with a gore and no
+   * shoulder now emits no `<pattern>` at all — and the predicate is a shoulder
+   * test again, name included (§2.9.2).
    */
-  it("emits the hatch pattern for a gore in a document with no shoulder lane", () => {
+  it("emits no hatch pattern for a gore in a document with no shoulder lane", () => {
     const svg = renderToStaticMarkup(<Diagram doc={exit()} />);
 
     expect(svg).not.toContain("lane-band");
-    expect(svg).toContain('<pattern id="road-hatch"');
-    expect(svg).toContain('class="jn-gore-hatch"');
-    expect(svg).toContain('fill="url(#road-hatch)"');
+    expect(svg).not.toContain("<pattern");
+    expect(svg).not.toContain("jn-gore-hatch");
+    expect(svg).not.toContain("url(");
+    expect(svg).toContain('class="jn-gore-chevrons"');
   });
 
-  /** Two layers, because the hatch pattern is transparent and the gore's base is
-   *  out past both roads, over bare paper. */
-  it("paints asphalt under the hatch, on the same three corners", () => {
+  /**
+   * Two layers still, and for the reason that outlived the hatch it was written
+   * for: the gore's base is out past both roads, over bare paper, so a chevron
+   * needs asphalt under it just as a transparent pattern did.
+   *
+   * Phase 4 asserted the two polygons carried the *same points*, which a fan of
+   * chevrons has no analog for. What replaces it is the claim that survives —
+   * the surface still sits under the paint, in that order.
+   */
+  it("paints the chevrons on a surface, in that order", () => {
     const svg = renderToStaticMarkup(<Diagram doc={exit()} />);
-    const surface = svg.match(/class="jn-gore" points="([^"]+)"/)![1];
 
-    expect(svg).toContain(`class="jn-gore-hatch" points="${surface}"`);
+    expect(svg.indexOf('class="jn-gore"')).toBeLessThan(
+      svg.indexOf('class="jn-gore-chevrons"'),
+    );
+    // A path with something in it: an empty `d` is what a degenerate gore draws,
+    // and it passes every assertion above.
+    expect(svg).toMatch(/class="jn-gore-chevrons" d="M [-\d.]+ [-\d.]+ L/);
+  });
+
+  /**
+   * The chevrons of a diverge point at the nose; §1's exit *is* a diverge, both
+   * mainline and ramp leaving N2. The direction rule itself is pinned in
+   * `geometry.test.ts`, off both cases; what this adds is that the bit survives
+   * the trip from the document, through `junctionArms`, to the paint — which no
+   * pure test can see (§2.9.1).
+   */
+  it("faces the chevrons of a diverge back at the nose", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={exit()} />);
+    const [nose] = corners(svg);
+    const d = svg.match(/class="jn-gore-chevrons" d="([^"]+)"/)![1];
+    const pts = [...d.matchAll(/[ML] ([-\d.]+) ([-\d.]+)/g)].map(
+      (m) => [Number(m[1]), Number(m[2])] as [number, number],
+    );
+    const from = (p: [number, number]) =>
+      Math.hypot(p[0] - nose[0], p[1] - nose[1]);
+
+    // Each chevron is `wing, tip, wing`; the tip is the one nearest the nose.
+    for (let i = 0; i < pts.length; i += 3) {
+      expect(from(pts[i + 1])).toBeLessThan(from(pts[i]));
+      expect(from(pts[i + 1])).toBeLessThan(from(pts[i + 2]));
+    }
   });
 
   /**
