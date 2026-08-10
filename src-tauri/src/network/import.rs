@@ -6,6 +6,12 @@
 //! `point`: it is **demoted, not discarded** — it seeds `layout.nodes` and never
 //! reaches `doc.nodes`, which stays geometry-free.
 //!
+//! A polyline's **total** is demoted the same way, and it is the sharpest case of
+//! the distinction: [`geometry_length`] sums it into `Link::length`, a *label*
+//! stating how long the road is, while the shape it was summed from is thrown
+//! away and the canvas is laid out without it. One road, two independent records
+//! (link-length spec §2.2).
+//!
 //! That seeding is not a nicety. A node with no layout entry has no drawable
 //! polyline, so an unseeded import renders a blank page. The positions arrive
 //! true-to-life and *wrong for a schematic*, and a human drags them into a
@@ -159,6 +165,8 @@ pub fn network_to_document(net: NetworkFile) -> Result<Document, String> {
 /// every positional reader carries on working.
 fn import_link(link: NetworkLink) -> Link {
     let count = link.lanes.len();
+    // Read before the lanes move out of `link` below.
+    let length = geometry_length(&link.geometry);
     let mut lanes: Vec<Lane> = link
         .lanes
         .into_iter()
@@ -181,10 +189,39 @@ fn import_link(link: NetworkLink) -> Link {
         to_node: link.to_node,
         lanes,
         median_gap: link.median_gap,
-        // The file states a length in its `geometry` polyline, which this phase
-        // still discards whole. Phase 2 of the link-length spec sums it here.
-        length: None,
+        // The one thing the discarded polyline leaves behind: its total, as the
+        // road's stated length (link-length spec Phase 2).
+        length,
     }
+}
+
+/// How long the road really is, in metres, summed off the polyline import throws
+/// away.
+///
+/// **This is not the frontend's `polylineLength`** (`src/editor/geometry.ts`),
+/// and the two must never be confused: that one measures the *drawn* polyline in
+/// canvas units, and the link-length spec §2.2 forbids it from ever reaching
+/// [`Link::length`]. This one measures the *file's* polyline in metres, which is
+/// a fact about the road rather than a measurement of the diagram. Import is the
+/// only place the two numbers are ever both in hand, and it keeps them apart.
+///
+/// The shape itself still goes — a schematic distorts real geometry for clarity.
+/// Only the total survives, and it survives as a **label**, which is why import
+/// can carry a real length without carrying a real distance
+/// (`network_yaml_spec.md` OQ-2).
+///
+/// **`None` for anything with nothing to measure**, and the degenerate cases need
+/// no branch: `windows(2)` yields nothing on an empty or one-point polyline, so
+/// the sum is `0.0` and the guard below rejects it. "At least 2 points"
+/// ([`NetworkLink::geometry`](super::NetworkLink::geometry)) is a doc comment
+/// rather than a parse invariant, so such a file reaches here today. A road that
+/// states no length is not a road of length zero.
+fn geometry_length(geometry: &[[f64; 2]]) -> Option<f64> {
+    let total: f64 = geometry
+        .windows(2)
+        .map(|pair| (pair[1][0] - pair[0][0]).hypot(pair[1][1] - pair[0][1]))
+        .sum();
+    (total.is_finite() && total > 0.0).then_some(total)
 }
 
 /// The file's lane numbering read in Zukai's, or `None` for an index the link
@@ -702,6 +739,115 @@ mod tests {
         );
         let ids: Vec<LaneIdx> = lanes.iter().map(|l| l.id).collect();
         assert_eq!(ids, [0, 1, 2], "ids are the new positions, not the file's");
+    }
+
+    /// The lengths the fixtures' own polylines trace, hand-summed off the files:
+    /// `t_junction`'s crossbar is two 500 m arms with a 300 m stem, and every one
+    /// of `cross-4`'s eight links is 100 m.
+    ///
+    /// Every value is exact in f64 — both fixtures are axis-aligned — so the slack
+    /// is there for a future fixture that is not, rather than for these.
+    #[test]
+    fn both_fixtures_state_the_length_their_geometry_traces() {
+        let t = import(T_JUNCTION);
+
+        let lengths: Vec<Option<f64>> = t.links.iter().map(|l| l.length).collect();
+        assert_eq!(lengths, [Some(500.0), Some(500.0), Some(300.0)]);
+
+        let c = import(CROSS_4);
+
+        assert_eq!(c.links.len(), 8);
+        for link in &c.links {
+            let length = link
+                .length
+                .unwrap_or_else(|| panic!("{} states none", link.id));
+            assert!((length - 100.0).abs() < 1e-9, "{} is {length} m", link.id);
+        }
+    }
+
+    /// **The one test that fails against an endpoint chord**, and no committed
+    /// fixture can stand in for it: every fixture polyline is exactly two points,
+    /// so a wrong implementation measuring first-to-last passes on all committed
+    /// data while mis-stating every bent road in a real network.
+    ///
+    /// The bend is a right angle, so the two readings are 700 m summed against a
+    /// 500 m chord — far enough apart that no slack can hide the difference, and
+    /// both exact.
+    #[test]
+    fn a_bent_polyline_sums_its_segments_rather_than_its_ends() {
+        let yaml = concat!(
+            "metadata:\n  name: Bent\n",
+            "nodes:\n  - id: A\n    point: [0, 0]\n    type: endpoint\n",
+            "  - id: B\n    point: [400, 300]\n    type: endpoint\n",
+            "links:\n  - id: L1\n    from_node: A\n    to_node: B\n",
+            "    geometry: [[0, 0], [0, 300], [400, 300]]\n",
+            "    lanes: [{id: 0, width: 3.5, speed_limit: 13.9}]\n",
+        );
+
+        let length = import(yaml).links[0].length.expect("a length");
+
+        assert_eq!(length, 700.0, "the segments, not the ends");
+        // Named rather than left implicit, so a regression reads as the wrong
+        // *measurement* rather than as the wrong number.
+        let chord = 400.0_f64.hypot(300.0);
+        assert_eq!(chord, 500.0);
+        assert_ne!(length, chord);
+    }
+
+    /// A polyline with nothing to measure states **no length**, not a length of
+    /// zero — `graph.rs` is explicit that absent means the road says nothing.
+    ///
+    /// All three cases reach `import_link` today: "at least 2 points" is a doc
+    /// comment on the mirror, not a parse invariant, so a file carrying an empty
+    /// or one-point polyline parses and must not panic.
+    #[test]
+    fn a_polyline_with_nothing_to_measure_states_no_length() {
+        let yaml = concat!(
+            "metadata:\n  name: Degenerate\n",
+            "nodes:\n  - id: A\n    point: [0, 0]\n    type: endpoint\n",
+            "links:\n",
+            "  - id: L_empty\n    from_node: A\n    to_node: A\n",
+            "    geometry: []\n",
+            "    lanes: [{id: 0, width: 3.5, speed_limit: 13.9}]\n",
+            "  - id: L_one\n    from_node: A\n    to_node: A\n",
+            "    geometry: [[0, 0]]\n",
+            "    lanes: [{id: 0, width: 3.5, speed_limit: 13.9}]\n",
+            "  - id: L_still\n    from_node: A\n    to_node: A\n",
+            "    geometry: [[7, 7], [7, 7]]\n",
+            "    lanes: [{id: 0, width: 3.5, speed_limit: 13.9}]\n",
+        );
+
+        let doc = import(yaml);
+
+        for link in &doc.links {
+            assert_eq!(link.length, None, "{} states a length", link.id);
+        }
+        // ...and the key is elided, so such a document is byte-identical to one
+        // written before the field existed.
+        let yaml = serde_yaml::to_string(&doc.links).expect("serialize");
+        assert!(!yaml.contains("length"), "{yaml}");
+    }
+
+    /// **The decoupling, from one import.** `L_W_J` states 500 metres while the
+    /// canvas holds its two ends 1285.71 units apart — two independent records of
+    /// one road, which is the whole of `CLAUDE.md`'s founding idea and the answer
+    /// this spec gives `network_yaml_spec.md` OQ-2.
+    ///
+    /// A test asserting only the metres would pass just as happily against an
+    /// import that had scaled the canvas to match them.
+    #[test]
+    fn the_label_states_metres_while_the_canvas_holds_units() {
+        let doc = import(T_JUNCTION);
+
+        let link = &doc.links[0];
+        assert_eq!(link.id.as_str(), "L_W_J");
+        assert_eq!(link.length, Some(500.0), "metres, the road's own claim");
+
+        let west = doc.layout.nodes[&NodeId::from("W")].pos;
+        let junction = doc.layout.nodes[&NodeId::from("J")].pos;
+        let drawn = (junction.x - west.x).hypot(junction.y - west.y);
+        assert_eq!(drawn, 500.0 * UNITS_PER_METRE, "units, the diagram's");
+        assert!(drawn > 1285.0 && drawn < 1286.0, "{drawn}");
     }
 
     /// Two imports of one file produce the same document, ids included — which is
