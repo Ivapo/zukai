@@ -2,7 +2,7 @@
 id: zk-006
 title: road-markings
 status: accepted
-last_updated: 2026-07-31
+last_updated: 2026-08-10
 note: >
   Render and place road-surface markings — stop and give-way lines,
   crossings, lane arrows, lane lines. Paint only; signs and any painted text
@@ -32,6 +32,11 @@ phases:
   - name: "Phase 5 — The two-headed arrow"
     reviewed: 2026-07-28
     shipped: 2026-07-28
+    cut: null
+    by: null
+  - name: "Phase 6 — Three branches that read as three turns"
+    reviewed: null
+    shipped: null
     cut: null
     by: null
 
@@ -636,6 +641,98 @@ placeholder bar, so a hand-edited document that holds one lands in §2.5's
 skip-don't-crash posture unchanged. Nothing new is needed for it; it is recorded
 so the absence is deliberate.
 
+### 2.12 Three branches that read as three turns (added 2026-08-10, reopening — Phase 6)
+
+Everything above shipped, and this section reopens exactly one thing: **an arrow
+serving left, through and right draws a four-pointed star**, not three turns.
+Phase 3 recorded the limit and declined to engineer around it; §2.12.1 is why
+that call is now the wrong one.
+
+**Measured, not asserted.** Rendered on 2026-08-10 through the real `diagramSvg`,
+one 3.5 m lane, four arrows differing only in their `directions`: one branch is
+clean, two read correctly, **three collide into a star**, six are a blob. The
+cause is visible in the geometry rather than in the picture — every branch forks
+at the same point, `fork = TURN_ARROW_LENGTH / 2 - reach`, and every head apex
+sits at the same radius `reach = ARROW_REACH * width` from it
+(`geometry.ts:markingArrow`). Left and right are 180° apart across a band only
+`2 * ARROW_REACH` wide, with a head `ARROW_HEAD_LENGTH * width` long between
+them, so at three branches the heads meet in the middle.
+
+#### 2.12.1 Why Phase 3's "recorded rather than engineered around" no longer holds
+
+That call was correct **when nothing could mint a three-branch arrow**. Two
+phases have changed the input since:
+
+- `lane_arrows_spec.md` Phase 3 made import paint one arrow per approach lane
+  from the file's own `from_lanes`, and a lane serving several turns gets **one
+  arrow with several branches** (`import.rs:lane_arrows`). The drawing is no
+  longer only what a human clicked.
+- `network_yaml_spec.md` Phase 5 (2026-08-10) made an imported network legible at
+  a glance, so the arrows are now the thing a reader looks at rather than
+  something buried in a 2571-unit sprawl.
+
+Both committed fixtures top out at two branches, which is why no test and no dev
+pass has caught this. **Real approaches routinely serve left + through + right**,
+so the first real import is the failure, and it fails as a *picture*: a star
+states nothing about the junction.
+
+#### 2.12.2 The rule: a branch forks where its bearing says, not where every other branch does
+
+**Separate the heads along the road, which is the axis with room.** The lane is
+one band wide and the arrow is `TURN_ARROW_LENGTH` long, so the fix moves each
+branch's fork upstream in proportion to how hard it turns: `through` (bearing 0)
+keeps today's fork and runs to the arrow's end, and the harder a branch turns the
+earlier it leaves the shaft. This is what painted road arrows do, and it needs no
+new field, no new constant in the model, and no `SCHEMA_VERSION` move.
+
+**The fork offset is a function of the branch's own bearing, not of how many
+branches there are.** A count-keyed rule makes a two-branch arrow and a
+three-branch arrow disagree about where a `right` head sits, so an arrow would
+visibly rearrange itself when an unrelated direction is toggled. Keying on
+bearing costs one thing and it is stated rather than hidden: **every existing
+multi-branch arrow changes shape**, so Phase 5's "every existing arrow test still
+passes untouched" does not transfer, and the gate below says which tests move
+instead.
+
+**Two things this must not touch**, both load-bearing and both already tested:
+
+- **Containment.** Every point of every branch stays within `ARROW_REACH * width`
+  of the band centre (Phase 3's rule, and what `ARROW_REACH` *means*). Staggering
+  moves forks *along* the road, so the across-band extent is unchanged by
+  construction — but the u-turn hook's radius is derived from `reach` and its
+  fork, so it is the one branch where that is not obvious.
+- **The frame flip.** `back` branches are built by negating both terms
+  (§2.11), which carries any bearing-keyed fork offset into the oncoming frame
+  for free **provided the offset is applied inside the frame** rather than added
+  to the returned point. Applied outside, a rear branch staggers the wrong way
+  along the road and a two-way left-turn lane draws asymmetrically — the same
+  silent-mirror class §2.11 and `lane_arrows_spec.md` §2.5.1 both record.
+
+**`TURN_ARROW_LENGTH` does not move**, which keeps this phase out of Rust. It is
+hand-mirrored in `import.rs:TURN_ARROW_LENGTH` and `ARROW_SETBACK_METRES` derives
+from it, so lengthening the arrow to make room would drag the importer's setback
+and the test pinning the two equal into a TypeScript-only phase. Staggering forks
+spends the length the arrow already has.
+
+#### 2.12.3 Two alternatives, both rejected here
+
+- **Shrink the heads as branches are added.** Makes a three-branch arrow smaller
+  than a two-branch one for no reason a reader can see, and at six it trades a
+  starburst for a smudge. Legibility is not a scaling problem.
+- **Draw only the first N branches.** A drawing that silently omits a permitted
+  turn is worse than one that draws it badly — the arrow would state something
+  false about the junction rather than something crowded.
+
+#### 2.12.4 What six branches do, and why the gate stops short of them
+
+Six branches cannot be made disjoint inside one band: six heads each
+`ARROW_HEAD_HALF * 2 * width` wide do not fit around a circle of radius
+`ARROW_REACH * width`. Phase 3 already said no road carries six directions in a
+lane, and that remains true. So the rule this phase commits to is **disjoint up
+to three branches, contained at all six** — three being what a real approach
+carries, and containment being what stops a hand-edited document painting over
+its neighbour. Whether four and five are reachable is **OQ-7**.
+
 ## 3. Open questions
 
 - **OQ-1** — **Does a marking need to survive a link reversal?** Nothing reverses
@@ -697,6 +794,16 @@ so the absence is deliberate.
   re-dragging the moment a node moves. `Marking.anchor` is the fix, and it takes
   neither option here: metres stay absolute (§2.2 holds) and the **end** they are
   measured from becomes selectable.
+- **OQ-7** — **Are four and five branches reachable?** §2.12.4 commits Phase 6 to
+  heads that are disjoint up to **three** branches and contained at all six, on
+  the grounds that three is what a real approach carries and six provably does not
+  fit. Four and five are the untested middle: a staggered fork may separate them
+  for free, or may not, and the answer is arithmetic rather than judgement — it
+  falls out of the head width against the reach once the stagger's constant is
+  chosen. Deliberately **not** a gate clause, because a phase that must make five
+  branches legible is a different and much larger geometry problem than one that
+  must stop a real approach reading as a star. (answerable-from-code, after Phase
+  6 lands; recorded so the gate's silence is visible rather than an omission.)
 
 ## 4. Implementation phases
 
@@ -898,6 +1005,14 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
     all six draw a starburst. That is inherent to one shaft with one branch per
     direction rather than a bug — the paint still stays inside the band, and no
     road carries six directions in a lane. Recorded rather than engineered around.
+
+    > **CORRECTED 2026-08-10 — the last sentence no longer holds; see §2.12.**
+    > The observation is exact and the reasoning was right *for its date*: with
+    > only hand-placed paint, nothing minted a three-branch arrow. Import does
+    > (`lane_arrows_spec.md` Phase 3), and a real approach serves left, through
+    > and right — so "no road carries six" is still true and is no longer the
+    > question. Phase 6 engineers around it. The rest of this bullet stands,
+    > including that containment is what stopped it being worse.
 
 ### Phase 4 — `lane_line`, and the two-way centreline  (depends on Phase 3)
 
@@ -1101,3 +1216,73 @@ gate) in three rounds on 2026-07-28 and **is cleared to implement**.
   and emptying Oncoming returned it to a single-headed arrow with the forward
   directions intact. Note the canvas zoom is anchored at the **origin**, not the
   viewport centre, so a zoomed-in screenshot needs a pan afterwards.
+
+### Phase 6 — Three branches that read as three turns  (added 2026-08-10)
+
+Added by reopening (`/Users/ivapo/.claude/skills/spec-driven-dev/spec-authoring.md §6.1`). Phases 1–5 are untouched and this
+depends on Phase 3 and Phase 5. **It has not passed its scoped review round
+(§7's phase-level gate) and must not be planned or implemented until it has.**
+
+- **Scope:** §2.12 — an arrow's branches fork at staggered points so their heads
+  do not collide. **TypeScript only** — no model change, no Rust, no
+  `SCHEMA_VERSION` move, no new action, no panel control, and
+  `TURN_ARROW_LENGTH` does not move (§2.12.2, which is what keeps `import.rs`
+  and its two hand-mirror tests out of this phase).
+  - `geometry.ts` — `markingArrow`'s single `fork` becomes a per-branch offset
+    keyed on the branch's own bearing: `through` keeps today's value and the
+    harder a branch turns, the further upstream it leaves the shaft. One new
+    module constant carries the stagger, in the manner of `ARROW_REACH` and
+    beside it. The offset is applied **inside** the frame, so §2.11's flip
+    carries it into the oncoming driver's frame with no second expression —
+    the one line where getting it wrong draws a plausible, asymmetric two-way
+    left-turn lane.
+  - `stub` and `hook` keep their bodies. They already take the frame as a
+    parameter (Phase 5's dividend), so a per-branch fork is an argument rather
+    than an edit to either — and `hook`'s radius is derived from `reach` and its
+    fork, which is the one branch where containment does not hold by inspection.
+  - **Nothing else has a call site.** `Diagram.tsx` maps over
+    `TurnArrow.branches` and does not know where a branch started, and the
+    Inspector names directions rather than geometry.
+- **Exit gate:** `bun run build` + `bun run test` + `cargo test` green, with
+  `cargo test` **unchanged at 68** — no Rust is touched, so a moved count means
+  something escaped the scope.
+  - `geometry.test.ts`, and this is the phase: **for every non-empty subset of
+    the six directions of size ≤ 3 (41 of them), no two head triangles
+    intersect** on a 3.5 m lane. That is the definition of "reads as three turns
+    rather than one star", it is measurable without a DOM, and it is what no
+    existing test asserts. `left + through + right` is named separately in the
+    same test so a regression reads as the case a real approach carries.
+  - **Containment still holds for all 63 subsets**, including six — Phase 3's
+    rule, restated here because the stagger moves forks along a road whose ends
+    are not what `ARROW_REACH` bounds, and because `hook` derives its radius from
+    the fork it is given (§2.12.2). Sizes 4 and 5 are asserted **contained but
+    not disjoint**, which is OQ-7 stated as a test rather than left as silence.
+  - **Phase 5's two frame-flip assertions pass unedited**: a `back: ["left"]`
+    head on the opposite side of the band, and a two-way left-turn lane symmetric
+    under a 180° rotation about the band centre. If either needs editing, the
+    stagger was applied outside the frame. A **third** is added for the case the
+    existing pair cannot see — `directions: ["left","through","right"]` with the
+    same `back` — since a staggered fork is the first thing that could make the
+    two ends disagree along the road while still passing both.
+  - **The tests that legitimately change are named rather than discovered**:
+    every existing assertion on a *multi-branch* arrow's coordinates. Phase 5's
+    "every existing arrow test passes untouched" does not transfer (§2.12.2) —
+    the shape is deliberately different — so the gate is that single-branch
+    arrows are byte-identical and multi-branch ones move, which is the assertion
+    that catches a stagger applied to a lone `through`.
+  - **One mutation, run and recorded**: key the fork offset on the branch
+    *count* instead of the bearing (§2.12.2's rejected rule). It passes the
+    disjointness test and fails only an assertion that a `right` head sits in the
+    same place whether or not `left` is also painted — so if fewer than one test
+    catches it, the gate is short that assertion.
+  - A `bun run dev` pass: paint `left + through + right` on one lane and confirm
+    it reads as three turns; then import `cross-4` and confirm its two-branch
+    arrows still read. The second half is the one that matters — imported paint
+    is what §2.12.1 says made this a defect rather than a curiosity.
+- **Docs touched:** `rules/marking-kinds.md`, whose turn-arrow section states one
+  fork for all branches; `TURN_ARROW_LENGTH`'s doc comment (`geometry.ts`), whose
+  "its footprint along the road does not depend on which directions are chosen"
+  Phase 5 already dented and this one settles; and the project-memory roadmap.
+  **Not** touched: `rules/road-markings.md`, which is the marking as an object a
+  human owns rather than what it paints, and `import.rs`, whose setback derives
+  from a constant that does not move.
