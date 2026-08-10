@@ -2,7 +2,7 @@
 id: zk-005
 title: ramps-and-tapers
 status: accepted
-last_updated: 2026-07-31
+last_updated: 2026-08-10
 note: >
   Draw the transitions between roads — lane-count tapers, ramp gores, and
   junction interiors that follow a divided road's carriageways.
@@ -28,12 +28,17 @@ phases:
     shipped: 2026-07-25
     cut: null
     by: null
+  - name: "Phase 5 — The gore says which way to go round it"
+    reviewed: null
+    shipped: null
+    cut: null
+    by: null
 
 extends: null
 supersedes: null
 superseded_by: null
 related: [zk-004, zk-003]
-reference: "Motorway diagram convention as road atlases and variable-message signage use it — tapered lane drops, hatched gore areas at a diverge, a continuous outer edge through a lane change. Not to-scale interchange geometry (that is Assimilator's job), and not the painted chevrons inside a gore, which are markings and belong to the decorations spec."
+reference: "Motorway diagram convention as road atlases and variable-message signage use it — tapered lane drops, chevroned gore areas at a diverge, a continuous outer edge through a lane change. Not to-scale interchange geometry (that is Assimilator's job). The chevrons inside a gore are presentation on the gore glyph, not `Marking`s — corrected 2026-08-10, see §2.9."
 ---
 
 # Ramps and Tapers Spec
@@ -495,6 +500,14 @@ arrow. Those are `Marking`s, and `Marking`/`Sign` rendering is the decorations
 spec's whole subject (road spec §2.7). The gore here is surface and edge lines
 only.
 
+> **CORRECTED 2026-08-10 — the chevrons are not `Marking`s; see §2.9.** The
+> deferral was right and its destination was wrong, which `road_markings_spec.md`
+> §2.10 established on 2026-07-25 and this spec never recorded: a `Marking` is
+> anchored to **one link at one position**, and a gore's chevrons live in a
+> triangle **between two links at a node**, which that anchor cannot express. They
+> are presentation on the gore glyph and come home here, as Phase 5. The rest of
+> this paragraph stands — Phase 4 *did* ship surface and edge lines only.
+
 ### 2.6 Adding an enum variant is not as free as adding a field (constraint, recorded)
 
 §2.3 establishes that a new **field** costs no `SCHEMA_VERSION` bump. A new
@@ -558,7 +571,9 @@ unchanged" as the expected outcome rather than the suspicious one.
 
 - **Not movements or signal plans.** `Movement` stays unrendered; which lanes a
   ramp actually takes is the junction-semantics spec.
-- **Not markings or signs**, gore chevrons included (decorations spec).
+- **Not markings or signs** — *gore chevrons no longer included: **CORRECTED
+  2026-08-10**, they are presentation on the glyph rather than `Marking`s, and
+  §2.9 brings them back into this spec. Markings and signs proper are still out.*
 - **Not variable lane width along a link** — §2.4 rejects it explicitly.
 - **Not a taper on a divided road.** A divided road's lane drop puts four links
   on the node, which is not a through joint (§2.4), so it draws as it does today.
@@ -573,6 +588,104 @@ unchanged" as the expected outcome rather than the suspicious one.
 - **Not the undivided-two-way centreline** — road spec OQ-4, re-deferred; see
   OQ-6 below for where it should actually land and why. (It landed in the
   markings spec, 2026-07-25, as paint rather than as either proposed field.)
+
+### 2.9 The gore says which way to go round it (added 2026-08-10, reopening — Phase 5)
+
+Everything above shipped on 2026-07-25 and is left as it shipped
+(`/Users/ivapo/.claude/skills/spec-driven-dev/spec-authoring.md` §6.1). This
+section is the reopening, and it adds the one thing §2.5 deferred to the wrong
+place: **the paint inside the triangle.**
+
+Phase 4 drew the gore as a hatched triangle with two edge lines, and the hatch is
+borrowed — it is `#road-hatch`, the *shoulder* pattern, reused because it already
+existed and costing §2.5 a widened `<defs>` emission condition to get at. A
+shoulder hatch says "this strip is not a running lane". A gore says something
+stronger and more specific: **go round this, and here is the side you are on.**
+That is what chevrons say and hatching cannot.
+
+#### 2.9.1 The trap: the glyph does not know which way traffic goes, and chevrons must
+
+§2.5 made a virtue of direction-blindness, and was right to: the arm pair is "the
+pair with the smallest angle between their directions … with no direction of
+travel consulted either time", and **one `gore` variant covers both diverge and
+merge** because the geometry is identical. Chevrons break that symmetry, and this
+is the whole design problem.
+
+`gore(...)` returns `[nose, fa, fb]` — the nose where the two inner edges meet,
+near the node, and the base `GORE_LENGTH` out. Which end the driver arrives from
+is **opposite in the two cases**:
+
+| Case | Traffic | Approaches the gore from | Chevrons point |
+|---|---|---|---|
+| Diverge | arrives on the third arm, splits | the **nose** end | at the nose |
+| Merge | arrives on both legs, joins | the **base** end | at the base |
+
+Draw one orientation for both and half of all gores point the wrong way — a
+drawing that looks entirely deliberate and states the opposite of what it means.
+That is the same silent-mirror class this corpus keeps catching: the give-way
+teeth (`road_markings_spec.md` §2.7), the lane numbering
+(`lane_arrows_spec.md` §2.5.1), and the rear head's frame (markings §2.11). It
+gets the same treatment — **one derivation, named, tested against both cases.**
+
+**The derivation costs no new field.** `Arm.dir` is geometric and points outward
+whatever the traffic does, which is why §2.5 could not consult it. But the link
+itself carries the answer: for each of the pair, the node is either the link's
+`from_node` (traffic **leaves** — outbound) or its `to_node` (traffic **arrives**
+— inbound). Both outbound is a diverge; both inbound is a merge. Nothing is added
+to the model, no control appears, and §2.5's arm-*picking* rule is untouched —
+direction is consulted only to orient the paint, after the pair is already chosen.
+
+**The mixed case is a floor, not an error.** One arm in and one out is a gore the
+human built by hand out of two links that do not diverge or converge, and an
+imported fragment can hold one too. It draws the **diverge** orientation, on the
+same posture §2.5 takes for a node with more than three arms — "the closest pair
+still wins" — and for the same reason: a drawing that still looks deliberate beats
+one that silently loses its paint.
+
+#### 2.9.2 The chevrons replace the hatch, and that is the phase's one visual change
+
+A real gore carries **one** treatment. Chevrons laid over hatching read as a
+mistake, and this repo has already settled the general form of that question:
+markings OQ-3 chose *replace* over *overpaint* for a lane line, on the grounds
+that overpainting leaves the old mark showing through the gaps. The same argument
+holds here and the gaps are larger.
+
+So `GoreShape` paints chevrons where it painted `#road-hatch`, and two
+consequences follow that a reader would otherwise meet at implementation time:
+
+- **§2.5's widened `<defs>` condition becomes dead and narrows back.** Phase 4
+  widened `hasShoulder` — which it renamed `Diagram.tsx:needsHatch` for exactly
+  this reason — to fire for a gore glyph, so the borrowed pattern existed.
+  With the borrowing gone it is a shoulder test again, and the rename should
+  arguably go back with it. **Phase 4's gate test inverts**: "a document with a
+  gore and no shoulder lane emits the `<pattern>`" becomes "emits none". That is a
+  shipped assertion changing meaning, so it is named here rather than discovered —
+  and `.jn-gore-hatch`, asserted twice in `Diagram.test.tsx`, goes with it.
+- **Every existing gore changes appearance.** There is no way to add the paint a
+  gore wants without that, and it is the point of the phase rather than a cost of
+  it.
+
+#### 2.9.3 Count is derived, pitch follows, and containment is constructional
+
+The gore is a triangle, so a chevron's span is the triangle's local width at its
+station along the axis — narrow at the nose, widest at the base. The fan is laid
+out the way `spanCells` lays out give-way teeth
+(`road_markings_spec.md` OQ-2, shipped): **take the count from the length and let
+the pitch follow**, so the chevrons tile the axis exactly with no partial one at
+either end. Containment is then a property of the construction rather than a clamp
+each chevron has to remember — a chevron on the wrong side of an edge line is the
+failure this rules out, and it is the same failure `ARROW_REACH` rules out for a
+turn arrow.
+
+Every dimension is a schematic build constant in the manner of `GORE_LENGTH` and
+`TAPER_LENGTH` (§2.8), settled in the app. They scale with the glyph's `scale`,
+as `GORE_LENGTH` already does, and carry **no `vector-effect`** — paint scales
+with the drawing it is on, which is what makes a canvas and an export
+byte-identical in what they paint (`rules/marking-kinds.md`).
+
+**No model change, no `SCHEMA_VERSION` move, no Rust, no new action and no new
+control.** The chevrons are derived entirely from the gore's own geometry and the
+directions of the two links it already found.
 
 ## 3. Open questions
 
@@ -640,6 +753,24 @@ unchanged" as the expected outcome rather than the suspicious one.
   Phase 4, or leave it for the junction-semantics spec? (design-call; proposed:
   leave it — this spec's glyph work is the gore, and scope discipline says name
   the thing precisely.)
+- **OQ-8 — does the hatch survive under the chevrons at figure scale?** §2.9.2
+  replaces it, on markings OQ-3's replace-don't-overpaint rule. The counter-case
+  is scale rather than taste: a whole-network figure prints a gore small, and a
+  solid hatch reads as "not road" at a size where individual chevrons have
+  collapsed into noise — which is the one job the borrowed pattern was doing well.
+  Keeping both would also keep §2.5's widened `<defs>` condition alive and leave
+  Phase 4's assertion untouched, so the cheaper answer is not obviously the wrong
+  one. (design-call; **proposed: replace**, and settle it in the Phase 5 dev pass
+  by printing one gore at figure scale rather than at editing zoom. Does not block
+  the phase — it changes one polygon.)
+- **OQ-9 — should a `gore` whose two arms disagree be drawn at all?** §2.9.1
+  floors the mixed in/out case to the diverge orientation so the drawing stays
+  deliberate. The alternative is to draw the triangle with **no** chevrons — still
+  a gore, visibly declining to claim a direction — which is arguably the more
+  honest schematic and is one branch either way. It matters more than it looks:
+  an imported fragment can hold this case, and `endpoint` arms make it reachable
+  without anyone drawing anything odd on purpose. (design-call; proposed: the
+  floor, matching §2.5's "the closest pair still wins". Worth a round-0 challenge.)
 
 ## 4. Implementation phases
 
@@ -831,3 +962,68 @@ Strictly sequential; each is one plan-mode pass with a concrete exit gate.
   a gap — §1's dropped lane leaves *as* the ramp, and the gore is what closes the
   picture. `Arm` gained an `id` for `gorePair`'s tie-break, and `hasShoulder`
   became `needsHatch`.
+
+### Phase 5 — The gore says which way to go round it  (added 2026-08-10)
+
+Added by reopening (`/Users/ivapo/.claude/skills/spec-driven-dev/spec-authoring.md`
+§6.1). Phases 1–4 are untouched and this depends on Phase 4. **It has not passed
+its scoped review round (§7) and nothing in it may be planned or implemented until
+it has** — the gate is on the phase, not on the document.
+
+- **Scope:** §2.9 — the gore paints chevrons that say which way traffic goes round
+  it. **TypeScript only** — no model change, no Rust, no `SCHEMA_VERSION` move, no
+  new action, no new control, and `GORE_LENGTH` does not move.
+  - `geometry.ts` — `goreChevrons(nose, fa, fb, toward)` returning one polyline
+    per chevron, laid out along the triangle's axis of symmetry. The count comes
+    from the axis length and the pitch follows (§2.9.3), as `spanCells` does for
+    the tiled marking kinds, so the fan tiles the axis exactly and containment is
+    constructional rather than clamped. Its build constants — pitch, the chevron's
+    included angle, its stroke — sit beside `GORE_LENGTH` and are settled in the
+    app.
+  - `geometry.ts` — `goreFlow(...)` (naming to be settled in review), the one
+    derivation of §2.9.1: given the chosen pair and the node, both links outbound
+    is a diverge, both inbound a merge, anything else the diverge floor. It takes
+    the `from_node`/`to_node` the model already carries and adds no field. **Pure,
+    so `geometry.test.ts` can put both cases and the mixed one through it.**
+  - `Diagram.tsx` — `GoreShape` swaps its `.jn-gore-hatch` polygon for a
+    `.jn-gore-chevrons` path, keeping `.jn-gore` (the surface) and the edge-line
+    path exactly as they are: §2.5's two-layer reasoning still holds, since a
+    chevron on bare paper needs the surface under it just as the hatch did.
+    `needsHatch` narrows back to a shoulder test (§2.9.2).
+  - `diagram.css` — the chevron paint, **no `vector-effect`**, so canvas and
+    export paint identically.
+- **Exit gate:** `bun run build` + `bun run test` + `cargo test` green, with
+  `cargo test` **unchanged** — no Rust is touched, so a moved count means
+  something escaped the scope.
+  - `geometry.test.ts`, and this is the phase: **the chevrons of a diverge point
+    at the nose and those of a merge point at the base**, off the same three-arm
+    geometry Phase 4's closest-pair test already uses, so one fixture pins both.
+    That is the §2.9.1 trap, and it is the assertion a single fixed orientation
+    passes half of. The mixed in/out case takes the diverge floor (or OQ-9's other
+    answer, if review takes it) rather than throwing.
+  - **Every chevron is inside the triangle**, at every gore angle and every
+    `scale` — the containment rule §2.9.3 makes constructional, asserted the way
+    markings assert it for the tiled kinds. A chevron outside an edge line is the
+    failure this rules out.
+  - **The count is derived, not fixed**: a longer gore carries more chevrons at
+    the same pitch, which is what distinguishes the §2.9.3 rule from a magic
+    number and what a hard-coded three would pass without.
+  - **Phase 4's two hatch assertions change, and are named rather than
+    discovered** (§2.9.2): the `<pattern>`-with-a-gore-and-no-shoulder test
+    inverts, and the two `.jn-gore-hatch` assertions in `Diagram.test.tsx` become
+    `.jn-gore-chevrons`. What must hold unedited: `.jn-gore`'s surface polygon and
+    the `road-edge jn-gore-edge` path, whose points Phase 4 pinned — the chevrons
+    are paint *inside* a triangle neither of those may move.
+  - `export.test.ts`: a gore document's `url()` count **drops**, since the gore no
+    longer references the pattern — the same expected-change check Phase 4 ran in
+    the other direction.
+  - A `bun run dev` pass: build a diverge and a merge from the same three links
+    and confirm the chevrons reverse between them; then print one gore at **figure
+    scale**, which is where OQ-8 is settled rather than argued.
+- **Docs touched:** `rules/road-joints.md`, which documents the gore as a hatched
+  triangle; this spec's §2.5 and §2.8 already carry their dated `CORRECTED` notes
+  (2026-08-10, written when the phase was drafted, since the ownership claim was
+  already false before this phase existed); `road_markings_spec.md` **OQ-4**, which
+  asked where the chevrons go and is answered by this phase landing; and the
+  project-memory roadmap. **Not** touched: `rules/marking-kinds.md`, since a
+  chevron is deliberately not a `Marking`.

@@ -796,12 +796,20 @@ holds it, and the gate deliberately asserts nothing either way at those sizes.
   two Span entries that land there would otherwise behave differently. The rule
   as shipped is "a lane line takes over whatever derived line sits at its
   offset", divider and shoulder line alike.
-- **OQ-4** — **Where do the gore's chevrons actually go?** §2.10 establishes they
+- **OQ-4** — **Where do the gore's chevrons actually go?** **RESOLVED (2026-08-10)
+  — the follow-up, as proposed, and `§6.1`'s ordered test says so independently of
+  the taste argument.** They are `specs/ramps_and_tapers_spec.md` **Phase 5**
+  (§2.9 there), appended by reopening: the gore is that spec's subject, its rollup
+  is `done` rather than `abandoned`, and nothing shipped is removed. The reason is
+  sharper than this OQ's "shares nothing with the marking pipeline but the word
+  paint" — it is **subject ownership**, which is what the test turns on. Two things
+  came with it: ramps §2.5 and §2.8 gained dated `CORRECTED` notes, since that spec
+  still claimed the chevrons were `Marking`s in three places and a reader of it
+  never reaches §2.10 here; and the design there had to answer a question this OQ
+  did not see, that a `gore` glyph deliberately does not know which way traffic
+  goes while a chevron must. The rest of this OQ stands. §2.10 establishes they
   are not `Marking`s. They are a small addition to `GoreShape` needing no model
-  change — a fan of chevrons along the gore's axis of symmetry. Fold into this
-  spec as a fifth phase, or make it a one-off follow-up to the ramps spec?
-  (design-call; proposed: a follow-up, since it shares nothing with the marking
-  pipeline but the word "paint".)
+  change — a fan of chevrons along the gore's axis of symmetry.
 - **OQ-5** — **Should the marking tool snap along the road?** Free placement is
   simplest, but a stop line a human meant to put "at the junction" will sit a few
   units short of it and look sloppy. A snap to the junction pad's rim — the
