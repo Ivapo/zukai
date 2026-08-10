@@ -9,11 +9,12 @@ sources:
   - src/editor/state.ts
 covers: >
   reading Assimilator's network.yaml: the serde mirror and what earns a place in
-  it, the header and version probe, the scale and the two lane-numbering
-  conventions, what import throws away, the one number it keeps off the polyline,
-  and the turn arrows it mints, and why there is no writer
-max_lines: 300
-generated: 2026-08-09
+  it, the header and version probe, the scale and the fitted factor that places
+  nodes, the two lane-numbering conventions, what import throws away, the one
+  number it keeps off the polyline, and the turn arrows it mints, and why there is
+  no writer
+max_lines: 315
+generated: 2026-08-10
 ---
 
 # `network.yaml`
@@ -120,17 +121,34 @@ One inert difference, recorded so nobody "fixes" it: Assimilator's `MovementType
 is `rename_all = "lowercase"` and this one is `snake_case`. Every variant is one
 word and `UTurn` is renamed on both sides, so the wire forms match.
 
-## The scale, and the y that is a compass bearing
+## The scale, the fit, and the y that is a compass bearing
 
-`metres_to_canvas` **scales by `UNITS_PER_METRE`** = `9 / 3.5` (a hand-mirror of
-`geometry.ts`, written out literally because Rust has neither half) and **negates
-y** — SVG's y grows down, the metric frame's grows up, so a node 300 m **south** of
-the origin lands at a **positive** canvas y. Getting the sign wrong mirrors the
-whole network: self-consistent, silently wrong, and it passes any test written from
-the same premise, so every test names a **compass bearing** rather than a sign.
+`metres_to_canvas(point, units_per_metre)` **negates y** — SVG's y grows down, the
+metric frame's grows up, so a node 300 m **south** of the origin lands at a
+**positive** canvas y. Getting the sign wrong mirrors the whole network:
+self-consistent, silently wrong, and it passes any test written from the same
+premise, so every test names a **compass bearing** rather than a sign. **The scale is
+the caller's and the negation is not** — one line, one home, which is why the factor
+below is a parameter rather than a second converter.
 
-A 500 m arm therefore arrives 1285 canvas units long against a 9-unit lane —
-**true to life and wrong for a schematic**, which is the intended outcome.
+**`layout_factor` places nodes for legibility, not fidelity**: fit the node box's
+**longer** side (a collinear network has a zero one) into `LAYOUT_EXTENT` = **500**
+units, clamped at `UNITS_PER_METRE` = `9 / 3.5`, a hand-mirror of `geometry.ts`. The
+clamp is one-directional — import **shrinks what does not fit and leaves everything
+smaller at true scale**, or a 50 m slip road inflates to 56 lane-widths from the
+other side. `t_junction` (1000 m) takes 0.5 and `cross-4` (200 m) 2.5, so each draws
+a **250-unit arm** against a 9-unit lane: 28 lane-widths where true scale gave 143.
+It binds below ~194 m, and one guard (`fitted.is_finite() && fitted > 0.0`) covers no
+nodes, one node and any number at one point — all of which reach an importer that
+does not validate.
+
+The constant does **four** jobs and the factor moves only the first: node placement,
+lane widths, marking positions, the length label. So a road keeps its true width and
+states its true length while the drawing shrinks around it, and an arrow cancels the
+constant out to sit `1.5 × TURN_ARROW_LENGTH` clear at any factor. **Nothing stores
+the factor** — storing it and bumping `SCHEMA_VERSION` were the *round trip's* price,
+and no writer is left to be an inverse. The document records the resulting positions,
+as a `.zkai` always has, so no reader can ask what scale a drawing is at.
 
 ## The two projects number lanes in opposite directions
 
@@ -168,9 +186,10 @@ Nothing migrates a `.zkai` saved from an earlier import.
   total, and only there.** The *shape* still goes and nothing on the canvas is
   placed from it; `geometry_length` sums the segments in metres into
   `Link.length`, which the drawing states as a **label** (`500m`). So an imported
-  `t_junction` arm says 500 m while the canvas holds its ends 1285.71 units
-  apart — two independent records of one road, and this spec's answer to OQ-2
-  (`specs/link_length_spec.md` §2.2, Phase 2).
+  `t_junction` arm says 500 m while the canvas holds its ends 250 units apart — two
+  independent records of one road, and this spec's answer to OQ-2
+  (`specs/link_length_spec.md` §2.2, Phase 2). Since the layout factor they differ
+  by a number stored nowhere, so the decoupling is structural.
   - **It is not the frontend's `polylineLength`**, and the two must not be
     confused: that one measures the *drawn* polyline in canvas units and is
     forbidden from reaching `Link.length`. Import is the only place both numbers
@@ -305,10 +324,8 @@ Not a to-do list:
 - **The proof run with it** — an exported `cross-4` through Assimilator's own
   simulator, which passed and matched figure for figure. Worth knowing it *worked*:
   the export was cut for being outside this project's purpose, not for being broken.
-- **The scale problem it exposed is still open**, and belongs to import alone.
-  Checking the two fixtures against each other shows **no fixed constant serves
-  both**, so fit-to-extent is the only live answer — and it needs the factor stored
-  per document, which is a `SCHEMA_VERSION` bump. The one piece of this area a
-  figure actually wants.
+- **The scale problem it exposed is answered**, by `layout_factor` above. The stored
+  factor and the version bump it seemed to need were the round trip's price, not the
+  layout's.
 - **Opaque round-trip of the dropped blocks**, considered and refused; **merge on
   import**; **auto-layout**. Import replaces the document.

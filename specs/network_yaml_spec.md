@@ -2,7 +2,7 @@
 id: zk-009
 title: network-yaml
 status: accepted
-last_updated: 2026-08-09
+last_updated: 2026-08-10
 note: >
   Read and write another project's `network.yaml`. The import half shipped
   and stands; the export half was built and then cut by decision. Read §0
@@ -31,7 +31,7 @@ phases:
     by: zk-009
   - name: "Phase 5 — Import lays out for legibility"
     reviewed: 2026-08-09
-    shipped: null
+    shipped: 2026-08-10
     cut: null
     by: null
 
@@ -73,17 +73,17 @@ and `Movement`'s five round-trip fields (`from_lanes`, `to_lanes`, `priority`,
 fail quietly is kept in `rules/network-yaml.md`, because every entry in it
 describes a *write*, and that is the clearest argument against rebuilding this.
 
-**What is still open, and belongs to import alone:** OQ-2's **layout**, which is
-what is left of it since 2026-08-09. That one *does* serve a figure — a network
-nobody can drag into shape is a network nobody can draw. The *length* half of
-OQ-2 is answered and built: a real length crosses as a **label**, not as a
-distance (`specs/link_length_spec.md` Phase 2).
+**Nothing is open here any more.** The last of it was OQ-2, and both halves are
+now answered *and built*. The **length** half crosses as a **label** rather than
+as a distance (`specs/link_length_spec.md` Phase 2). The **layout** half shipped
+as Phase 5 on 2026-08-10: import fits the network to a legible frame, so a
+network nobody could drag into shape is now one that arrives drawn.
 
-**Now specced as Phase 5 (2026-08-09), and the cut is what made it cheap.** OQ-2
-had held that fit-to-extent needs the factor stored per document, behind a
-`SCHEMA_VERSION` bump. That cost was the *round trip's*, not the layout's — and
-with no writer there is no inverse to preserve. §2.6.1 is the design and OQ-2
-carries the resolution; §2.6 keeps a `CORRECTED` note pointing at both.
+**The cut is what made Phase 5 cheap.** OQ-2 had held that fit-to-extent needs
+the factor stored per document, behind a `SCHEMA_VERSION` bump. That cost was the
+*round trip's*, not the layout's — and with no writer there is no inverse to
+preserve, so the whole phase is arithmetic in one function. §2.6.1 is the design
+and OQ-2 carries the resolution; §2.6 keeps a `CORRECTED` note pointing at both.
 
 ## 1. Goal
 
@@ -1159,3 +1159,50 @@ zoom. Nothing here adds a panel, a table or a file.
   the number becomes 250; and the project-memory roadmap. **Not** touched:
   `link_length_spec.md`'s As-built notes, which record what was measured on
   2026-08-09 and are history rather than current state.
+
+#### As built (shipped 2026-08-10)
+
+Everything above landed as designed: one constant, one function, one changed
+production line, five new tests and two edited ones. `cargo test` 63 → **68**,
+vitest **391 unchanged**, `SCHEMA_VERSION` still 2, no TypeScript. Four things
+worth recording:
+
+- **The gate's two protections could not both hold, and the conflict was a fact
+  about this crate rather than about the design.** Phase 5 asked that
+  `metres_to_canvas` keep its signature *and* that `layout_factor` return a bare
+  `f64`. Give the factor to a new sibling and `metres_to_canvas` has no
+  production caller left — and an unreachable item in this private module fails
+  `clippy --all-targets -- -D warnings` on `dead_code`, which is the exact
+  constraint `lib.rs` already records from Phase 1's `pub mod`. Resolved the way
+  §2.6.1's own "or passes the factor in — the plan chooses" allows: the converter
+  takes the scale as a parameter, the y-negation keeps its single home, and
+  `a_node_300_metres_south_lands_at_a_positive_canvas_y` gains one argument while
+  asserting exactly what it did before. **The rule this leaves behind: in this
+  module a function with no production caller is a lint failure, not dead
+  weight**, so "add a sibling" is never free here.
+- **The degenerate cases cost no branch**, the same dividend `geometry_length`
+  paid a phase earlier. Folding the bounding box from `±INFINITY` makes an empty
+  network's extent `-inf` and a single point's `0`, so `fitted` comes out
+  non-finite or negative and the one guard — `is_finite() && > 0.0` — turns all
+  three of the gate's cases into true scale without naming any of them.
+- **The two-fixture assertion is the phase, and one fixture could not have been.**
+  `t_junction` at 1000 m and `cross-4` at 200 m landing on *one* drawn extent of
+  250 units is what separates fitting the drawing from rescaling the world; a
+  single network can be made to land on any figure. The mutation the gate asked
+  for — applying the factor to `Lane::width` as well as to `point` — failed
+  exactly the two predicted tests (`t_junction_imports_with_its_ids_intact` and
+  `import_link_renumbers_the_lanes_from_the_kerb`), neither of which asserts a
+  node position, which is why the gate named a count rather than a test.
+- **The dev pass could not drive the Tauri window and could not use `tauri dev`
+  either.** Port 1420 was held by another project's Vite (`Muyu`), which is the
+  second time that has cost a dev pass here, so the app was run against the built
+  `dist/` with `cargo run --features tauri/custom-protocol` — **worth reusing: it
+  gives a real window and real IPC with no dev server at all.** The menu bar
+  drove fine and File ▸ Import network… opened the panel, but `System Events`
+  then reported 0 windows and `screencapture` is refused in this shell, so what
+  was observed is `link_length_spec.md`'s fallback: the real importer's document,
+  through `normalizeDocument`, into the real `diagramSvg`. The whole T renders in
+  **580 × 230 units** including a 40-unit margin — inside an 800 × 600 viewport
+  at 100% zoom — with `500m`, `500m` and `300m` on its three arms and the turn
+  arrows clear of the pad. Before the phase the same drawing was 2571 units wide.
+  A human still owns the "click Import and look" half.
