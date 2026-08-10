@@ -30,7 +30,7 @@ phases:
     cut: 2026-07-27
     by: zk-009
   - name: "Phase 5 — Import lays out for legibility"
-    reviewed: null
+    reviewed: 2026-08-09
     shipped: null
     cut: null
     by: null
@@ -524,7 +524,7 @@ multiplies by `UNITS_PER_METRE` (`9 / 3.5`, or 2.5714 units per metre). A lane i
 | Fixture | Node bounding box | Extent | At true scale | One arm | Arm in lane-widths |
 |---|---|---|---|---|---|
 | `cross-4` | 200 × 200 m | 200 m | 514 units | 100 m → 257 units | **28** |
-| `t_junction` | 1000 × 300 m | 1000 m | 2571 units | 500 m → 1286 units | **143** |
+| `t_junction` | 1000 × 300 m | 1000 m | 2571 units | 500 m → 1285.7 units | **143** |
 
 Both boxes are read from the committed fixtures' own `point:` keys, not inferred:
 `cross-4` runs `[0,0]`–`[200,0]` and `[100,-100]`–`[100,100]`, and `t_junction`
@@ -590,10 +590,10 @@ always recorded. So Phase 5 needs no new field and no version bump, and
 no nodes has no bounding box. A file with one node has a box of zero size. A file
 whose nodes are collinear has one side of zero, which is why the extent is the
 **max** of the two sides and not both. Each case makes `fitted` non-finite or
-zero, so one guard covers all three: if `fitted` is not finite and greater than
-zero, use `UNITS_PER_METRE`. Import does not validate what Assimilator wrote
-(§2.5), so this is the same posture `kerb_lane` takes towards an out-of-range lane
-index.
+zero, so one guard covers all three: use `UNITS_PER_METRE` unless `fitted` is
+finite **and** greater than zero (`fitted.is_finite() && fitted > 0.0`). Import
+does not validate what Assimilator wrote (§2.5), so this is the same posture
+`kerb_lane` takes towards an out-of-range lane index.
 
 **Two limits, named rather than fixed.**
 
@@ -1088,7 +1088,9 @@ zoom. Nothing here adds a panel, a table or a file.
     metres to canvas. The y-negation stays in exactly one place either way.
   - `src-tauri/src/network/import.rs` — `network_to_document` computes the factor
     **once**, from `net.nodes`, before the node loop, and applies it at the one
-    call site that seeds `layout.nodes`. No other line in the file changes.
+    call site that seeds `layout.nodes`. No other **production** line in the file
+    changes — the gate below names the two tests in its `#[cfg(test)]` module
+    that do.
   - **Nothing else scales.** `geometry_length` keeps summing metres into
     `Link::length`, `Lane::width` stays in metres, and `ARROW_SETBACK_METRES`
     keeps dividing by `UNITS_PER_METRE` (§2.6.1's four jobs).
@@ -1105,8 +1107,9 @@ zoom. Nothing here adds a panel, a table or a file.
     mutation that drops the clamp leaves this test green and breaks the small-
     network one below, so both are needed.
   - **A network under the clamp is untouched.** An inline fixture spanning 50 m
-    keeps true scale (129 units, not 500). This is the test that fails if
-    `min` becomes `max`, or if the clamp is dropped.
+    keeps true scale — assert `50.0 * UNITS_PER_METRE` (≈ 128.6 units), the
+    expression rather than a rounded literal, and not 500. This is the test that
+    fails if `min` becomes `max`, or if the clamp is dropped.
   - **Three degenerate inputs return `UNITS_PER_METRE` rather than a panic or a
     `NaN`**: no nodes, one node, and two nodes at the same point. All three reach
     `network_to_document` today (§2.5 — import does not validate).
@@ -1126,10 +1129,11 @@ zoom. Nothing here adds a panel, a table or a file.
   - **The label still states the road, not the drawing.**
     `the_label_states_metres_while_the_canvas_holds_units` is the one existing
     test whose *numbers* change and whose *point* does not: `link.length` stays
-    `Some(500.0)` and the drawn separation becomes 250 units, so the gap between
-    the two widens from 2.6× to 2×. Edit the units, keep the metres, and keep the
-    comment — it is `link_length_spec.md` §2.2's decoupling and this phase makes
-    it wider rather than weaker.
+    `Some(500.0)` and the drawn separation becomes exactly 250 units. Edit the
+    units, keep the metres, and keep the comment — it is `link_length_spec.md`
+    §2.2's decoupling, and this phase makes it *structural*: the two numbers now
+    differ by a fitted factor no reader can recover from the document, where
+    before they differed by one global constant.
   - **One other existing test changes and it is expected:**
     `the_southern_node_seeds_a_positive_canvas_y`, which asserts
     `500.0 * UNITS_PER_METRE`. Its *shape* assertions — west at the origin, the
@@ -1148,7 +1152,8 @@ zoom. Nothing here adds a panel, a table or a file.
     zoom — is the thing this phase is meant to retire, so `t_junction` is the
     fixture to open.
 - **Docs touched:** `rules/network-yaml.md`, whose scale section states the 1285-
-  unit figure in three places and needs the factor added beside `metres_to_canvas`;
+  unit figure in two places (grep for it rather than trusting a count) and needs
+  the factor added beside `metres_to_canvas`;
   **`CLAUDE.md`**, whose Project Overview carries "the canvas holds its ends 1285
   units apart" as its worked example of the decoupling — the sentence stays and
   the number becomes 250; and the project-memory roadmap. **Not** touched:
