@@ -13,7 +13,7 @@ covers: >
   what a junction means rather than what it looks like — control and rule, which
   layer owns each part, the glyph-versus-control split and its nudge, the two
   actions, and the one turn vocabulary left in the model
-max_lines: 200
+max_lines: 215
 generated: 2026-08-08
 ---
 
@@ -87,7 +87,9 @@ picker write `control`".
 
 - **`JunctionView.glyph` is presentation** — one of six drawings, dropped on
   export, chosen because it reads well on the page. `roundabout` and `gore` carry
-  no control meaning at all, and `t_junction` is a *shape*, not a rule.
+  no control meaning at all, and `t_junction` names a *shape*, not a rule — a
+  shape the arms now draw on their own, which is why it is on its way out
+  (`specs/junction_glyphs_spec.md` Phase 2).
 - **`Junction.control` is semantics** — two values, orthogonal to how the
   intersection is drawn. A signalised junction drawn as a plain pad is a
   legitimate schematic choice; a roundabout can be signalised.
@@ -182,11 +184,18 @@ between the pad and the stop bars, and `Diagram.test.tsx` pins that adjacency as
 **literal slice** rather than an index comparison: the arcs used to be drawn there,
 and an ordering assertion passes for anything painted invisibly under `.jn-pad`.
 
+**The pad is the roads that meet there, not a disc** — one band per arm, clipped
+to the rim, as one nonzero `<path class="jn-pad">` (`padShape`). So a three-arm
+node reads as a T because it *has* three arms, and the drawing is `rules/
+road-joints.md`'s subject. The `<circle>` survives for a junction with **no** arms,
+which has no roads to follow and still has to be clickable.
+
 Where the glyph *reaches* — `Arm`, `junctionArms`, `padRadius`, `ringRadius` and
 the exported `junctionRadius` — lives in `geometry.ts` rather than the render
 body, because an `end`-anchored marking measures its clearance from that rim.
 `junctionRadius` carries its own exclusion list and **does not exclude a
-roundabout**: a ring buries an approach arrow exactly as a pad does.
+roundabout**: a ring buries an approach arrow exactly as a pad does. **The rim is
+still a circle** and none of it moved when the pad stopped being one.
 
 ## Where each piece lives
 
@@ -213,6 +222,11 @@ simply correct. A grep, not a runtime assertion.
 Nothing below is scheduled work. **The turn movements are cut** — model relation,
 drawn arcs, panel list and Derive, all four. **Signal plans are cut entirely**,
 Phase 1 included: a plan is a table, its only drawable form is a stage diagram,
-and this project prints network figures. And **`t_junction` still draws a plain
-pad**, like `generic` (ramps OQ-7, declined as junction semantics OQ-5) — the
-glyph vocabulary is presentation and wants a rendering pass, not a semantic one.
+and this project prints network figures.
+
+**The gap that was here is closed, and by the pass it named.** `t_junction` drew a
+plain pad, like `generic` (ramps OQ-7, declined as junction semantics OQ-5), on the
+reasoning that the glyph vocabulary is presentation and wants a rendering pass.
+That pass is `specs/junction_glyphs_spec.md`: its Phase 1 made **every** pad follow
+its arms, so a three-arm node draws as a T with nobody picking anything, and Phase 2
+retires the variant that promised to.

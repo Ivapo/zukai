@@ -9,10 +9,10 @@ sources:
   - src-tauri/src/model/layout.rs
 covers: >
   what is drawn where links meet a node: the arms and the two radii, the rim
-  three things measure to, taper wedges at a through joint, and the gore
-  between two separating arms — its triangle, its chevrons, and the one
-  derivation that faces them at the driver
-max_lines: 190
+  three things measure to, the pad that follows the arms inside it, taper
+  wedges at a through joint, and the gore between two separating arms — its
+  triangle, its chevrons, and the one derivation that faces them at the driver
+max_lines: 245
 generated: 2026-08-10
 ---
 
@@ -73,6 +73,55 @@ broken one.
 **Still open (ramps OQ-4):** the node *dots* draw at the node position, so an
 endpoint or waypoint on a divided road sits in the median. `Arm.origin` makes "one
 dot per carriageway" cheap; whether it *should* show that is the question.
+
+## The pad is the roads, not a disc — and it stays inside the rim
+
+`padShape(arms, center, r)` returns **one closed ring per arm**, in the glyph's
+frame. A ring is that arm's **band** — at or ahead of the line through the centre
+perpendicular to `dir`, within `width / 2` of the arm's own axis — intersected
+with the disc of radius `r`: two straight sides, a straight inner cut, and an
+outer arc. `JunctionGlyphShape` emits them as subpaths of one
+`<path class="jn-pad">`. Rationale: `specs/junction_glyphs_spec.md`.
+
+- **The rim did not move, and containment is *why* nothing else had to.** The
+  three consumers above measure **along an arm** to a circle, and a ring ends
+  exactly where `rayCircleExit` says because a vertex is **forced** at that point.
+  That is the reusable part: it was tempting to generalise all three to an
+  arbitrary outline — a rim abstraction, a ray-versus-polygon exit, three call
+  sites rewritten — and none of it is needed, because `pad ⊆ disc(r)`. A band
+  merely run out to the rim with a **flat end** breaks it: its corners land at
+  `sqrt(r² + (w/2)²)`, outside the hit target and the halo both.
+- **The union is rendered, never computed.** The default nonzero rule reads
+  overlapping bands as one area, so there is no boolean union in this repo and
+  `.jn-pad` must never set `fill-rule`. The cost is one discipline: **every ring
+  winds the same way**, or two overlapping rings cancel into a hole exactly where
+  the roads meet. The frame `(dir, perp dir)` is a rotation, so one vertex order
+  in the arm's own coordinates gives one winding in the drawing's.
+- **The arc is chorded at 10°**, and the bound is stated because containment
+  passes for an inscribed arc at *any* density — 0.10 units of sagitta on a
+  4-lane T, 0.47 on the largest pad the app can make, against a 1.5-unit edge
+  line.
+- **Two numbers that look like one.** Along a **displaced** carriageway the ray
+  exit and the ring's furthest vertex differ — 19.84 against 23.81 on a divided
+  2-lane approach — so anything phrased on the vertex is a different claim.
+- **`[]` for a junction with no arms**, and that branch keeps the `<circle>`: a
+  node the human placed and has not joined must stay visible and clickable.
+- **At the Size floor the pad is round again**, and this is the clamp working
+  rather than a defect: `armReach` floors `r` at `width / 2` for an undivided arm,
+  and a band of half-width `width / 2` intersected with a disc of *that* radius
+  **is** a half-disc.
+
+**One badge is paint on that asphalt and moves with it.** `rayPadExit(rings, p,
+d)` is the ray analogue of `rayCircleExit` for the union — the contiguous run from
+`p`, `0` when `p` is outside every ring, and **boundary-inclusive**, which is
+load-bearing rather than a detail: the glyph centre lies exactly *on* every band's
+inner cut, so a strict outside-test returns `0` everywhere and erases every
+diamond. The priority diamond's half-diagonal is `min(rp * 0.85, s)`, `s` being
+the smallest exit over its four tip directions. A width-derived inradius was
+tried and is wrong — a band is cut at the centre, so one arm contributes a
+half-disc. Where `s` is `0` (a median, one arm, a same-way Y) the bound floors at
+`rp * 0.35`; where there are **no rings at all** it is `rp * 0.85` unchanged,
+since that branch still paints a full disc under the badge.
 
 ## Tapers: a wedge at the joint, never a link that changes width
 
@@ -193,12 +242,16 @@ only while a gore reached the same pattern.
 ## Where each piece lives
 
 `geometry.ts` owns the pure half — `Arm`/`junctionArms`, `padRadius`/`ringRadius`/
-`junctionRadius`, `rayCircleExit`, `JointEnd`, `taperWedge`/`taperWedges`/
+`junctionRadius`, `rayCircleExit`, `padShape`/`rayPadExit`, `JointEnd`,
+`taperWedge`/`taperWedges`/
 `taperEdge`, `GoreArm`/`gorePair`/`gore`/`rayIntersection`,
 `GoreFlow`/`goreFlow`/`goreChevrons`, and the three lengths plus the two chevron
 constants — under `geometry.test.ts`. `Diagram.tsx` turns those into markup:
-`jointEnd`, `tapers`, `TaperShape`, `GoreShape` and the stop-bar loop in
-`JunctionGlyphShape`, tested through `renderToStaticMarkup`. Nothing here reaches
+`jointEnd`, `tapers`, `TaperShape`, `GoreShape`, `diamondHalf` and the stop-bar
+loop in `JunctionGlyphShape`, tested through `renderToStaticMarkup`. The gate on
+the outline is `geometry.test.ts`'s own `inside(rings, p)` and **not**
+`rayPadExit`, or a bug in the helper could mask a bug in the rings it measures.
+Nothing here reaches
 `rules/road-rendering.md`'s `HatchPattern` any more — that borrowing is over.
 Paint is `diagram.css`; `gore` is mirrored in `types.ts` and `layout.rs`.
 Nothing here reaches `state.ts` — a joint is derived from the links meeting at a

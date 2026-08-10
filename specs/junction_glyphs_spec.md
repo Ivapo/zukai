@@ -11,7 +11,7 @@ last_updated: 2026-08-10
 phases:
   - name: "Phase 1 — The pad follows its arms"
     reviewed: 2026-08-10
-    shipped: null
+    shipped: 2026-08-10
     cut: null
     by: null
   - name: "Phase 2 — Retire the glyph the arms made redundant"
@@ -454,8 +454,10 @@ and as the wedge and the gore both were (`zk-005` §2.7).
   reader would thank us for. So **no gap-closing rule, no threshold, and no
   boolean union** — the plain union of §2.2 is what ships, and the Phase 1 dev
   pass looks at a divided approach to confirm the median reads as a median rather
-  than as a crack. *(was: design call. Answered from the geometry, which is what
-  §4 of the conventions asks of a code-answerable question.)*
+  than as a crack. **It does**: the median runs through the junction unbroken, the
+  four quadrant rings sitting either side of it. *(was: design call. Answered from
+  the geometry, which is what §4 of the conventions asks of a code-answerable
+  question.)*
 - **OQ-4** — **Should the badge glyphs be a separate field from the shape?**
   §2.1's table shows the enum is carrying two independent questions — what shape
   the asphalt is, and what mark sits on it — and a human cannot currently ask for
@@ -464,27 +466,27 @@ and as the wedge and the gore both were (`zk-005` §2.7).
   bigger subject than this spec's, and it should be its own if it is ever
   wanted — but it is worth a round-0 challenge, because if the split is coming
   anyway then Phase 2's migration is the cheapest moment to do it.)*
-- **OQ-5** — **What does a `priority_cross` draw when its centre is not paved?**
-  §2.3 bounds the diamond by the pad's own reach in each tip direction, which is
-  `0` whenever **any one** of the four tip directions is unpainted, and this is the
-  full list, since §2.3 points here for it: every approach divided (the glyph
-  centre sits in a median, the obvious case and not the only one); a **single-arm**
-  junction — one node, one link, one glyph pick — whose backward direction is cut
-  off at `p · dir ≥ 0`; and a **Y whose arms all leave the same way**, which fails
-  on the side none of them covers. A zero-size diamond means the glyph silently
-  stops saying "priority"; today's oversized one at least says it, on paper. Draw
-  it at a floor anyway, move it onto one carriageway, or leave the junction
-  badge-less? *(design call; blocks nothing — it is one branch in Phase 1 either
-  way, and the behaviour is deterministic whichever branch is taken. But it is
-  **cheaper to reach than "a median" suggests**, which is why the list above is
-  spelled out rather than left as an example. Proposed: floor the bound at a
-  readable minimum rather than 0, and record it, because a badge that vanishes is
-  harder to diagnose than one that overhangs.)*
-- **OQ-6** — **Does a two-arm junction read oddly once the pad is derived?** A
-  node with two arms and a `junction` kind is really a waypoint the human labelled
-  a junction; today it gets a disc, and after Phase 1 it gets a short fat band
-  that may read as a lump in the road. *(deferred by evidence — the Phase 1 dev
-  pass draws one and looks.)*
+- **OQ-5 — RESOLVED in Phase 1: floor the bound, and only where it is vacuous.**
+  ~~Draw it at a floor anyway, move it onto one carriageway, or leave the junction
+  badge-less?~~ The half-diagonal is `min(rp * 0.85, s)` while `s > 0`, and
+  `rp * 0.35` when `s` is `0` — a badge that vanishes is harder to diagnose than
+  one that overhangs, which was the proposal. **The floor is conditional, and that
+  is the part worth reading**: an unconditional `max(min(rp * 0.85, s), rp * 0.35)`
+  reads the same until §2.3's own T with a 1-lane through road and a 4-lane stem,
+  where it raises a **measured** 6 to 9.51 and puts 3.5 units of yellow back on
+  bare paper — the defect the measured bound exists to remove, and the reason a
+  width-derived form was rejected. `Diagram.test.tsx` pins both branches, and an
+  unconditional floor was run as a mutation and fails the mixed-T assertion.
+  The list this question carries — every approach divided, a **single-arm**
+  junction, a **Y whose arms all leave the same way** — is unchanged and is what
+  the floor answers. *(was: design call. Taken by the user on the Phase 1 plan.)*
+- **OQ-6 — RESOLVED by the Phase 1 dev pass: it reads as a bend, and needs
+  nothing.** ~~A node with two arms may read as a lump in the road.~~ Two arms at
+  an angle draw as a **mitred elbow** — the outer corner squared off where the two
+  bands cross, the inner corner filled to where their edges meet. It reads as a
+  bend a road makes, not as a lump, and it is strictly better than the disc it
+  replaces. No action.
+  *(was: deferred by evidence. The evidence was drawn.)*
 
 ## 4. Implementation phases
 
@@ -586,6 +588,36 @@ a three-arm node reads as a T without anyone picking anything.*
   three rim consumers did not move, and that the reason is containment rather
   than the union — that reasoning is the reusable part); `rules/junctions.md`
   (the glyph table's "one of six drawings"); the project-memory roadmap.
+
+#### As built (2026-08-10)
+
+Shipped as designed. Frontend only, no Rust; 423 vitest (up 17), `cargo test`
+unchanged at 68. `padShape`/`rayPadExit` in `geometry.ts`, `diamondHalf` and the
+`<path className="jn-pad">` branch in `Diagram.tsx`, a comment on `.jn-pad`. The
+rim, the badges' two other members and `strokeAllowance` all needed nothing, as
+§2.3 and §2.5 predicted. Four things worth carrying forward:
+
+- **The gate's two assertions were the only ones that could fail**, and the
+  mutation run proves it rather than asserting it. Six mutations, each failing a
+  **distinct** test: no forced vertex at the ray exit; one chord per half-arc; a
+  flat-ended band; a strict outside-test in `rayPadExit`; alternating ring
+  winding; and OQ-5's unconditional floor. The stop bars, hit disc and halo
+  stayed byte-identical through **all six** — which is exactly §2.3's point that
+  they are a regression check and not a proof.
+- **The winding invariant needed an assertion of its own, and nothing else would
+  have caught it.** A reversed ring cancels into a hole *where the roads meet*,
+  and the gate's `inside(rings, p)` still calls that point covered, because it
+  asks one ring at a time. `padShape` is safe by construction — the arm's frame
+  is a rotation — but the invariant is one edit away from being lost, so it is
+  now pinned on the signed area.
+- **At the Size floor the pad is round again**, found in the dev pass and not a
+  defect: `armReach` floors `r` at `width / 2` for an undivided arm, and a band
+  of half-width `width / 2` cut by a disc of *that* radius **is** a half-disc. The
+  clamp working, not the shape failing.
+- **The dev pass rendered through the real export path** rather than driving the
+  window — junction semantics Phase 3's precedent, and here it is what made the
+  divided junction's median legible enough to answer OQ-3 by measurement. The
+  three findings above all came out of the pictures, not the suite.
 
 ### Phase 2 — Retire the glyph the arms made redundant  (depends on Phase 1)
 
