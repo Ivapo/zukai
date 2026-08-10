@@ -228,9 +228,13 @@ and `toBlob` starts returning `null`.
   document carries one `url(#road-hatch)` — an **in-document fragment reference**
   to a `<pattern>` emitted inside the same `<g class="diagram">`, the only paint
   the class-in-CSS rule cannot carry. It resolves inside the file, does not taint
-  the canvas, and rasterizes. **A gore reaches the same pattern**, so the `<defs>`
-  gate is `needsHatch(doc)`, not `hasShoulder(doc)`; `export.test.ts` pins the
-  whole `url()` list for a gore document.
+  the canvas, and rasterizes. **A hard shoulder is the only thing that reaches
+  it**, so the `<defs>` gate is `hasShoulder(doc)` and `export.test.ts` pins the
+  whole `url()` list for a shouldered document. A **gore** briefly borrowed the
+  same pattern, which is what widened that gate and renamed it `needsHatch`;
+  chevrons of its own took the borrowing back, so a gored document with no
+  shoulder now reaches **no paint server at all** — pinned in the same suite, in
+  the other direction.
 
 **Text costs a font, and the font travels only when a glyph does.** The drawing
 rendered zero `<text>` until signs Phase 1; the constraint behind that has not gone
@@ -239,7 +243,7 @@ has, and the PNG bakes that in permanently. Four rules hold it together, each a
 separate way to get it wrong:
 
 - **`needsText(doc)` (exported from `Diagram.tsx`) gates the whole thing**, on
-  `needsHatch`'s model. Three arms counting different things **on purpose**: for
+  `hasShoulder`'s model. Three arms counting different things **on purpose**: for
   markings it counts exactly what `markingPaint` emits a `<text>` for — non-empty
   content — so one predicate answers both "is there a glyph" and "is there a face";
   for **signs** it counts every sign, label or no label, because refining it to

@@ -30,7 +30,7 @@ phases:
     by: null
   - name: "Phase 5 — The gore says which way to go round it"
     reviewed: 2026-08-10
-    shipped: null
+    shipped: 2026-08-10
     cut: null
     by: null
 
@@ -654,10 +654,10 @@ So `GoreShape` paints chevrons where it painted `#road-hatch`, and two
 consequences follow that a reader would otherwise meet at implementation time:
 
 - **§2.5's widened `<defs>` condition becomes dead and narrows back.** Phase 4
-  widened `hasShoulder` — which it renamed `Diagram.tsx:needsHatch` for exactly
+  widened `Diagram.tsx:hasShoulder` — which it renamed `needsHatch` for exactly
   this reason — to fire for a gore glyph, so the borrowed pattern existed.
   With the borrowing gone it is a shoulder test again, and the rename should
-  arguably go back with it. **Phase 4's gate test inverts**: "a document with a
+  arguably go back with it. *(It did — Phase 5's as-built note.)* **Phase 4's gate test inverts**: "a document with a
   gore and no shoulder lane emits the `<pattern>`" becomes "emits none". That is a
   shipped assertion changing meaning, so it is named here rather than discovered —
   and `.jn-gore-hatch`, asserted twice in `Diagram.test.tsx`, goes with it.
@@ -1049,3 +1049,41 @@ cleared to implement**.
   which asked where the chevrons go and is answered by this phase landing; and the
   project-memory roadmap. **Not** touched: `rules/marking-kinds.md`, since a
   chevron is deliberately not a `Marking`.
+- **Shipped 2026-08-10.** As specified: TypeScript only, 405 vitest (up 9) and
+  `cargo test` unchanged at 68. `needsHatch` narrowed **and** took its old name
+  `hasShoulder` back (§2.9.2's "arguably", taken — the body is a shoulder test
+  again and the name should say so). OQ-9 taken as proposed: a mixed in/out pair
+  draws the diverge floor. Five things the spec did not force, each visible in the
+  picture or reached only through it:
+  - **§2.9.3's "included angle" shipped as a *fraction*, `GORE_CHEVRON_LEAN`, not
+    an angle** — and this is the phase's one real design change. A wing has to
+    stay visibly clear of the edge it lands on, and the edge's own angle is
+    whatever splay the two roads leave, so an absolute angle fails in **both**
+    directions: too shallow for a narrow gore and the wings merge into the edge
+    lines (measured in the app at 60°: three variants drew as no chevrons at all),
+    and *any* fixed angle is eventually shallower than the edge of a wide one,
+    which puts the tip past its own wings and **turns the chevron round**. That
+    second failure is §2.9.1's silent mirror arriving by the back door, so the
+    direction assertion was widened from one splay to five to pin it.
+  - **A cell with no room for a tip draws nothing**, so a cell and a chevron are
+    not the same thing. Clamping the tip to the corner instead — the obvious
+    reading, and what shipped first — folds both wings *onto* the two edge lines,
+    which draws the gore's outline a second time. It passes every containment
+    assertion and looks like a doubled edge.
+  - **A third degenerate gore exists and only the drawing finds it.** §2.5 names
+    the two `gore` handles by falling back to the node; a *parallel* pair leaves a
+    triangle with an axis but **no width**, so every chevron collapses to a single
+    point — and `stroke-linecap: round` paints a point as a **dot**. The dev pass
+    hit it on a document with a stray duplicate link, not the maths.
+  - **`diagram.css` may not spell the property that holds a stroke at constant
+    screen width**, comments included — the signs spec's lesson about
+    `font-family`, rediscovered by seven export assertions failing at once on a
+    comment saying the chevrons deliberately carry no such thing.
+  - **OQ-8 confirmed, not reopened.** One gore printed at figure scale still reads
+    as an area with a direction rather than as noise; the chevrons blur toward a
+    texture that still leans the right way.
+
+  The pitch is `LANE_PX` and the lean `0.65`, both settled in the app as every
+  constant in this corpus has been. Four mutations were run rather than trusting a
+  green first pass — a fixed orientation, an absolute lean, a clamped cell and a
+  hard-coded count — and each failed exactly one test, a different one.

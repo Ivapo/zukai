@@ -181,11 +181,13 @@ a file that may not contain `<` or `&` **anywhere, comments included**. So the
 pattern is markup in `Diagram.tsx` inside a `<defs>`, referenced by an inline
 `stroke="url(#road-hatch)"` on the band — `stroke`, not the spec's `fill`, since
 the band is a stroked path. Three constraints: the `<defs>` is **conditional**
-(`needsHatch`), so anything new referencing the pattern must widen that predicate,
-as a gore already did (`rules/road-joints.md`); the pattern's stroke comes from a
-class (`.road-hatch-line`), because `var()` does not resolve in a presentation
-attribute; and `url(#road-hatch)` is an **in-document fragment**, which does not
-taint the `<canvas>` the PNG path draws into — do not "fix" it.
+(`hasShoulder`), so anything new referencing the pattern must widen that predicate
+— a gore did, borrowing it for want of paint of its own, and gave it back when it
+got chevrons (`rules/road-joints.md`), so the rule now has no surviving example;
+the pattern's stroke comes from a class (`.road-hatch-line`), because `var()` does
+not resolve in a presentation attribute; and `url(#road-hatch)` is an
+**in-document fragment**, which does not taint the `<canvas>` the PNG path draws
+into — do not "fix" it.
 
 ### Setting a kind, and the control that used to destroy it
 
@@ -252,7 +254,7 @@ offset in its own frame, so both labels of a divided road land outside the pair.
 constants (`LANE_PX`, `ROAD_MARGIN`, `UNITS_PER_METRE`, `MIN_ROAD_WIDTH`,
 `DRIVE_SIDE`, `SCHEMATIC_MEDIAN`, `LABEL_GAP`) plus `lengthLabel`/`formatLength`
 — under `geometry.test.ts`. `Diagram.tsx` holds
-`RoadShape`, `arrowTriangle`, `HatchPattern`/`needsHatch` and the derived label
+`RoadShape`, `arrowTriangle`, `HatchPattern`/`hasShoulder` and the derived label
 layer through `renderToStaticMarkup`; the joint shapes beside them are
 `rules/road-joints.md`'s.
 Paint is `diagram.css`; `setLaneKind`/`setLinkLanes`/`setLinkAlign`/

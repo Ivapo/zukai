@@ -810,6 +810,11 @@ holds it, and the gate deliberately asserts nothing either way at those sizes.
   goes while a chevron must. The rest of this OQ stands. §2.10 establishes they
   are not `Marking`s. They are a small addition to `GoreShape` needing no model
   change — a fan of chevrons along the gore's axis of symmetry.
+  **Landed 2026-08-10** as that spec's Phase 5, in the shape this OQ predicted:
+  a fan on the axis, `GoreShape` only, no model change and no new action. The
+  question it did not see is what the phase mostly cost — the direction had to be
+  derived (`goreFlow`) and then defended twice, since a chevron laid out with any
+  *fixed* angle silently turns round in a wide enough gore.
 - **OQ-5** — **Should the marking tool snap along the road?** Free placement is
   simplest, but a stop line a human meant to put "at the junction" will sit a few
   units short of it and look sloppy. A snap to the junction pad's rim — the

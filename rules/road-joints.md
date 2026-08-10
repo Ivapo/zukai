@@ -10,9 +10,10 @@ sources:
 covers: >
   what is drawn where links meet a node: the arms and the two radii, the rim
   three things measure to, taper wedges at a through joint, and the gore
-  between two separating arms
-max_lines: 160
-generated: 2026-08-09
+  between two separating arms — its triangle, its chevrons, and the one
+  derivation that faces them at the driver
+max_lines: 190
+generated: 2026-08-10
 ---
 
 # Road joints
@@ -26,14 +27,18 @@ everything here consumes rather than repeats. Rationale:
 
 ## Arms carry their position, so the glyph follows the carriageways
 
-`Arm` is `{ id, dir, origin, width }`, and `origin` is **not re-derived** — it is
-the drawn polyline's own end point, which `junctionArms` already had. No second
-call to `carriageways` and no `DRIVE_SIDE` reasoning, so none of that derivation's
-offset-sign traps reach here. `origin` is **world** space; a glyph's group is
-translated to the node, so an interior detail enters as `origin - center` — `(0,
-0)` for an undivided road. `id` is **`gorePair`'s tie-break** and, since the
-movement arcs went, all it is: `dir` cannot substitute, pointing away from the
-node whichever way traffic runs.
+`Arm` is `{ id, dir, origin, outbound, width }`, and **neither `origin` nor
+`outbound` is re-derived** — both were already in `junctionArms`' hand and thrown
+away. `origin` is the drawn polyline's own end point, so no second call to
+`carriageways`, no `DRIVE_SIDE` reasoning, and none of that derivation's
+offset-sign traps; it is **world** space, and a glyph's group is translated to the
+node, so an interior detail enters as `origin - center` — `(0, 0)` for an
+undivided road. `outbound` is the function's own `touchesStart`: the node is the
+link's `from_node`, so traffic **leaves** along this arm.
+
+**`dir` cannot substitute for either**, which is why both exist: it points away
+from the node whichever way traffic runs. `id` is `gorePair`'s tie-break and,
+since the movement arcs went, all it is; `outbound` is `goreFlow`'s only input.
 
 **`Arm`, `junctionArms` and both radii live in `geometry.ts`**, not the render
 body — `drawnPolyline`'s move one step on, and for its reason: a marking anchored
@@ -124,13 +129,13 @@ not a through joint, a named non-goal.
 
 ## Gores: the paint between two arms that separate
 
-A `gore` glyph draws **no pad at all** — the whole glyph is the hatched triangle
+A `gore` glyph draws **no pad at all** — the whole glyph is a chevroned triangle
 between two arms, nosed where their painted edges meet. One variant covers both a
 diverge and a merge: the geometry is identical, and the pair rule ignores traffic.
 
 - **The pair is the one with the smallest angle between their directions**
-  (`gorePair`), and it **cannot** be read off the traffic: `junctionArms` orients
-  every arm away from the node whichever way traffic runs, so an `Arm` carries no
+  (`gorePair`), and it is **not** read off the traffic: `junctionArms` orients
+  every arm away from the node whichever way traffic runs, so `dir` carries no
   incoming/outgoing information. Directions are unit, so smallest angle is largest
   dot; an exact tie breaks on the **link ids**, never `doc.links` order, or the
   same roads would draw differently in a differently-ordered document.
@@ -143,19 +148,44 @@ diverge and a merge: the geometry is identical, and the pair rule ignores traffi
   "Behind **both**" is the rule — "behind either" would drop a good nose whenever a
   divided carriageway steps one arm past it. The fallback prevents an
   `Infinity`/`NaN` that renders as nothing and no `points=` assertion catches.
-- **Two polygons, not one.** The hatch is transparent by design — a shoulder band
-  takes its asphalt from the casing under it — but a gore widens onto bare paper,
-  so `.jn-gore` paints the surface and `.jn-gore-hatch` overlays it with an inline
-  `fill="url(#road-hatch)"`. The base is open and unlined: that blunt end is the
-  physical nose.
+- **Two layers, not one.** A shoulder band takes its asphalt from the casing under
+  it; a gore widens onto bare paper, so `.jn-gore` paints the surface and the paint
+  rides on it. The base is open and unlined: that blunt end is the physical nose.
 - **`GORE_LENGTH` (36) is scaled by the glyph's Size**, unlike `TAPER_LENGTH`, or
   the control would be inert on a pad-less glyph. Lengthening cannot misalign
   anything: the legs stay on the edge lines and only the base slides.
 
-**The `<defs>` condition widened with it.** `needsHatch(doc)` fires for a shoulder
-lane **or** a gore glyph: unconditional breaks the empty document pinned to exactly
-`<g class="diagram"></g>`, and shoulder-only leaves a gore referencing a
-`<pattern>` never emitted, drawing an *unpainted* triangle with identical markup.
+### The chevrons, and the one place a gore reads the traffic
+
+The paint inside is a fan of chevrons (`goreChevrons`, a `.jn-gore-chevrons`
+path), not the shoulder hatch it briefly borrowed: a hatch says "not a running
+lane", a gore says "go round this, on this side" — a direction, and it needs one.
+
+- **`goreFlow(a, b)` is the only place direction is read, and only after the pair
+  is chosen.** Both arms `outbound` → a diverge, chevrons at the **nose**; both
+  inbound → a merge, at the **base**; **mixed** takes the diverge floor rather
+  than throwing (ramps OQ-9), since an imported fragment can hold one. One fixed
+  orientation draws half of all gores stating the opposite of what they mean, so
+  both cases are pinned off one fixture.
+- **The layout has no frame of its own.** The triangle is isoceles, so its axis is
+  `nose → midpoint` and every point is a `lerp` — of a leg for the wings, of the
+  axis for the tip. No perpendiculars, no normals, no offset signs.
+- **Count from the axis, pitch follows** (`GORE_CHEVRON_PITCH`, one lane,
+  unscaled), as `spanCells` does for the tiled markings: containment is
+  constructional, and a longer gore takes *more* chevrons, not longer ones.
+- **`GORE_CHEVRON_LEAN` (0.65) is a fraction, not an angle** — how far a wing
+  leans off the edge it lands on, toward square across. Any *fixed* angle is
+  eventually shallower than the edge of a wide gore, which puts the tip past its
+  own wings and **turns the chevron round**: the silent mirror by the back door.
+- **A cell with no room for a tip draws nothing**, and neither does either
+  degenerate gore. Pinning a tip to the corner folds both wings onto the edge
+  lines, drawing the outline twice; anti-parallel arms leave no axis (`NaN`); and
+  *parallel* arms leave an axis with no width, collapsing each chevron to a point
+  — which a round cap paints as a **dot**. The last was found in the dev pass.
+
+**The `<defs>` gate narrowed back with the borrowing**: `hasShoulder(doc)` fires
+for a hard shoulder and nothing else. It was widened, and renamed `needsHatch`,
+only while a gore reached the same pattern.
 
 **The gore is the one glyph that needed a `SCHEMA_VERSION` bump** — a new enum
 *variant*, not a new field (`rules/document-model.md`).
@@ -164,11 +194,12 @@ lane **or** a gore glyph: unconditional breaks the empty document pinned to exac
 
 `geometry.ts` owns the pure half — `Arm`/`junctionArms`, `padRadius`/`ringRadius`/
 `junctionRadius`, `rayCircleExit`, `JointEnd`, `taperWedge`/`taperWedges`/
-`taperEdge`, `GoreArm`/`gorePair`/`gore`/`rayIntersection` and the three lengths —
-under `geometry.test.ts`. `Diagram.tsx` turns those into markup: `jointEnd`,
-`tapers`, `TaperShape`, `GoreShape` and the stop-bar loop in `JunctionGlyphShape`,
-tested through `renderToStaticMarkup`. The hatch a gore fills with is
-`rules/road-rendering.md`'s `HatchPattern` — this rule only widened `needsHatch`.
+`taperEdge`, `GoreArm`/`gorePair`/`gore`/`rayIntersection`,
+`GoreFlow`/`goreFlow`/`goreChevrons`, and the three lengths plus the two chevron
+constants — under `geometry.test.ts`. `Diagram.tsx` turns those into markup:
+`jointEnd`, `tapers`, `TaperShape`, `GoreShape` and the stop-bar loop in
+`JunctionGlyphShape`, tested through `renderToStaticMarkup`. Nothing here reaches
+`rules/road-rendering.md`'s `HatchPattern` any more — that borrowing is over.
 Paint is `diagram.css`; `gore` is mirrored in `types.ts` and `layout.rs`.
 Nothing here reaches `state.ts` — a joint is derived from the links meeting at a
 node, so there is no action and nothing to undo. `strokeAllowance` (`export.tsx`)
