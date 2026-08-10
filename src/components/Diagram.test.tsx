@@ -11,10 +11,14 @@ import {
   ROAD_MARGIN,
   SCHEMATIC_MEDIAN,
   SIGN_SIZE,
+  carriageways,
   classWidthFactor,
+  junctionArms,
+  padRadius,
   signPlate,
 } from "../editor/geometry";
 import { Action, EditorState, initialState, reducer } from "../editor/state";
+import { nodePos } from "../model/document";
 import {
   Document,
   LaneKind,
@@ -50,6 +54,23 @@ function sample(): Document {
     { type: "setNodeKind", id: "N2", kind: "junction" },
     { type: "setJunctionGlyph", id: "N2", glyph: "roundabout" },
   ).doc;
+}
+
+/**
+ * The radius the glyph is sized from, read from `padRadius` rather than off the
+ * drawn element.
+ *
+ * Every assertion below is about that **number** — the arms' reach floor, the
+ * Size clamp, the road class — and none of them is about the markup. Taking it
+ * out of an `r="…"` attribute tied them to the pad being a circle, which it is
+ * only while it has no arms to follow (junction glyphs §4).
+ */
+function padR(doc: Document, id = "N2"): number {
+  return padRadius(
+    junctionArms(doc, id, carriageways(doc)),
+    nodePos(doc, id)!,
+    doc.layout.junctions[id]?.scale ?? 1,
+  );
 }
 
 /** The live canvas's interaction, with the road selected. */
@@ -230,19 +251,18 @@ describe("road class", () => {
 
   /** `junctionArms` measures each approach, so the class sizes the pad too. */
   it("sizes a junction pad from the class of the roads meeting it", () => {
-    const pad = (style: LinkStyle) => {
-      const doc = run(
-        initialState(),
-        { type: "addNode", pos: { x: 0, y: 0 } },
-        { type: "addNode", pos: { x: 120, y: 0 } },
-        { type: "startLink", from: "N1" },
-        { type: "completeLink", to: "N2" },
-        { type: "setLinkStyle", id: "L1", style },
-        { type: "setNodeKind", id: "N2", kind: "junction" },
-      ).doc;
-      const svg = renderToStaticMarkup(<Diagram doc={doc} />);
-      return Number(svg.match(/class="jn-pad" r="(\S+?)"/)![1]);
-    };
+    const pad = (style: LinkStyle) =>
+      padR(
+        run(
+          initialState(),
+          { type: "addNode", pos: { x: 0, y: 0 } },
+          { type: "addNode", pos: { x: 120, y: 0 } },
+          { type: "startLink", from: "N1" },
+          { type: "completeLink", to: "N2" },
+          { type: "setLinkStyle", id: "L1", style },
+          { type: "setNodeKind", id: "N2", kind: "junction" },
+        ).doc,
+      );
 
     expect(pad("ramp")).toBeLessThan(pad("arterial"));
   });
@@ -555,7 +575,7 @@ describe("link alignment", () => {
       /class="jn-stopbar" x1="\S+" y1="(\S+)" x2="\S+" y2="(\S+)"/,
     )!;
     expect((Number(bar[1]) + Number(bar[2])) / 2).toBeCloseTo(9);
-    expect(Number(svg.match(/class="jn-pad" r="(\S+?)"/)![1])).toBeCloseTo(19.5);
+    expect(padR(doc)).toBeCloseTo(19.5);
   });
 });
 
@@ -798,11 +818,6 @@ describe("junction interiors", () => {
     ).doc;
   }
 
-  /** The `jn-pad` radius. */
-  function padRadius(svg: string): number {
-    return Number(svg.match(/class="jn-pad" r="(\S+?)"/)![1]);
-  }
-
   /**
    * The no-visual-change proof for Phase 1. An undivided arm's `origin` *is* the
    * node centre, so `rayCircleExit` returns exactly the pad radius and the new
@@ -816,7 +831,7 @@ describe("junction interiors", () => {
     const svg = renderToStaticMarkup(<Diagram doc={crossroad()} />);
 
     // (2 * 9 + 3) * 0.62 + 3, with no floor binding: reach is only 10.5.
-    expect(svg).toContain('class="jn-pad" r="16.02"');
+    expect(padR(crossroad())).toBe(16.02);
     // Stop bars 4 units beyond the pad, half a road plus 1 wide either side.
     expect(svg).toContain('x1="-20.02" y1="11.5" x2="-20.02" y2="-11.5"');
     expect(svg).toContain('x1="20.02" y1="-11.5" x2="20.02" y2="11.5"');
@@ -829,6 +844,31 @@ describe("junction interiors", () => {
     expect(
       svg.slice(svg.indexOf("jn-pad"), svg.indexOf("jn-stopbar")),
     ).toMatch(/^jn-pad" r="16\.02"><\/circle><line class="$/);
+  });
+
+  /**
+   * The three things that measure to the glyph's rim, pinned as a **regression
+   * check and not as a proof** (junction glyphs §2.3). All three read
+   * `padRadius` and none of them reads the pad's outline, so they come out
+   * byte-identical whatever the outline is — including a wrong one.
+   *
+   * They are captured here anyway, because the rim staying a circle is the whole
+   * reason the pad may stop being one, and nothing pinned the hit disc or the
+   * halo before.
+   */
+  it("keeps the stop bars, the hit disc and the halo on a circular rim", () => {
+    const svg = renderToStaticMarkup(
+      <Diagram
+        doc={crossroad()}
+        interaction={{ ...interaction(), selection: { kind: "node", id: "N2" } }}
+      />,
+    );
+
+    // Two units past the pad for the target, five for the outline.
+    expect(svg).toContain('<circle class="jn-hit" r="18.02">');
+    expect(svg).toContain('<circle class="jn-halo" r="21.02"');
+    expect(padR(crossroad()) + 2).toBe(18.02);
+    expect(padR(crossroad()) + 5).toBe(21.02);
   });
 
   /**
@@ -880,6 +920,16 @@ describe("junction interiors", () => {
 
     expect(bars).toEqual(casings);
     expect(bars).not.toContain(0);
+
+    // And where each bar lies, whole, pinned literally: `rayCircleExit` off a
+    // carriageway 13.5 out of a 24-unit rim is √(24² − 13.5²) = 19.843, plus the
+    // 4-unit standoff. A regression check on the rim, which does not move here.
+    expect(svg).toContain(
+      '<line class="jn-stopbar" x1="-23.84313483298443" y1="25" x2="-23.84313483298443" y2="2">',
+    );
+    expect(svg).toContain(
+      '<line class="jn-stopbar" x1="-23.84313483298443" y1="-2" x2="-23.84313483298443" y2="-25">',
+    );
   });
 
   /**
@@ -888,9 +938,7 @@ describe("junction interiors", () => {
    * 13.5 + 21/2 = 24 — a glyph floating clear of the roads it joins.
    */
   it("reaches a displaced carriageway's outer edge with the pad", () => {
-    const svg = renderToStaticMarkup(<Diagram doc={dividedApproach()} />);
-
-    expect(padRadius(svg)).toBeCloseTo(24);
+    expect(padR(dividedApproach())).toBeCloseTo(24);
   });
 
   /**
@@ -901,13 +949,13 @@ describe("junction interiors", () => {
    * compute (0.62 * 21 + 3) * 0.5 = 8.01 and instead holds at half a road, 10.5.
    */
   it("clamps the Size control at the arms' own reach", () => {
-    const full = renderToStaticMarkup(<Diagram doc={crossroad()} />);
-    const half = renderToStaticMarkup(<Diagram doc={crossroad(0.5)} />);
+    const full = padR(crossroad());
+    const half = padR(crossroad(0.5));
 
     // Size still resizes, just not below the approach.
-    expect(padRadius(half)).toBeLessThan(padRadius(full));
-    expect(padRadius(half)).toBeCloseTo(10.5);
-    expect(padRadius(half)).toBeGreaterThan((16.02 * 0.5));
+    expect(half).toBeLessThan(full);
+    expect(half).toBeCloseTo(10.5);
+    expect(half).toBeGreaterThan(16.02 * 0.5);
   });
 
   /**
