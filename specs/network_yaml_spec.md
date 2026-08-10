@@ -68,10 +68,13 @@ and `Movement`'s five round-trip fields (`from_lanes`, `to_lanes`, `priority`,
 fail quietly is kept in `rules/network-yaml.md`, because every entry in it
 describes a *write*, and that is the clearest argument against rebuilding this.
 
-**What is still open, and belongs to import alone:** OQ-2's scale. No fixed
-`UNITS_PER_METRE` serves both fixtures, so fit-to-extent is the only live answer
-and it needs the factor stored per document. That one *does* serve a figure — a
-network nobody can drag into shape is a network nobody can draw.
+**What is still open, and belongs to import alone:** OQ-2's **layout**, which is
+what is left of it since 2026-08-09. No fixed `UNITS_PER_METRE` serves both
+fixtures, so fit-to-extent is the only live answer and it needs the factor stored
+per document. That one *does* serve a figure — a network nobody can drag into
+shape is a network nobody can draw. The *length* half of OQ-2 is answered and
+built: a real length crosses as a **label**, not as a distance
+(`specs/link_length_spec.md` Phase 2). Read OQ-2 itself before planning here.
 
 ## 1. Goal
 
@@ -588,6 +591,22 @@ blocks §2.8 drops (OQ-5) and, for a junction drawn here rather than imported,
     document**, which is a `SCHEMA_VERSION` bump and a new `layout` field;
   - **non-uniform spacing** — schematization proper, and a named non-goal
     (`CLAUDE.md`, §2.6).
+
+  **ANSWERED IN PART, 2026-08-09, by `specs/link_length_spec.md` Phase 2 — and
+  the part it answers is the part that was stuck.** The fork above assumes a real
+  length can only reach the drawing as a *distance*, so it hunts a factor. It
+  reaches the drawing as a **label**: import sums the discarded `geometry`
+  polyline into `Link.length` and the picture states `500m` beside an arm that is
+  still 1285 canvas units long. So there is no right factor to find, because
+  scale is not what the drawing carries — which is also why the disproof above
+  (no fixed constant serves both fixtures) was the correct result rather than a
+  dead end.
+
+  **What stays open is the layout half, and only that:** where import *places*
+  nodes. A 143-lane-width arm is still a lot of dragging, and fit-to-extent is
+  still the live answer with a per-document factor and a `SCHEMA_VERSION` bump
+  behind it. That is this spec's own subject, not the length spec's
+  (`link_length_spec.md` §1.1) — a phase appended **here** is its home.
 - **OQ-3** — **Id collisions on import.** Assimilator ids are free-form
   (`L_W_J`, `M_major_thru`), and Zukai's `nextId` parses a **numeric** suffix
   (`document.ts:129-138`), so after importing a file of non-numeric ids the next

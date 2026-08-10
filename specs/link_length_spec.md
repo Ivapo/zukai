@@ -16,7 +16,7 @@ phases:
     by: null
   - name: "Phase 2 — Import fills it from the geometry it discards"
     reviewed: 2026-08-09
-    shipped: null
+    shipped: 2026-08-09
     cut: null
     by: null
 
@@ -295,6 +295,40 @@ wrong size and becomes a diagram that states its own dimensions.*
   polyline still is, its total no longer. `network_yaml_spec.md` OQ-2 is
   annotated with the answer this spec gives it, and the layout half is recorded
   there as the remaining question.
+
+#### As built (shipped 2026-08-09)
+
+Everything above landed as designed, and it is the smallest phase in the project:
+one private helper, one field, four tests, no TypeScript. Four things worth
+recording:
+
+- **The degenerate cases cost no branch.** `windows(2)` yields nothing on an empty
+  or one-point polyline, so the sum is `0.0` and the one guard —
+  `is_finite() && > 0.0` — turns all three of gate 3's cases into `None` without
+  naming any of them. The phase's most-read line is the *comment* saying so, since
+  the next reader's instinct is to add the `if` back.
+- **The name is the design decision.** `geometry_length`, deliberately not
+  `polyline_length`: the frontend's `polylineLength` measures the **drawn**
+  polyline in canvas units and §2.2 forbids it from reaching this field. Import is
+  the only place in the codebase where both numbers are in hand at once, and two
+  functions sharing a name is how they would eventually be confused for one idea.
+- **Three mutations were run rather than trusting a green first pass**, and each
+  failed exactly the test written for it: the endpoint chord (caught only by the
+  inline bent polyline — every committed fixture polyline is two points, so all
+  committed data passes a wrong implementation), `Some(total)` for the degenerate
+  cases, and metres stored as canvas units. The third failed **three** tests,
+  which is the right shape: storing the drawing's units in this field is the one
+  mistake that would quietly undo the whole spec.
+- **The dev pass could not drive the Tauri window, and the fallback was better
+  than a workaround.** `System Events` reports 0 windows for the `zukai` process
+  and `screencapture` is refused in this shell, so the import gesture was clicked
+  blind. What was actually observed is the real render path: the real importer's
+  document, through the app's own `normalizeDocument` (Rust elides `signs: []`,
+  so a raw dump is not a `Document` — the app normalizes at that boundary and so
+  must any harness), into the real `diagramSvg`. `500m`, `500m` and `300m` on a
+  network whose arms are 1285 units long, with the font embedded — which is also
+  the first document in the project to fire `needsText`'s **third** arm alone,
+  carrying no sign and no text marking.
 
 <!--
 The review record is a sibling file, not a section: it lives at

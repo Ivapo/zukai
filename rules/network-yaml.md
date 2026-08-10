@@ -10,10 +10,10 @@ sources:
 covers: >
   reading Assimilator's network.yaml: the serde mirror and what earns a place in
   it, the header and version probe, the scale and the two lane-numbering
-  conventions, what import throws away and the turn arrows it mints, and why
-  there is no writer
+  conventions, what import throws away, the one number it keeps off the polyline,
+  and the turn arrows it mints, and why there is no writer
 max_lines: 300
-generated: 2026-08-08
+generated: 2026-08-09
 ---
 
 # `network.yaml`
@@ -164,7 +164,23 @@ Nothing migrates a `.zkai` saved from an earlier import.
 ## What import drops, demotes and seeds
 
 - **`geometry` polylines are discarded** — the founding claim: a schematic
-  intentionally distorts real geometry for clarity.
+  intentionally distorts real geometry for clarity. **The claim narrows at the
+  total, and only there.** The *shape* still goes and nothing on the canvas is
+  placed from it; `geometry_length` sums the segments in metres into
+  `Link.length`, which the drawing states as a **label** (`500m`). So an imported
+  `t_junction` arm says 500 m while the canvas holds its ends 1285.71 units
+  apart — two independent records of one road, and this spec's answer to OQ-2
+  (`specs/link_length_spec.md` §2.2, Phase 2).
+  - **It is not the frontend's `polylineLength`**, and the two must not be
+    confused: that one measures the *drawn* polyline in canvas units and is
+    forbidden from reaching `Link.length`. Import is the only place both numbers
+    are in hand, and it keeps them apart.
+  - **Nothing to measure means no length, never zero.** `windows(2)` yields
+    nothing on an empty or one-point polyline, so the guard returns `None` with no
+    branch — and both reach here, "at least 2 points" being a doc comment rather
+    than a parse invariant. Every committed fixture polyline is exactly two
+    points, so only `a_bent_polyline_sums_its_segments_rather_than_its_ends`
+    separates a segment sum from an endpoint chord.
 - **`point` is demoted, not discarded.** It seeds `layout.nodes` and never reaches
   `doc.nodes`. Not a nicety: a node with no layout entry has no drawable polyline,
   so an unseeded import renders a **blank page**. Asserted by
