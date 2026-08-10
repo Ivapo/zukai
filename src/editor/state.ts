@@ -563,7 +563,7 @@ function setNodeKind(
   if (kind === "junction" && !findJunction(doc, id)) {
     const j: Junction = { node_id: id, control: "unsignalized" };
     junctions = [...doc.junctions, j];
-    junctionViews[id] = { glyph: "generic", rotation: 0, scale: 1 };
+    junctionViews[id] = { glyph: "generic", scale: 1 };
   } else if (kind !== "junction") {
     junctions = doc.junctions.filter((j) => j.node_id !== id);
     delete junctionViews[id];
@@ -589,7 +589,6 @@ function setJunctionView(
   const { doc } = state;
   const current = doc.layout.junctions[id] ?? {
     glyph: "generic" as JunctionGlyph,
-    rotation: 0,
     scale: 1,
   };
   return {
@@ -609,7 +608,7 @@ function setJunctionView(
  * alone (junction semantics §2.2).
  *
  * The glyph and the control are two different questions — one is presentation
- * (six drawings, dropped on export), the other is semantics (two values, exported
+ * (five drawings, dropped on export), the other is semantics (two values, exported
  * to Assimilator) — and a signalised junction drawn as a plain pad is a legitimate
  * schematic choice. But leaving them wholly independent leaves the contradiction
  * this phase exists to fix: a drawing with signal heads over a document that says
@@ -617,10 +616,10 @@ function setJunctionView(
  *
  * So the answer is a nudge rather than a constraint, and the **"only from the
  * default"** clause is the whole of it: `generic` is what `setNodeKind` mints and
- * so is the glyph nobody chose, while `roundabout`, `gore`, `priority_cross` and
- * `t_junction` are each a human's deliberate pick and are never overwritten. The
- * traffic runs one way — presentation may follow semantics, never the reverse, so
- * nothing here has a twin in `setJunctionView`.
+ * so is the glyph nobody chose, while `roundabout`, `gore` and `priority_cross`
+ * are each a human's deliberate pick and are never overwritten. The traffic runs
+ * one way — presentation may follow semantics, never the reverse, so nothing here
+ * has a twin in `setJunctionView`.
  */
 function nudgedGlyph(
   current: JunctionGlyph,

@@ -9,7 +9,7 @@ import {
   RawDocument,
   withExtension,
 } from "./document";
-import { SCHEMA_VERSION } from "./types";
+import { JunctionGlyph, SCHEMA_VERSION } from "./types";
 
 describe("normalizeDocument", () => {
   it("fills every missing collection and layout sub-map (the load-crash case)", () => {
@@ -141,5 +141,29 @@ describe("withExtension", () => {
 
   it("replaces only the last extension of a multi-dotted name", () => {
     expect(withExtension("roads.v2.zkai", "svg")).toBe("roads.v2.svg");
+  });
+});
+
+describe("JunctionGlyph", () => {
+  /**
+   * **The one durable check that the retired variant stays retired**, and the
+   * reason it is written at all: a compile error is not an assertion. It
+   * disappears the moment the code compiles, so a green `bun run build` proves
+   * only that no *existing* reference to `t_junction` survived — it says nothing
+   * about tomorrow. `@ts-expect-error` inverts that, because `tsc` fails when the
+   * error it marks stops occurring. So putting the variant back in the union
+   * breaks the build here rather than quietly restoring a control that cannot
+   * change a pixel (junction glyphs §2.4).
+   *
+   * Rust still spells it, deliberately: `JunctionGlyph::TJunction` is load-only,
+   * so an older `.zkai` parses and `load_document` hands this side a `generic`.
+   */
+  it("no longer admits t_junction", () => {
+    // Retired because the pad follows its arms: a three-arm node draws as a T
+    // because it *has* three arms, so the variant named a fact the arms carry.
+    // @ts-expect-error — `t_junction` is no longer in the union.
+    const retired: JunctionGlyph = "t_junction";
+
+    expect(retired).toBe("t_junction");
   });
 });

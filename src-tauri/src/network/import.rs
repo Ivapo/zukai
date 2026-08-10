@@ -613,7 +613,6 @@ mod tests {
         assert_eq!(doc.layout.junctions.len(), 1);
         let view = doc.layout.junctions[&NodeId::from("J")];
         assert_eq!(view.glyph, JunctionGlyph::Generic);
-        assert_eq!(view.rotation, 0.0);
         assert_eq!(view.scale, 1.0);
     }
 

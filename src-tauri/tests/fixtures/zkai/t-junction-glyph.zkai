@@ -1,0 +1,80 @@
+schema_version: 2
+metadata:
+  name: A T saved before the glyph was retired
+nodes:
+- id: J
+  type: junction
+- id: W
+  type: endpoint
+- id: E
+  type: endpoint
+- id: S
+  type: endpoint
+links:
+- id: L_W
+  from_node: W
+  to_node: J
+  lanes:
+  - id: 0
+    width: 3.5
+    speed_limit: 13.88888888888889
+  - id: 1
+    width: 3.5
+    speed_limit: 13.88888888888889
+  median_gap: 0.5
+- id: L_E
+  from_node: J
+  to_node: E
+  lanes:
+  - id: 0
+    width: 3.5
+    speed_limit: 13.88888888888889
+  - id: 1
+    width: 3.5
+    speed_limit: 13.88888888888889
+  median_gap: 0.5
+- id: L_S
+  from_node: S
+  to_node: J
+  lanes:
+  - id: 0
+    width: 3.5
+    speed_limit: 13.88888888888889
+  - id: 1
+    width: 3.5
+    speed_limit: 13.88888888888889
+  median_gap: 0.5
+junctions:
+- node_id: J
+  control: unsignalized
+  rule: priority
+layout:
+  nodes:
+    E:
+      pos:
+        x: 500.0
+        y: 200.0
+    J:
+      pos:
+        x: 300.0
+        y: 200.0
+    S:
+      pos:
+        x: 300.0
+        y: 400.0
+    W:
+      pos:
+        x: 100.0
+        y: 200.0
+  links:
+    L_E:
+      style: arterial
+    L_S:
+      style: arterial
+    L_W:
+      style: arterial
+  junctions:
+    J:
+      glyph: t_junction
+      rotation: 0.0
+      scale: 1.0

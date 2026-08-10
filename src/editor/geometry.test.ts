@@ -2839,7 +2839,7 @@ describe("markingAnchor at a junction rim", () => {
         ...base.layout,
         nodes: { N1: { pos: { x: 0, y: 0 } }, N2: { pos: { x: 120, y: 0 } } },
         junctions: view
-          ? { N2: { glyph: "generic", rotation: 0, scale: 1, ...view } }
+          ? { N2: { glyph: "generic", scale: 1, ...view } }
           : {},
       },
       markings: [
@@ -3270,7 +3270,7 @@ describe("junctionRadius", () => {
           N2: { pos: { x: 120, y: 0 } },
           ...Object.fromEntries(around.map((pos, i) => [`A${i}`, { pos }])),
         },
-        junctions: { N2: { glyph, rotation: 0, scale } },
+        junctions: { N2: { glyph, scale } },
       },
     };
   }
@@ -3284,7 +3284,7 @@ describe("junctionRadius", () => {
     // a roundabout needs its own radius here rather than the pad's.
     expect(ring).toBeGreaterThan(pad);
     // Every glyph that paints a pad gets the same one.
-    for (const glyph of ["signalized_cross", "priority_cross", "t_junction"] as const) {
+    for (const glyph of ["signalized_cross", "priority_cross"] as const) {
       expect(junctionRadius(hub(glyph), "N2", {})).toBeCloseTo(pad);
     }
   });

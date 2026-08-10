@@ -1690,7 +1690,6 @@ describe("junction control and rule", () => {
     // The nudge writes the glyph and nothing else about the view.
     expect(back.doc.layout.junctions.N1).toEqual({
       glyph: "generic",
-      rotation: 0,
       scale: 1,
     });
   });
@@ -1862,7 +1861,6 @@ describe("junction control and rule", () => {
 
     expect(signal.doc.layout.junctions.N1).toEqual({
       glyph: "signalized_cross",
-      rotation: 0,
       scale: 1,
     });
   });

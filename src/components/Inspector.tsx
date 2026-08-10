@@ -185,12 +185,11 @@ const GLYPHS: { value: JunctionGlyph; label: string }[] = [
   { value: "roundabout", label: "Roundabout" },
   { value: "signalized_cross", label: "Signals" },
   { value: "priority_cross", label: "Priority" },
-  { value: "t_junction", label: "T-junction" },
   { value: "gore", label: "Gore" },
 ];
 /**
  * How a junction is *controlled* — semantics, exported to Assimilator, and a
- * different question from which of the six {@link GLYPHS} draws it (junction
+ * different question from which of the five {@link GLYPHS} draws it (junction
  * semantics §2.2). The two labels collide on purpose: `signalized_cross` is
  * "Signals" in the Glyph row too, because both rows are naming the same real
  * thing from their own side.

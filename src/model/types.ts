@@ -170,13 +170,22 @@ export type LinkStyle = "motorway" | "arterial" | "local" | "ramp";
  */
 export type LinkAlign = "centre" | "nearside" | "offside";
 
-/** The symbol used to render a junction. */
+/**
+ * The symbol used to render a junction.
+ *
+ * There is no `t_junction`, and its absence is a decision rather than an
+ * omission: the pad follows the roads that meet at it, so a three-arm node draws
+ * as a T because it *has* three arms (junction glyphs §2.4). A variant naming a
+ * fact the arms already carry is a control that cannot change a pixel. Rust
+ * keeps the spelling as a load-only variant so an older `.zkai` still parses, and
+ * normalizes it to `generic` on the way in — so nothing on this side ever sees
+ * one.
+ */
 export type JunctionGlyph =
   | "generic"
   | "roundabout"
   | "signalized_cross"
   | "priority_cross"
-  | "t_junction"
   | "gore";
 
 /** Where a node sits on the canvas. */
@@ -192,10 +201,16 @@ export interface LinkView {
   bends?: Vec2[];
 }
 
-/** How a junction node is drawn. */
+/**
+ * How a junction node is drawn.
+ *
+ * **There is deliberately no `rotation`.** One was declared in both mirrors from
+ * the first commit, written only as zero, and read by nothing that draws — and a
+ * pad derived from its arms is already oriented by them, which is what made the
+ * field permanently dead (junction glyphs OQ-1).
+ */
 export interface JunctionView {
   glyph: JunctionGlyph;
-  rotation: number;
   scale: number;
 }
 

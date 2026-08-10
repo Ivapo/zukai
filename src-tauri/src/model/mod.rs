@@ -199,7 +199,6 @@ mod tests {
                 "N2".into(),
                 JunctionView {
                     glyph: JunctionGlyph::SignalizedCross,
-                    rotation: 0.0,
                     scale: 1.0,
                 },
             )]

@@ -127,14 +127,20 @@ pub enum LinkStyle {
 /// How a junction node is drawn. This is the render hint that turns a plain
 /// graph junction into a recognizable symbol; the arms are the links incident
 /// to the node, so no glyph needs to own its geometry.
+///
+/// **There is deliberately no `rotation`.** One was declared in both mirrors from
+/// the first commit, written only as zero, and read by nothing that draws — and
+/// the pad following its arms is what made that permanent, since a shape derived
+/// from the arms is already oriented by them (junction glyphs OQ-1). It was
+/// removed in the same pass that retired [`JunctionGlyph::TJunction`], and cost
+/// nothing to remove: nothing here derives `deny_unknown_fields`, so an older
+/// file's `rotation:` key is ignored on the way in and absent on the way out.
+/// That is the cheap direction — a removed *variant* is the expensive one.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct JunctionView {
     /// Which symbol to draw.
     #[serde(default)]
     pub glyph: JunctionGlyph,
-    /// Rotation applied to the glyph, degrees.
-    #[serde(default)]
-    pub rotation: f64,
     /// Uniform scale applied to the glyph.
     #[serde(default = "default_scale")]
     pub scale: f64,
@@ -144,7 +150,6 @@ impl Default for JunctionView {
     fn default() -> Self {
         Self {
             glyph: JunctionGlyph::default(),
-            rotation: 0.0,
             scale: 1.0,
         }
     }
@@ -164,7 +169,16 @@ pub enum JunctionGlyph {
     SignalizedCross,
     /// Priority (major/minor) crossroads.
     PriorityCross,
-    /// Three-arm T-junction.
+    /// **Load-only, and nothing constructs it.** A three-arm node draws as a T
+    /// because it *has* three arms — the pad follows the roads that meet at it —
+    /// so this variant named a fact the arms already carry, and a control that
+    /// cannot change a pixel is a control that lies (junction glyphs §2.4). It
+    /// survives here **only** so a `.zkai` written before the retirement still
+    /// *parses*: removing a variant outright makes serde fail on the whole
+    /// document, and `persist.rs`'s version probe cannot turn that into a
+    /// readable message, since such a file declares an older-or-equal version.
+    /// `load_document` maps it to [`JunctionGlyph::Generic`] on the way in, so
+    /// the frontend — whose union no longer spells it — can never receive one.
     TJunction,
     /// The gore of a diverge or a merge: no pad at all, but the hatched
     /// triangle of paint between the two arms that separate. The pair is chosen
