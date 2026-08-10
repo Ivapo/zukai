@@ -328,7 +328,9 @@ recording:
   must any harness), into the real `diagramSvg`. `500m`, `500m` and `300m` on a
   network whose arms are 1285 units long, with the font embedded — which is also
   the first document in the project to fire `needsText`'s **third** arm alone,
-  carrying no sign and no text marking.
+  carrying no sign and no text marking. **The user then ran the gate in the real
+  app the same day and confirmed it**, which closes the one step the fallback
+  could not cover: the import gesture itself.
 
 <!--
 The review record is a sibling file, not a section: it lives at
