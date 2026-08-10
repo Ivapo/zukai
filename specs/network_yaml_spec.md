@@ -2,7 +2,7 @@
 id: zk-009
 title: network-yaml
 status: accepted
-last_updated: 2026-07-31
+last_updated: 2026-08-09
 note: >
   Read and write another project's `network.yaml`. The import half shipped
   and stands; the export half was built and then cut by decision. Read §0
@@ -29,6 +29,11 @@ phases:
     shipped: 2026-07-27
     cut: 2026-07-27
     by: zk-009
+  - name: "Phase 5 — Import lays out for legibility"
+    reviewed: null
+    shipped: null
+    cut: null
+    by: null
 
 extends: null
 supersedes: null
@@ -69,12 +74,16 @@ fail quietly is kept in `rules/network-yaml.md`, because every entry in it
 describes a *write*, and that is the clearest argument against rebuilding this.
 
 **What is still open, and belongs to import alone:** OQ-2's **layout**, which is
-what is left of it since 2026-08-09. No fixed `UNITS_PER_METRE` serves both
-fixtures, so fit-to-extent is the only live answer and it needs the factor stored
-per document. That one *does* serve a figure — a network nobody can drag into
-shape is a network nobody can draw. The *length* half of OQ-2 is answered and
-built: a real length crosses as a **label**, not as a distance
-(`specs/link_length_spec.md` Phase 2). Read OQ-2 itself before planning here.
+what is left of it since 2026-08-09. That one *does* serve a figure — a network
+nobody can drag into shape is a network nobody can draw. The *length* half of
+OQ-2 is answered and built: a real length crosses as a **label**, not as a
+distance (`specs/link_length_spec.md` Phase 2).
+
+**Now specced as Phase 5 (2026-08-09), and the cut is what made it cheap.** OQ-2
+had held that fit-to-extent needs the factor stored per document, behind a
+`SCHEMA_VERSION` bump. That cost was the *round trip's*, not the layout's — and
+with no writer there is no inverse to preserve. §2.6.1 is the design and OQ-2
+carries the resolution; §2.6 keeps a `CORRECTED` note pointing at both.
 
 ## 1. Goal
 
@@ -483,11 +492,119 @@ positions arrive true-to-life and *wrong for a schematic*, and a human drags the
 into a legible diagram. No orthogonalization, no octilinear snapping, no
 auto-layout — a named non-goal in `CLAUDE.md` and still one here.
 
+> **CORRECTED 2026-08-09 — "true-to-life" is no longer the rule; see §2.6.1.**
+> The paragraph above is kept as the record of what Phases 1–2 built and shipped.
+> Two of its claims have since been overtaken. **First**, the seed is no longer
+> §2.4's scale: Phase 5 scales the *placement* by a fitted factor, so a node
+> arrives where it reads well rather than where it is. **Second**, the sentence
+> "a human drags them into a legible diagram" was the answer to a problem Phase 5
+> exists to remove — the measured cost of that dragging is a 500 m arm at 143
+> lane-widths, and the whole of OQ-2 is the record of it not being acceptable.
+> What is unchanged, and is the part to keep reading this section for: import
+> **must** seed `layout.nodes` or the page is blank, the seed is the file's
+> `point` and nothing else, and no orthogonalization or octilinear snapping is
+> performed. Scaling a placement is not schematization — it preserves every
+> relative position — so the auto-layout non-goal stands untouched.
+
 `layout.links` and `layout.junctions` are seeded with **defaults**, not derived:
 every link gets `DEFAULT_LINK_STYLE` and every junction the `generic` glyph, the
 same values `completeLink` and `setNodeKind` mint (`state.ts`). Deriving a road
 class from a speed limit is a guess dressed as a fact, and junction semantics §2.2
 is the standing argument for not letting semantics pick a glyph.
+
+### 2.6.1 The import layout factor — lay out for legibility, not for fidelity (Phase 5)
+
+This section answers OQ-2's layout half. It replaces §2.6's scale rule and
+nothing else in §2.6.
+
+**The measured problem.** Import places a node at `metres_to_canvas(point)`, which
+multiplies by `UNITS_PER_METRE` (`9 / 3.5`, or 2.5714 units per metre). A lane is
+9 units wide. So the two committed fixtures arrive like this:
+
+| Fixture | Node bounding box | Extent | At true scale | One arm | Arm in lane-widths |
+|---|---|---|---|---|---|
+| `cross-4` | 200 × 200 m | 200 m | 514 units | 100 m → 257 units | **28** |
+| `t_junction` | 1000 × 300 m | 1000 m | 2571 units | 500 m → 1286 units | **143** |
+
+Both boxes are read from the committed fixtures' own `point:` keys, not inferred:
+`cross-4` runs `[0,0]`–`[200,0]` and `[100,-100]`–`[100,100]`, and `t_junction`
+runs `[0,0]`–`[1000,0]` with `S` at `[500,-300]`.
+
+`cross-4` reads well. OQ-2's own disproof already called 28 lane-widths legible.
+`t_junction` does not read at all. The ratio of road length to road width is what
+separates them, and that ratio is exactly what a schematic distorts.
+
+**The rule: fit the extent, and never enlarge.** Compute one factor per import:
+
+```
+extent  = max(bounding box width, bounding box height)   // metres, over node points
+fitted  = LAYOUT_EXTENT / extent                          // units per metre
+factor  = min(fitted, UNITS_PER_METRE)
+```
+
+`LAYOUT_EXTENT` is **500 canvas units**. The clamp makes the rule one-directional:
+**import shrinks a network that does not fit, and leaves every smaller one at true
+scale.** Without the clamp a 50 m slip road inflates to 500 units, which is 56
+lane-widths of road — the same illegibility, reached from the other side.
+
+**The constant is calibrated against both fixtures, not chosen freely.** At 500
+units, `t_junction` takes a factor of 0.5 and `cross-4` a factor of 2.5. Each arm
+lands at 250 units, or **27.8 lane-widths** — the figure OQ-2 already recorded as
+legible, now reached by both fixtures instead of one. `cross-4` moves by 2.8%,
+so the fixture that already worked is left almost exactly as it was. The clamp
+binds only below an extent of about 194 m.
+
+**Three things must not scale, and keeping them fixed is the whole point.**
+`UNITS_PER_METRE` does four jobs today. Phase 5 changes the first and must leave
+the other three alone:
+
+1. **Node placement** — `metres_to_canvas` in `network/mod.rs`, called once by
+   `network_to_document`. **This is the only caller Phase 5 touches.**
+2. **Lane widths** — `Lane.width` in metres, multiplied in `geometry.ts`. A 3.5 m
+   lane stays 9 units at every factor. True widths, drawn lengths.
+3. **Marking positions** — `Marking.position` is metres, divided on drag in
+   `Canvas.tsx` and multiplied at render. Both ends keep `UNITS_PER_METRE`, so a
+   marking stays where the human put it.
+4. **The length label** — `Link.length` is the file's own metric total, summed by
+   `geometry_length` in `import.rs`. It is a fact about the road and no factor
+   reaches it.
+
+**The imported turn arrows survive by construction, which is worth an assertion
+rather than an assumption.** `import.rs` places each arrow at
+`ARROW_SETBACK_METRES`, which is `1.5 * TURN_ARROW_LENGTH / UNITS_PER_METRE`. The
+renderer multiplies that back by `UNITS_PER_METRE`. The two cancel, so an arrow
+sits `1.5 * TURN_ARROW_LENGTH` canvas units from its anchor under **any**
+placement factor. Nothing in the arrow path needs to know the factor exists.
+
+**Nothing is stored, and the reason is that the export is cut.** OQ-2 required the
+factor to be stored per document, with a `SCHEMA_VERSION` bump and a new `layout`
+field. That requirement had exactly one argument behind it: import and export stop
+being inverses unless the factor survives in the file. **Phases 3–4 were reverted
+in `979a60d` (§0), so there is no inverse left to preserve** — no writer, and
+`canvas_to_metres` no longer exists in `src-tauri/src`. Nothing reads the factor
+back. The document records the resulting *positions*, which is what a `.zkai` has
+always recorded. So Phase 5 needs no new field and no version bump, and
+`SCHEMA_VERSION` stays at 2.
+
+**Degenerate inputs, all of which reach `network_to_document` today.** A file with
+no nodes has no bounding box. A file with one node has a box of zero size. A file
+whose nodes are collinear has one side of zero, which is why the extent is the
+**max** of the two sides and not both. Each case makes `fitted` non-finite or
+zero, so one guard covers all three: if `fitted` is not finite and greater than
+zero, use `UNITS_PER_METRE`. Import does not validate what Assimilator wrote
+(§2.5), so this is the same posture `kerb_lane` takes towards an out-of-range lane
+index.
+
+**Two limits, named rather than fixed.**
+
+- **The fit normalizes the bounding box, not each road.** A network with one long
+  motorway and several short slip roads scales as one object, so the short roads
+  stay short. Normalizing per road is schematization proper, which `CLAUDE.md`
+  keeps as a non-goal.
+- **The factor is not recoverable from the document.** A reader cannot ask what
+  scale a drawing is at. That is correct rather than regrettable: the drawing
+  makes no scale claim, and `Link.length` carries the truth about the road. The
+  only way to change the factor is to import the file again.
 
 ### 2.7 Where the logic lives
 
@@ -497,6 +614,7 @@ is the standing argument for not letting semantics pick a glyph.
 | `import_network(path) -> Document` | `src-tauri/src/network/import.rs` | `cargo test` |
 | `export_network(path, doc)` | `src-tauri/src/network/export.rs` | `cargo test` |
 | the scale + y-negation, one place each way | `src-tauri/src/network/mod.rs` | `cargo test` |
+| the import layout factor (§2.6.1, Phase 5) | `src-tauri/src/network/mod.rs` | `cargo test` |
 | dialog + IPC glue, the close guard | `src/editor/files.ts` | the `bun run dev` pass |
 | the two menu items | `src/editor/menu.ts`, `src/components/Toolbar.tsx` | the `bun run dev` pass |
 
@@ -604,9 +722,35 @@ blocks §2.8 drops (OQ-5) and, for a junction drawn here rather than imported,
 
   **What stays open is the layout half, and only that:** where import *places*
   nodes. A 143-lane-width arm is still a lot of dragging, and fit-to-extent is
-  still the live answer with a per-document factor and a `SCHEMA_VERSION` bump
-  behind it. That is this spec's own subject, not the length spec's
+  still the live answer ~~with a per-document factor and a `SCHEMA_VERSION` bump
+  behind it~~. That is this spec's own subject, not the length spec's
   (`link_length_spec.md` §1.1) — a phase appended **here** is its home.
+
+  **RESOLVED 2026-08-09 — fit-to-extent, shrink-only, stored nowhere. It landed
+  in §2.6.1 and is built by Phase 5.** Two parts of the question above turned out
+  to be wrong, and both were wrong for the same reason.
+
+  **The struck clause is the first.** A stored factor and a version bump were
+  never what fit-to-extent costs. They were what a *round trip* costs, and the
+  fork above was written on 2026-07-26, while the writer still existed. Phases
+  3–4 were reverted the next day (§0). With no export there is no inverse to
+  preserve, nothing reads the factor back, and the document records the resulting
+  positions the way a `.zkai` always has. So the answer this OQ spent weeks
+  treating as the expensive one is the cheap one: arithmetic in
+  `network_to_document`, no new field, and `SCHEMA_VERSION` stays at 2.
+
+  **The second is "fixed constant versus fit-to-extent" as a fork at all.** The
+  disproof stands — no fixed constant serves both fixtures — but the reason it
+  stands is that a fixed constant scales a 200 m network and a 1000 m one by the
+  same number. A fitted factor **with a clamp** is both branches at once: it fits
+  what is too large and leaves what is not at true scale, so the "50 m slip road
+  becomes a dot" objection to a small constant never arises. The clamp is what
+  made the branches collapse, and no round of this question had proposed one.
+
+  What did **not** change is the reading that unblocked it: scale is not what the
+  drawing carries. The factor moves node placement only, and lane widths, marking
+  positions and `Link.length` are all held at `UNITS_PER_METRE` on purpose
+  (§2.6.1). (design-call; **RESOLVED**.)
 - **OQ-3** — **Id collisions on import.** Assimilator ids are free-form
   (`L_W_J`, `M_major_thru`), and Zukai's `nextId` parses a **numeric** suffix
   (`document.ts:129-138`), so after importing a file of non-numeric ids the next
@@ -923,3 +1067,90 @@ the first two being decisions the spec left to the plan:
     because the obvious reading — "we ran it, so the scale is fine" — is wrong.
 - **Docs touched:** the rule file; `rules/persistence.md`; the project-memory
   roadmap; mark this spec `implemented`.
+
+### Phase 5 — Import lays out for legibility  (depends on Phase 2)
+
+**This phase produces the picture, and it is the only one left that does.** Its
+whole output is what a human sees the moment a `network.yaml` opens: `t_junction`
+arrives as a T that fits on one screen instead of a 2571-unit sprawl needing 20%
+zoom. Nothing here adds a panel, a table or a file.
+
+- **Scope:** the import layout factor of §2.6.1. **Rust only** — no IPC, no UI, no
+  TypeScript, no model change, no `SCHEMA_VERSION` move (still 2).
+  - `src-tauri/src/network/mod.rs` — `LAYOUT_EXTENT: f64 = 500.0` and a
+    `layout_factor(nodes: &[NetworkNode]) -> f64` returning the clamped
+    units-per-metre of §2.6.1. It belongs here beside `metres_to_canvas` and
+    `UNITS_PER_METRE`, per §2.7's "the scale, one place".
+  - **`metres_to_canvas` keeps its signature and its meaning.** It is the
+    true-scale converter and the y-negation's one home. Phase 5 adds the factor as
+    a *second* parameter on a new sibling, or passes the factor in — the plan
+    chooses — but it does not silently redefine the function whose name says
+    metres to canvas. The y-negation stays in exactly one place either way.
+  - `src-tauri/src/network/import.rs` — `network_to_document` computes the factor
+    **once**, from `net.nodes`, before the node loop, and applies it at the one
+    call site that seeds `layout.nodes`. No other line in the file changes.
+  - **Nothing else scales.** `geometry_length` keeps summing metres into
+    `Link::length`, `Lane::width` stays in metres, and `ARROW_SETBACK_METRES`
+    keeps dividing by `UNITS_PER_METRE` (§2.6.1's four jobs).
+- **Exit gate:** `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`
+  and `cargo test` green, `bun run build` and `bun run test` **unchanged** (no
+  TypeScript is touched, so an altered vitest count is a signal that something
+  escaped the scope).
+  - **The two fixtures land within 1% of each other in lane-widths.** Assert both:
+    `t_junction`'s 500 m arm and `cross-4`'s 100 m arm each measure 250 canvas
+    units, against a 9-unit lane. One fixture cannot catch a factor applied to the
+    wrong quantity; two at different real extents landing on one drawn extent is
+    the discriminator, and it is the whole claim of §2.6.1.
+  - **`cross-4` moves by 2.8% and no more.** Its span goes 514 → 500 units. A
+    mutation that drops the clamp leaves this test green and breaks the small-
+    network one below, so both are needed.
+  - **A network under the clamp is untouched.** An inline fixture spanning 50 m
+    keeps true scale (129 units, not 500). This is the test that fails if
+    `min` becomes `max`, or if the clamp is dropped.
+  - **Three degenerate inputs return `UNITS_PER_METRE` rather than a panic or a
+    `NaN`**: no nodes, one node, and two nodes at the same point. All three reach
+    `network_to_document` today (§2.5 — import does not validate).
+  - **A collinear network scales by its long side.** Nodes on one axis give a
+    zero-height box, so a factor built from the *height* divides by zero. Note
+    what the fixtures already do and do not cover here: `cross-4`'s box is
+    **square** (200 × 200 m) and cannot tell `max` from `min`, while
+    `t_junction`'s (1000 × 300 m) can and does — a `min` mutation gives it a
+    factor of 1.667 and an 833-unit arm, so the two-fixture test above catches
+    that one. What no committed fixture catches is the **zero** side, which is
+    this test's own job and wants an inline network.
+  - **The arrows do not move, and this is the assertion the phase most needs.**
+    `an_arrow_sits_one_arrow_length_clear_of_the_junction` must pass **unedited**.
+    Its `Marking::position` is in metres and its drawn offset is
+    `1.5 * TURN_ARROW_LENGTH` canvas units at any factor (§2.6.1). If that test
+    needs editing, the factor has leaked into the marking path.
+  - **The label still states the road, not the drawing.**
+    `the_label_states_metres_while_the_canvas_holds_units` is the one existing
+    test whose *numbers* change and whose *point* does not: `link.length` stays
+    `Some(500.0)` and the drawn separation becomes 250 units, so the gap between
+    the two widens from 2.6× to 2×. Edit the units, keep the metres, and keep the
+    comment — it is `link_length_spec.md` §2.2's decoupling and this phase makes
+    it wider rather than weaker.
+  - **One other existing test changes and it is expected:**
+    `the_southern_node_seeds_a_positive_canvas_y`, which asserts
+    `500.0 * UNITS_PER_METRE`. Its *shape* assertions — west at the origin, the
+    stem hanging below the crossbar, the T the right way round — must survive
+    the edit untouched, because they are what catches a factor that also mirrors
+    or rotates. `mod.rs`'s own `metres_to_canvas` tests do **not** change, that
+    function keeping its meaning.
+  - **Run at least one mutation and record it.** The candidate with the largest
+    blast radius is applying the factor to `Lane::width` as well as to `point` —
+    it makes the drawing self-consistent and metrically wrong, it is the exact
+    mistake §2.6.1 exists to forbid, and no assertion about node positions can
+    see it. If fewer than two tests catch it, the gate is short a test.
+  - **A `bun run tauri dev` pass**: import `t_junction.yaml` and confirm the T
+    fits on one screen at 100% zoom with its arms reading `500m`. The roadmap's
+    standing note — point a human at `cross-4`, because `t_junction` needs 20%
+    zoom — is the thing this phase is meant to retire, so `t_junction` is the
+    fixture to open.
+- **Docs touched:** `rules/network-yaml.md`, whose scale section states the 1285-
+  unit figure in three places and needs the factor added beside `metres_to_canvas`;
+  **`CLAUDE.md`**, whose Project Overview carries "the canvas holds its ends 1285
+  units apart" as its worked example of the decoupling — the sentence stays and
+  the number becomes 250; and the project-memory roadmap. **Not** touched:
+  `link_length_spec.md`'s As-built notes, which record what was measured on
+  2026-08-09 and are history rather than current state.
