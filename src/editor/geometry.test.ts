@@ -33,6 +33,7 @@ import {
   CROSSWALK_DEPTH,
   DRIVE_SIDE,
   GIVE_WAY_DEPTH,
+  GORE_CHEVRON_PITCH,
   GORE_LENGTH,
   GoreArm,
   JointEnd,
@@ -65,6 +66,8 @@ import {
   drawnPolyline,
   formatLength,
   gore,
+  goreChevrons,
+  goreFlow,
   gorePair,
   junctionRadius,
   laneBands,
@@ -755,15 +758,24 @@ describe("gores", () => {
   const H4 = (roadWidth(defaults(4)) - ROAD_MARGIN) / 2;
 
   /** An arm leaving the node at `deg` off due east, from `at` (the node itself
-   *  unless a divided carriageway has stepped it off). */
+   *  unless a divided carriageway has stepped it off). Outbound unless said
+   *  otherwise: nothing above `goreFlow` reads the bit, so the pair rules are
+   *  written without it. */
   function arm(
     id: LinkId,
     deg: number,
     halfSpan = H4,
     at = { x: 0, y: 0 },
+    outbound = true,
   ): GoreArm {
     const rad = (deg * Math.PI) / 180;
-    return { id, at, away: { x: Math.cos(rad), y: Math.sin(rad) }, halfSpan };
+    return {
+      id,
+      at,
+      away: { x: Math.cos(rad), y: Math.sin(rad) },
+      outbound,
+      halfSpan,
+    };
   }
 
   /** Every component of every corner, for the finiteness checks. */
@@ -897,9 +909,9 @@ describe("gores", () => {
   it("breaks an exact tie on link id, not on arm order", () => {
     const at = { x: 0, y: 0 };
     const arms: GoreArm[] = [
-      { id: "L2", at, away: { x: 1, y: 0 }, halfSpan: H4 },
-      { id: "L3", at, away: { x: 0, y: 1 }, halfSpan: H4 },
-      { id: "L1", at, away: { x: 0, y: -1 }, halfSpan: H4 },
+      { id: "L2", at, away: { x: 1, y: 0 }, outbound: true, halfSpan: H4 },
+      { id: "L3", at, away: { x: 0, y: 1 }, outbound: true, halfSpan: H4 },
+      { id: "L1", at, away: { x: 0, y: -1 }, outbound: true, halfSpan: H4 },
     ];
 
     for (const order of [arms, [...arms].reverse()]) {
@@ -920,6 +932,256 @@ describe("gores", () => {
 
     expect(H4).toBe(w / 2 - 1.5);
     expect(painted[0].x).toBeLessThan(casing[0].x);
+  });
+});
+
+describe("gore chevrons", () => {
+  /** Half the lane region of a 4-lane arterial, as the gore fixtures use. */
+  const H4 = (roadWidth(defaults(4)) - ROAD_MARGIN) / 2;
+
+  /** An arm leaving the node at `deg` off due east, carrying its own traffic
+   *  direction — `outbound` is "the node is this link's `from_node`". */
+  function arm(id: LinkId, deg: number, outbound: boolean): GoreArm {
+    const rad = (deg * Math.PI) / 180;
+    return {
+      id,
+      at: { x: 0, y: 0 },
+      away: { x: Math.cos(rad), y: Math.sin(rad) },
+      outbound,
+      halfSpan: H4,
+    };
+  }
+
+  /** A gore triangle splayed `deg` either side of due east, `length` long. */
+  function triangle(deg: number, length = GORE_LENGTH): [Vec2, Vec2, Vec2] {
+    return gore(
+      arm("L1", deg, true),
+      arm("L2", -deg, true),
+      { x: 0, y: 0 },
+      length,
+    );
+  }
+
+  /**
+   * `t` at which `p` sits along the triangle's own axes — its barycentric
+   * coordinates against `[nose, fa, fb]`. All three in `[0, 1]` is inside.
+   */
+  function bary(tri: [Vec2, Vec2, Vec2], p: Vec2): [number, number, number] {
+    const [o, a, b] = tri;
+    const ax = a.x - o.x;
+    const ay = a.y - o.y;
+    const bx = b.x - o.x;
+    const by = b.y - o.y;
+    const det = ax * by - ay * bx;
+    const px = p.x - o.x;
+    const py = p.y - o.y;
+    const u = (px * by - py * bx) / det;
+    const v = (ax * py - ay * px) / det;
+    return [1 - u - v, u, v];
+  }
+
+  /**
+   * **This is the phase.** The gore glyph is direction-blind on purpose — one
+   * variant covers a diverge and a merge — but a driver meets a diverge at the
+   * nose and a merge at the base, so the chevrons have to reverse between them.
+   * A single fixed orientation passes half of this and draws half of all gores
+   * stating the opposite of what they mean (ramps spec §2.9.1).
+   *
+   * One geometry, read both ways: the same two splayed arms, both outbound and
+   * then both inbound. Asserted as the tip being nearer the nose than its own
+   * wings, which owes nothing to the pitch or the angle.
+   */
+  it("points a diverge's chevrons at the nose and a merge's at the base", () => {
+    const tri = triangle(15);
+    const [nose] = tri;
+    const out = arm("L1", 15, true);
+    const back = arm("L1", 15, false);
+
+    expect(goreFlow(out, arm("L2", -15, true))).toBe("nose");
+    expect(goreFlow(back, arm("L2", -15, false))).toBe("base");
+
+    const diverge = goreChevrons(...tri, "nose");
+    const merge = goreChevrons(...tri, "base");
+    expect(diverge.length).toBeGreaterThan(1);
+    expect(merge).toHaveLength(diverge.length);
+
+    for (const [wing, tip] of diverge) {
+      expect(distance(tip, nose)).toBeLessThan(distance(wing, nose));
+    }
+    for (const [wing, tip] of merge) {
+      expect(distance(tip, nose)).toBeGreaterThan(distance(wing, nose));
+    }
+  });
+
+  /**
+   * **And it holds at every splay**, which is a second claim and not a restating
+   * of the first. A chevron's wings lean off the *edge* they land on rather than
+   * off the axis, precisely because the edge's own angle is whatever the two roads
+   * leave: a lean fixed in absolute terms is eventually shallower than the edge of
+   * a wide gore, and a wing shallower than the edge puts the tip past its own
+   * wings — the chevron turns round. That is `goreFlow`'s silent mirror arriving
+   * by the back door, and it is invisible in a fixture at one angle.
+   */
+  it("keeps the chevrons facing the same way at every splay", () => {
+    for (const deg of [5, 15, 35, 60, 80]) {
+      const tri = triangle(deg);
+      const [nose, fa, fb] = tri;
+      const mid = { x: (fa.x + fb.x) / 2, y: (fa.y + fb.y) / 2 };
+      const axis = distance(nose, mid);
+      /**
+       * How far along the **axis** a point sits. Distance from the nose will not
+       * do here, as it does at one splay above: a leg is longer than the axis by
+       * `1 / cos α`, so on a wide triangle a wing that is further *along* is also
+       * further *away*, and the two measures disagree.
+       */
+      const station = (p: Vec2) =>
+        ((p.x - nose.x) * (mid.x - nose.x) + (p.y - nose.y) * (mid.y - nose.y)) /
+        axis;
+
+      for (const [toward, ahead] of [
+        ["nose", true],
+        ["base", false],
+      ] as const) {
+        const fan = goreChevrons(...tri, toward);
+        expect(fan.length).toBeGreaterThan(0);
+        for (const [wing, tip] of fan) {
+          expect(station(tip) < station(wing)).toBe(ahead);
+        }
+      }
+    }
+  });
+
+  /**
+   * A gore a human built from two links that neither diverge nor converge, which
+   * an imported fragment can hold too. It takes the **diverge** floor rather than
+   * throwing or drawing nothing — `gorePair`'s own posture towards a node with
+   * more than three arms, and OQ-9 as taken.
+   */
+  it("floors a mixed in/out pair to the diverge orientation", () => {
+    expect(goreFlow(arm("L1", 15, true), arm("L2", -15, false))).toBe("nose");
+    expect(goreFlow(arm("L1", 15, false), arm("L2", -15, true))).toBe("nose");
+  });
+
+  /**
+   * Containment is a property of the construction, not a clamp each chevron has
+   * to remember (§2.9.3) — the wings are convex combinations of the nose and a
+   * corner, so they land **exactly on** the edges. Which is why this is an
+   * inclusive test with a tolerance: a strict inside test fails a correct
+   * implementation, as the markings suite already writes it.
+   *
+   * At every gore angle and every Size, because a chevron outside an edge line is
+   * the failure this rules out.
+   */
+  it("keeps every chevron inside the triangle at every angle and size", () => {
+    for (const deg of [5, 15, 35, 60, 80]) {
+      for (const scale of [0.5, 1, 2.5]) {
+        const tri = triangle(deg, GORE_LENGTH * scale);
+        for (const toward of ["nose", "base"] as const) {
+          for (const chevron of goreChevrons(...tri, toward)) {
+            for (const p of chevron) {
+              for (const c of bary(tri, p)) {
+                expect(c).toBeGreaterThanOrEqual(-1e-9);
+                expect(c).toBeLessThanOrEqual(1 + 1e-9);
+              }
+            }
+          }
+        }
+      }
+    }
+  });
+
+  /**
+   * The count comes from the axis and the pitch follows, as `spanCells` does for
+   * the tiled marking kinds — so a longer gore carries **more** chevrons rather
+   * than the same few stretched. A hard-coded three passes every assertion above
+   * and fails this one.
+   */
+  it("derives the count from the length, at a fixed pitch", () => {
+    /**
+     * The pitch a fan actually came out at, read off consecutive wings: a wing
+     * sits one cell further along its leg than the last, and a leg is longer than
+     * the axis by exactly the ratio that converts one to the other. Read this way
+     * rather than as "axis over count", which the dropped cells make wrong.
+     */
+    function pitchOf(tri: [Vec2, Vec2, Vec2], fan: Vec2[][]): number {
+      const [nose, fa, fb] = tri;
+      const mid = { x: (fa.x + fb.x) / 2, y: (fa.y + fb.y) / 2 };
+      const step = distance(nose, fan[1][0]) - distance(nose, fan[0][0]);
+      return (step * distance(nose, mid)) / distance(nose, fa);
+    }
+
+    const shortTri = triangle(15);
+    const longTri = triangle(15, GORE_LENGTH * 3);
+    const short = goreChevrons(...shortTri, "nose");
+    const long = goreChevrons(...longTri, "nose");
+
+    expect(long.length).toBeGreaterThan(short.length * 2);
+    // Near the target rather than exactly on it, because the count is the round
+    // number and the pitch is what falls out of it — which is the whole rule.
+    expect(pitchOf(longTri, long)).toBeCloseTo(GORE_CHEVRON_PITCH, 0);
+    expect(pitchOf(shortTri, short)).toBeCloseTo(pitchOf(longTri, long), 0);
+  });
+
+  /**
+   * The cells nearest the end the chevrons point at are shallower than a
+   * chevron's own setback, so their tips would land past the corner. They draw
+   * **nothing** — pinning one to the corner instead folds its wings onto the two
+   * edge lines, which draws the gore's outline a second time rather than paint.
+   *
+   * Asserted as a real drop (fewer chevrons than cells) plus the property that
+   * makes it worth having: no tip sits *on* either end of the axis.
+   */
+  it("drops a cell with no room for a tip rather than folding it flat", () => {
+    const tri = triangle(35);
+    const [nose, fa, fb] = tri;
+    const mid = { x: (fa.x + fb.x) / 2, y: (fa.y + fb.y) / 2 };
+    const axis = distance(nose, mid);
+    const cells = Math.round(axis / GORE_CHEVRON_PITCH);
+
+    for (const toward of ["nose", "base"] as const) {
+      const fan = goreChevrons(...tri, toward);
+      expect(fan.length).toBeGreaterThan(0);
+      expect(fan.length).toBeLessThan(cells);
+      for (const [, tip] of fan) {
+        expect(distance(nose, tip)).toBeGreaterThan(1e-9);
+        expect(distance(mid, tip)).toBeGreaterThan(1e-9);
+      }
+    }
+  });
+
+  /**
+   * Phase 4's degenerate gore, still drawable: two anti-parallel arms put the
+   * nose back on the node and the base's midpoint on top of it, so there is no
+   * axis to lay a fan along. The failure this pins is a `NaN` reaching the
+   * markup, where it renders as nothing and no `d=` assertion catches it.
+   */
+  it("draws no chevrons at all in a gore with no axis", () => {
+    const node = { x: 7, y: -3 };
+    const flat = gore(
+      arm("L1", 0, true),
+      arm("L2", 180, true),
+      node,
+      GORE_LENGTH,
+    );
+
+    expect(goreChevrons(...flat, "nose")).toEqual([]);
+  });
+
+  /**
+   * The other degenerate gore, and it is the one the *drawing* catches rather
+   * than the maths — found in the dev pass, on a node whose closest pair turned
+   * out to be two carriageways of the same road. Two **parallel** arms leave a
+   * triangle with an axis but no width, so every chevron's three points land on
+   * top of each other. That is not nothing: a zero-length subpath under a round
+   * cap paints a **dot**, so the gore would carry a neat row of them down the
+   * middle of a triangle that is not there.
+   */
+  it("draws none either when the triangle has no width", () => {
+    const node = { x: 0, y: 0 };
+    const flat = gore(arm("L1", 0, true), arm("L2", 0, true), node, GORE_LENGTH);
+
+    expect(distance(flat[0], flat[1])).toBeCloseTo(GORE_LENGTH);
+    expect(goreChevrons(...flat, "nose")).toEqual([]);
   });
 });
 

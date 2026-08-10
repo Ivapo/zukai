@@ -463,6 +463,12 @@ export interface GoreArm {
   /** Unit direction **away** from the node, along the drawn carriageway. */
   away: Vec2;
   /**
+   * Whether traffic **leaves** the node along this arm — {@link Arm.outbound},
+   * carried through unchanged. {@link gorePair} never reads it; only
+   * {@link goreFlow} does, and only after the pair is already chosen.
+   */
+  outbound: boolean;
+  /**
    * Half the **lane region's** span — `(roadWidth - ROAD_MARGIN) / 2`, the same
    * quantity {@link alignmentShift} holds an edge at, and exactly `RoadShape`'s
    * `edgeInset`. A gore is paint bounded by the roads' *painted* edges, not
@@ -587,6 +593,151 @@ function innerEdge(arm: GoreArm, other: Vec2): Vec2 {
     x: arm.at.x + nx * side * arm.halfSpan,
     y: arm.at.y + ny * side * arm.halfSpan,
   };
+}
+
+/**
+ * Which end of a gore the driver arrives from, and so which end its chevrons
+ * point at: the **nose** at a diverge, the **base** at a merge.
+ */
+export type GoreFlow = "nose" | "base";
+
+/**
+ * The one place a gore consults the direction of travel (ramps spec §2.9.1).
+ *
+ * {@link gorePair} deliberately cannot: it picks the closest pair off `away`,
+ * which points out of the node whichever way traffic runs, and that
+ * direction-blindness is what lets **one** `gore` variant cover both a diverge
+ * and a merge. But a chevron has to claim a direction — draw one orientation for
+ * both and half of all gores point the wrong way, in a drawing that looks
+ * entirely deliberate and states the opposite of what it means.
+ *
+ * The answer costs no model field, because the link already carries it: the node
+ * is either the link's `from_node` (traffic leaves — {@link GoreArm.outbound})
+ * or its `to_node` (traffic arrives). **Both out is a diverge**, whose traffic
+ * arrives on the third arm and splits at the nose; **both in is a merge**, whose
+ * traffic arrives along the two legs and joins at the base.
+ *
+ * **The mixed case is a floor, not an error.** One arm in and one out is a gore a
+ * human built from two links that neither diverge nor converge, and an imported
+ * fragment can hold one. It draws the diverge orientation, on {@link gorePair}'s
+ * own posture towards a node with more than three arms — a drawing that still
+ * looks deliberate beats one that silently loses its paint (OQ-9, taken).
+ */
+export function goreFlow(a: GoreArm, b: GoreArm): GoreFlow {
+  return !a.outbound && !b.outbound ? "base" : "nose";
+}
+
+/**
+ * The gap between two chevrons along the gore's axis, in world units.
+ *
+ * A build constant beside {@link GORE_LENGTH}, and **unscaled** where that one is
+ * scaled: the triangle already grows with the glyph's Size, so holding the pitch
+ * fixed is what makes a longer gore carry *more* chevrons rather than the same
+ * few stretched. One default lane, settled in the app.
+ */
+export const GORE_CHEVRON_PITCH = LANE_PX;
+
+/**
+ * How far a chevron's wing leans off the edge it ends on, as a fraction of the
+ * way from that edge to square across the gore's axis.
+ *
+ * **A fraction rather than an angle, and this is the one thing settling it in the
+ * app changed.** A wing has to stay visibly clear of the edge line it lands on,
+ * and the edge's own angle is not a constant — it is whatever splay the two roads
+ * happen to leave. So an *absolute* angle reads at one gore and fails at two
+ * others, in opposite directions: at 60° off the axis a wing sits 12° off the
+ * edge of a narrow diverge and merges into it, while any fixed angle is
+ * eventually *shallower* than the edge of a wide one, which flips the chevron to
+ * point at the far end. That last failure is the exact silent mirror
+ * {@link goreFlow} exists to rule out, arriving by the back door.
+ *
+ * Held at a fraction of the room available, the wing is clear of the edge by the
+ * same proportion at every splay and stays strictly inside square-across, so
+ * neither failure is reachable: the tip's setback,
+ * `tan α / tan(α + lean · (90° − α))`, is strictly between 0 and 1 for every
+ * splay, so a chevron can never turn round.
+ */
+export const GORE_CHEVRON_LEAN = 0.65;
+
+/**
+ * The chevrons inside a gore: one open polyline per chevron, each
+ * `[on one edge, tip, on the other edge]`, pointing at whichever end the driver
+ * arrives from (ramps spec §2.9.3).
+ *
+ * **The triangle is isoceles**, because {@link gore} runs a whole `length` along
+ * each arm from the nose — so its axis of symmetry is `nose → midpoint(fa, fb)`,
+ * and two facts make the whole layout free of perpendiculars, normals and offset
+ * signs, which is the trap class this spec's review kept catching:
+ *
+ * - a point on a leg at axial station `s` is exactly `lerp(nose, corner, s /
+ *   axisLen)`, since a leg's projection on the axis grows linearly from `0` to
+ *   `axisLen`;
+ * - a point on the axis is `lerp(nose, mid, s / axisLen)`.
+ *
+ * **The count comes from the axis and the pitch follows**, as {@link spanCells}
+ * does for the tiled marking kinds, so the cells tile the axis exactly with no
+ * partial one at either end. **Containment is then constructional rather than
+ * clamped**: both wing ends are convex combinations of the nose and a corner, so
+ * they land *exactly* on the edges, and the tip is on the axis between them. A
+ * chevron outside an edge line is the failure that rules out, as `ARROW_REACH`
+ * rules it out for a turn arrow.
+ *
+ * **A cell with no room for a tip draws nothing**, which is the one place a cell
+ * and a chevron are not the same thing. The cells nearest the end the chevrons
+ * point at are shallower than the setback, so their tips would land beyond the
+ * triangle — and pinning one to the corner instead is worse than dropping it,
+ * because a chevron with its tip *on* the nose has both wings lying along the two
+ * edge lines. That draws the gore's own outline a second time and reads as a
+ * doubled edge, not as paint.
+ *
+ * A chevron near the far end reaches back past the tip of the one before it. That
+ * is what a real gore looks like — nested Vs — and the gap that has to stay
+ * visible is the perpendicular one, which the pitch fixes.
+ */
+export function goreChevrons(
+  nose: Vec2,
+  fa: Vec2,
+  fb: Vec2,
+  toward: GoreFlow,
+): Vec2[][] {
+  const mid = { x: (fa.x + fb.x) / 2, y: (fa.y + fb.y) / 2 };
+  const axisLen = distance(nose, mid);
+  const halfBase = distance(fa, fb) / 2;
+  // Both of `gore`'s degenerate cases, and they fail differently. Anti-parallel
+  // arms put `mid` on the nose, so there is no axis and every point would be a
+  // `NaN`. **Parallel** arms are the one the drawing catches rather than the
+  // maths: the triangle has an axis but no width, so every chevron comes out with
+  // its three points on top of each other — which a round cap paints as a *dot*,
+  // a row of them down the middle of nothing. Neither draws.
+  if (axisLen < SAME_EDGE || halfBase < SAME_EDGE) return [];
+
+  // The triangle's own half-angle, as a tangent and then as an angle.
+  const slope = halfBase / axisLen;
+  const edge = Math.atan(slope);
+  // How far back from its wings a chevron's tip sits, per unit of station. The
+  // wings land on the edges either way; this is only what sets the tip's angle,
+  // and it is strictly in (0, 1) for every splay, so a chevron cannot turn round.
+  const wing = edge + GORE_CHEVRON_LEAN * (Math.PI / 2 - edge);
+  const rake = slope / Math.tan(wing);
+
+  const count = Math.max(1, Math.round(axisLen / GORE_CHEVRON_PITCH));
+  const pitch = axisLen / count;
+
+  const fan: Vec2[][] = [];
+  for (let i = 0; i < count; i++) {
+    const k = (pitch * (i + 0.5)) / axisLen;
+    const t = toward === "nose" ? k - rake : k + rake;
+    // No room for this cell's tip, so it draws nothing rather than folding its
+    // wings onto the two edge lines — see the note above.
+    if (t < 0 || t > 1) continue;
+    fan.push([lerp(nose, fa, k), lerp(nose, mid, t), lerp(nose, fb, k)]);
+  }
+  return fan;
+}
+
+/** The point a fraction `t` of the way from `a` to `b`. */
+function lerp(a: Vec2, b: Vec2, t: number): Vec2 {
+  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
 }
 
 /**
@@ -815,6 +966,16 @@ export interface Arm {
    * detail drawn from this has to enter as `origin - center`.
    */
   origin: Vec2;
+  /**
+   * Whether traffic **leaves** the node along this arm — the node is the link's
+   * `from_node`. Carried rather than re-derived, on `origin`'s road: it is the
+   * `touchesStart` {@link junctionArms} already computes and used to discard.
+   *
+   * {@link dir} cannot substitute and that is the whole point of the field: every
+   * arm points *away* from the node whichever way its traffic runs. One consumer,
+   * {@link goreFlow}, and it is what lets a gore's chevrons face the driver.
+   */
+  outbound: boolean;
   width: number;
 }
 
@@ -857,6 +1018,7 @@ export function junctionArms(
       id: link.id,
       dir: { x: dx / len, y: dy / len },
       origin: n0,
+      outbound: touchesStart,
       width: roadWidth(link.lanes, linkStyle(doc, link.id)),
     });
   }
