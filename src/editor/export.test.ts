@@ -549,6 +549,44 @@ describe("the turn arcs are gone from an exported file", () => {
     expect(svg).toContain('class="jn-pad"');
     expect(svg).toContain('class="jn-stopbar"');
   });
+
+  /**
+   * The cross-spec obligation for the pad's new outline, checked rather than
+   * assumed — and the expected answer is "nothing to do", the wedge's and the
+   * gore's answer for the wedge's and the gore's reason.
+   *
+   * `strokeAllowance` exists because `getBBox` excludes *stroke* width, which is
+   * the whole of the road casing. The pad is **fill**, as it was when it was a
+   * circle, and every vertex of it sits inside the disc the arms' own reach
+   * derives — which is inside the frame the roads already demand.
+   */
+  it("needs no allowance for a pad that follows its arms", () => {
+    const doc = signalised();
+
+    expect(strokeAllowance(doc)).toBe(roadWidth(doc.links[0].lanes) / 2);
+    expect(strokeAllowance(doc)).toBe(strokeAllowance(road(3)));
+
+    const corners = diagramInner(doc)
+      .match(/class="jn-pad" d="([^"]+)"/)![1]
+      .matchAll(/[ML] ([-\d.e]+) ([-\d.e]+)/g);
+    const [x, y, w, h] = diagramSvg(doc, { x: 0, y: 0, width: 240, height: 40 })
+      .match(/viewBox="([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+)"/)!
+      .slice(1)
+      .map(Number);
+
+    let seen = 0;
+    for (const m of corners) {
+      seen++;
+      // The glyph group is translated to N2 at (120, 0), as the gore's is.
+      const cx = Number(m[1]) + 120;
+      const cy = Number(m[2]);
+      expect(cx).toBeGreaterThan(x);
+      expect(cx).toBeLessThan(x + w);
+      expect(cy).toBeGreaterThan(y);
+      expect(cy).toBeLessThan(y + h);
+    }
+    expect(seen).toBeGreaterThan(8);
+  });
 });
 
 describe("road markings in an exported file", () => {

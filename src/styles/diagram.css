@@ -319,6 +319,10 @@
 
 /* ----- junction glyphs ----- */
 
+/* The junction's asphalt: one band per approach road, emitted as subpaths of one
+   path and read as a single area by the default nonzero fill rule. Do not set
+   fill-rule here - evenodd would punch a hole out of every place two bands
+   overlap, which is exactly where the roads meet (junction glyphs 2.2). */
 .jn-pad {
   fill: var(--asphalt);
 }

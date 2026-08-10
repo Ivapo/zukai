@@ -1062,6 +1062,203 @@ export function ringRadius(arms: Arm[], center: Vec2, scale: number): number {
 }
 
 /**
+ * How coarse the pad's outer arc may be: at most 10° between two chord ends.
+ *
+ * A chord falls short of its arc by `r * (1 - cos 5°)` — 0.10 units on a 4-lane
+ * T and 0.47 on the largest pad this app can draw (8 lanes at the Inspector's
+ * 2.5x Size), against a 1.5-unit edge line. The bound is stated because
+ * containment passes for an inscribed arc at **any** chord density, so nothing
+ * in the gate catches a coarse one (junction glyphs §2.2).
+ */
+const PAD_CHORD = (10 * Math.PI) / 180;
+
+/** Where a lateral offset meets the rim, as an angle off the arm's own axis. */
+function arcAngle(v: number, r: number): number {
+  return Math.asin(Math.min(1, Math.max(-1, v / r)));
+}
+
+/** Two ring vertices the construction produced at the same place. */
+function same(a: Vec2 | undefined, b: Vec2): boolean {
+  return !!a && Math.abs(a.x - b.x) < 1e-9 && Math.abs(a.y - b.y) < 1e-9;
+}
+
+/**
+ * The pad's outline: one closed ring per arm, all wound the same way, to be
+ * filled as a single nonzero path. In the glyph's frame, so an arm enters as
+ * `origin - center` and the disc is centred on the origin of that frame.
+ *
+ * One arm's ring is its **band** — every point at or ahead of the line through
+ * the centre perpendicular to `dir`, within `width / 2` of the arm's own axis —
+ * **intersected with the disc of radius `r`**. Two straight sides, a straight
+ * inner cut, and an outer arc.
+ *
+ * **The pad is contained in the disc, and that containment is load-bearing.**
+ * Three things measure to the rim ({@link rayCircleExit}, through the stop bars
+ * and {@link junctionRadius}), all three assume a circle, and all three stay
+ * correct only because no ring reaches past one. A band merely run out to the
+ * rim with a flat end puts its corners at `sqrt(r² + (w/2)²)` — outside the hit
+ * target, the halo, and the rim a marking was cleared from.
+ *
+ * Two consequences of the construction, each a way to get it wrong:
+ *
+ * - **Along its own arm the ring ends exactly where {@link rayCircleExit} says**,
+ *   because a vertex is forced at that point. That is what makes the pad and the
+ *   stop bar agree by construction rather than by coincidence, on a divided
+ *   approach as much as an undivided one. It is a statement about the **ray**,
+ *   not about the ring's furthest vertex: on a divided 2-lane approach the ray
+ *   exits at 19.84 while the furthest vertex sits at 23.81.
+ * - **The union is rendered, never computed.** The rings go out as subpaths of
+ *   one `<path>` under the default nonzero rule, so overlapping bands read as one
+ *   area with no boolean machinery. The cost is that **every ring winds the same
+ *   way**, or two overlapping rings of opposite winding cancel into a hole.
+ *
+ * `[]` where there are no arms, which is the one case the glyph still draws as a
+ * circle — a junction the human placed and has not yet joined must stay visible
+ * and clickable, and an inscribed polygon would be a different drawing for no
+ * reason.
+ */
+export function padShape(arms: Arm[], center: Vec2, r: number): Vec2[][] {
+  if (r <= 0) return [];
+  const rings: Vec2[][] = [];
+  for (const arm of arms) {
+    // The arm's own frame: `u` runs along it, `v` across. Both axes are unit and
+    // `det[d, n] = 1`, so this is a rotation — which is what lets one vertex
+    // order in here give one winding out there, for every arm.
+    const d = arm.dir;
+    const n = { x: -d.y, y: d.x };
+    const ax = arm.origin.x - center.x;
+    const ay = arm.origin.y - center.y;
+    const c = ax * n.x + ay * n.y;
+    const h = arm.width / 2;
+
+    // The band's two sides, clipped to the disc. The reach floor keeps every
+    // arm inside its own pad (`armReach`), so the clamp is defensive.
+    const v0 = Math.max(-r, c - h);
+    const v1 = Math.min(r, c + h);
+    if (!(v1 > v0)) continue;
+
+    const uv: Vec2[] = [
+      { x: 0, y: v0 },
+      { x: 0, y: v1 },
+    ];
+    // The outer arc, from the far side back to the near one, through the arm's
+    // own ray exit. Splitting there is what makes the reach an equality.
+    const a0 = arcAngle(v0, r);
+    const a1 = arcAngle(v1, r);
+    const ac = Math.min(a1, Math.max(a0, arcAngle(c, r)));
+    for (const [from, to] of [
+      [a1, ac],
+      [ac, a0],
+    ]) {
+      const steps = Math.max(1, Math.ceil(Math.abs(to - from) / PAD_CHORD));
+      for (let i = 0; i <= steps; i++) {
+        const t = from + ((to - from) * i) / steps;
+        uv.push({ x: r * Math.cos(t), y: r * Math.sin(t) });
+      }
+    }
+
+    // Back to the glyph's frame, dropping the points the construction repeats:
+    // the split angle belongs to both half-arcs, `v1 === r` puts the first arc
+    // point on the inner cut's own end, and `v0 === -r` closes onto the start.
+    // All three are reachable, and all three are `Z` doubled back on itself.
+    const ring: Vec2[] = [];
+    for (const p of uv) {
+      const w = { x: p.x * d.x + p.y * n.x, y: p.x * d.y + p.y * n.y };
+      if (!same(ring[ring.length - 1], w)) ring.push(w);
+    }
+    if (same(ring[ring.length - 1], ring[0])) ring.pop();
+    if (ring.length > 2) rings.push(ring);
+  }
+  return rings;
+}
+
+/** Twice a polygon's signed area — the sign alone is read, for its winding. */
+function signedArea2(ring: Vec2[]): number {
+  let sum = 0;
+  for (let i = 0; i < ring.length; i++) {
+    const a = ring[i];
+    const b = ring[(i + 1) % ring.length];
+    sum += a.x * b.y - b.x * a.y;
+  }
+  return sum;
+}
+
+/**
+ * The stretch of the ray from `p` along unit `d` that lies inside one **convex**
+ * ring, as `[enter, exit]` in ray parameter, or `undefined` where it misses.
+ *
+ * Boundary-inclusive at every edge, which {@link rayPadExit} depends on.
+ */
+function raySpan(ring: Vec2[], p: Vec2, d: Vec2): [number, number] | undefined {
+  const s = signedArea2(ring) >= 0 ? 1 : -1;
+  let lo = -Infinity;
+  let hi = Infinity;
+  for (let i = 0; i < ring.length; i++) {
+    const a = ring[i];
+    const b = ring[(i + 1) % ring.length];
+    // Outward normal of a→b, turned by the ring's own winding so the sign of
+    // `num` means "outside" whichever way the vertices were ordered.
+    const nx = s * (b.y - a.y);
+    const ny = -s * (b.x - a.x);
+    const num = (p.x - a.x) * nx + (p.y - a.y) * ny;
+    const den = d.x * nx + d.y * ny;
+    if (Math.abs(den) < 1e-12) {
+      // Parallel to this edge: the whole ray is on one side of it. On the edge
+      // itself counts as inside, so only a strictly positive `num` misses.
+      if (num > 1e-9) return undefined;
+      continue;
+    }
+    const t = -num / den;
+    if (den > 0) hi = Math.min(hi, t);
+    else lo = Math.max(lo, t);
+  }
+  return lo <= hi ? [lo, hi] : undefined;
+}
+
+/**
+ * How far the pad reaches from `p` along unit `d` before **first** leaving it:
+ * the ray-versus-pad exit, `0` when `p` is outside every ring. The union is not
+ * convex, so a ray can leave and re-enter; only the contiguous run from `p`
+ * counts.
+ *
+ * The ray analogue of {@link rayCircleExit}, for the shape that replaced the
+ * circle — with one difference that is a trap rather than a detail: a point
+ * **on** a ring's boundary counts as inside. The glyph centre lies exactly on
+ * every band's inner cut by construction ({@link padShape}), so an
+ * implementation that copies `rayCircleExit`'s strict outside-test returns `0`
+ * for every ring and collapses every priority diamond to nothing.
+ *
+ * That convention is what gives the right answer three times over: on a T of
+ * 4-lane roads the northward ray rides two bands' inner cuts and exits at their
+ * own edge, 19.5; on a T whose through road is 1 lane it exits at 6; and on a
+ * four-arm cross every direction runs down an arm and reaches the rim.
+ */
+export function rayPadExit(rings: Vec2[][], p: Vec2, d: Vec2): number {
+  const spans: [number, number][] = [];
+  for (const ring of rings) {
+    const span = raySpan(ring, p, d);
+    if (span) spans.push(span);
+  }
+  spans.sort((a, b) => a[0] - b[0]);
+
+  let reach = 0;
+  let started = false;
+  for (const [lo, hi] of spans) {
+    if (!started) {
+      // Sorted by entry, so once a span starts ahead of `p` nothing behind it
+      // can still cover `p` — the run either began by now or never begins.
+      if (lo > 0) break;
+      if (hi < 0) continue;
+      started = true;
+      reach = hi;
+    } else if (lo <= reach) {
+      reach = Math.max(reach, hi);
+    } else break;
+  }
+  return started ? Math.max(0, reach) : 0;
+}
+
+/**
  * How far the glyph at `nodeId` reaches along its arms, or `undefined` where it
  * reaches nowhere — the radius an `end`-anchored marking measures its clearance
  * from ({@link markingAnchor}).

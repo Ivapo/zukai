@@ -58,10 +58,12 @@ import {
   markingZebra,
   offsetPolyline,
   padRadius,
+  padShape,
   polygonsPath,
   polylinePath,
   polylinesPath,
   rayCircleExit,
+  rayPadExit,
   ringRadius,
   roadWidth,
   SignChrome,
@@ -883,9 +885,11 @@ function NodeShape({
 
 /**
  * A junction drawn as a recognizable symbol. The generic/signalized/priority
- * glyphs sit on an asphalt pad where the arms meet; the roundabout replaces the
- * pad with a ring and island. Approach-derived details (stop bars, arm widths)
- * come from `arms`, which is why the glyph reads correctly for any arm layout.
+ * glyphs sit on an asphalt pad **shaped like the roads that meet there**; the
+ * roundabout replaces the pad with a ring and island. Approach-derived details
+ * (the outline, stop bars, arm widths) come from `arms`, which is why the glyph
+ * reads correctly for any arm layout — and why a three-arm node reads as a T
+ * without anyone picking anything (junction glyphs §2.2).
  *
  * **What turns the junction permits is not drawn here, or anywhere on the pad.**
  * It is paint on the approach lanes — a `turn_arrow` per lane, in the marking
@@ -911,6 +915,9 @@ function JunctionGlyphShape({
   // rim they describe is where an `end`-anchored marking measures its clearance
   // from, which is not a render-time question (lane arrows Phase 5).
   const rp = padRadius(arms, center, scale);
+  // The pad itself: the approach roads, clipped to that same rim. Empty for a
+  // junction with no arms, which is the one case still drawn as a disc.
+  const rings = padShape(arms, center, rp);
 
   const ro = ringRadius(arms, center, scale);
   const ringT = ro * 0.42;
@@ -951,7 +958,14 @@ function JunctionGlyphShape({
           scale={scale}
           interaction={interaction}
         />
+      ) : rings.length ? (
+        // One path, one class token, one fill: the bands overlap at the node and
+        // the default nonzero rule reads them as a single area, so no boolean
+        // union is computed anywhere (§2.2).
+        <path className="jn-pad" d={polygonsPath(rings)} />
       ) : (
+        // A junction the human placed and has not yet joined. It has no roads to
+        // follow, and it still has to be visible and clickable.
         <circle className="jn-pad" r={rp} />
       )}
 
@@ -990,7 +1004,7 @@ function JunctionGlyphShape({
       {glyph === "priority_cross" && (
         <polygon
           className="jn-priority"
-          points={diamondPoints(rp * 0.85)}
+          points={diamondPoints(diamondHalf(rings, rp))}
           vectorEffect={nse}
         />
       )}
@@ -1114,6 +1128,48 @@ function SignalHead({
 /** Points for a diamond (rotated square) of half-diagonal `s`, centred at origin. */
 function diamondPoints(s: number): string {
   return `0,${-s} ${s},0 0,${s} ${-s},0`;
+}
+
+/** The four directions a priority diamond's tips point in, in the glyph's frame. */
+const DIAMOND_TIPS: Vec2[] = [
+  { x: 0, y: -1 },
+  { x: 1, y: 0 },
+  { x: 0, y: 1 },
+  { x: -1, y: 0 },
+];
+
+/**
+ * The priority diamond's half-diagonal — **measured against the pad it will sit
+ * on**, in each direction its tips actually point.
+ *
+ * `rp * 0.85` alone is inside a disc and is not always inside a union of bands:
+ * on a T of 4-lane roads the north tip lands 3.6 units past the through road's
+ * own edge, and floats filled yellow on bare paper. The bound is measured rather
+ * than derived from the arms' widths because a width-derived inradius is wrong —
+ * a band is cut at the centre, so one arm contributes a half-disc, and a T with a
+ * 1-lane through road and a 4-lane stem reports 19.5 where the pad reaches 6
+ * (junction glyphs §2.3).
+ *
+ * Two floors, and they answer different questions:
+ *
+ * - **With no rings the disc is back, and so is `rp * 0.85` unchanged.** That
+ *   branch paints a full disc of asphalt, so a bound measured against an empty
+ *   pad would erase the badge from under it.
+ * - **Where the pad has rings but does not cover the glyph centre, `rp * 0.35`.**
+ *   The centre sits in a median when every approach is divided; a single-arm
+ *   junction and a Y whose arms all leave one way reach the same state. The badge
+ *   overhangs a little there, which is the trade taken: a badge that vanishes is
+ *   harder to diagnose than one that overhangs (OQ-5). The floor applies **only**
+ *   to that vacuous case — a measurement of 6 is a real 6, and raising it would
+ *   put back the yellow this function exists to remove.
+ */
+function diamondHalf(rings: Vec2[][], rp: number): number {
+  const full = rp * 0.85;
+  if (!rings.length) return full;
+  const reach = Math.min(
+    ...DIAMOND_TIPS.map((d) => rayPadExit(rings, { x: 0, y: 0 }, d)),
+  );
+  return reach > 0 ? Math.min(full, reach) : rp * 0.35;
 }
 
 /**

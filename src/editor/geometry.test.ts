@@ -28,6 +28,7 @@ import {
 } from "../model/types";
 import {
   ADVANCE,
+  Arm,
   BASELINE_DROP,
   CAP_HEIGHT,
   CROSSWALK_DEPTH,
@@ -81,12 +82,15 @@ import {
   markingZebra,
   nearestOnPolyline,
   offsetPolyline,
+  padRadius,
+  padShape,
   pointAlongPolyline,
   polygonsPath,
   polylineLength,
   polylinesPath,
   rayCircleExit,
   rayIntersection,
+  rayPadExit,
   roadWidth,
   signBox,
   signNoEntry,
@@ -2943,6 +2947,297 @@ describe("markingAnchor at a junction rim", () => {
     expect(markingAnchor(doc, doc.markings[0], carriageways(doc))!.at.x).toBeCloseTo(
       CLEAR,
     );
+  });
+});
+
+/**
+ * The pad's own outline (junction glyphs Phase 1). Every fixture below is built
+ * from `Arm`s directly, as the gore's are, because none of this reads a document.
+ *
+ * The glyph's group is translated to the node, so the whole frame is
+ * centre-relative and `CENTRE` is the origin of it.
+ */
+describe("padShape and the pad it draws", () => {
+  const CENTRE: Vec2 = { x: 0, y: 0 };
+  /** A 4-lane arterial, the road §1's T is drawn with. */
+  const W4 = roadWidth(defaults(4));
+  /** A 2-lane arterial: the default crossroads. */
+  const W2 = roadWidth(defaults(2));
+
+  /** An arm leaving the node at `deg` off due east, from `at` — the node itself
+   *  unless a divided carriageway has stepped it off. `y` grows downward, so 90°
+   *  is due **south**. */
+  function arm(deg: number, width: number, at: Vec2 = CENTRE): Arm {
+    const rad = (deg * Math.PI) / 180;
+    return {
+      id: `L${deg}`,
+      dir: { x: Math.cos(rad), y: Math.sin(rad) },
+      origin: at,
+      outbound: true,
+      width,
+    };
+  }
+
+  /** Two, three and four arms, plus the one fixture where a carriageway is
+   *  displaced — the only one where the ray and the furthest vertex differ. */
+  const BEND = [arm(0, W2), arm(90, W2)];
+  const TEE = [arm(0, W4), arm(180, W4), arm(90, W4)];
+  const CROSS = [arm(0, W2), arm(90, W2), arm(180, W2), arm(270, W2)];
+  const DIVIDED = [
+    arm(180, W2, { x: 0, y: 13.5 }),
+    arm(180, W2, { x: 0, y: -13.5 }),
+  ];
+
+  /**
+   * Is `p` inside any ring? A crossing-number test per ring, **written here
+   * rather than routed through `rayPadExit`**: this is the gate on the outline,
+   * and a bug in the helper `Diagram.tsx` measures with could otherwise mask a
+   * bug in the rings it is measuring (junction glyphs Phase 1's exit gate).
+   */
+  function inside(rings: Vec2[][], p: Vec2): boolean {
+    return rings.some((ring) => {
+      let hit = false;
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const a = ring[i];
+        const b = ring[j];
+        if (
+          a.y > p.y !== b.y > p.y &&
+          p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x
+        ) {
+          hit = !hit;
+        }
+      }
+      return hit;
+    });
+  }
+
+  /**
+   * **The assertion that actually tests the outline.** Nothing else can: the stop
+   * bars, the hit disc and the marking clearance all read `padRadius` and none of
+   * them reads the pad, so they come out identical whatever `padShape` returns
+   * (§2.3).
+   *
+   * Phrased on the **ray**, never on the ring's furthest vertex. The two are
+   * different numbers whenever a carriageway is displaced — 19.84 against 23.81
+   * on `DIVIDED` — so a vertex-worded version fails a correct implementation.
+   */
+  it("reaches the rim along every arm, and stops there", () => {
+    for (const arms of [BEND, TEE, CROSS, DIVIDED]) {
+      const r = padRadius(arms, CENTRE, 1);
+      const rings = padShape(arms, CENTRE, r);
+      expect(rings).toHaveLength(arms.length);
+
+      for (const a of arms) {
+        const t = rayCircleExit(a.origin, a.dir, r);
+        const at = (s: number): Vec2 => ({
+          x: a.origin.x + a.dir.x * s,
+          y: a.origin.y + a.dir.y * s,
+        });
+        expect(inside(rings, at(t - 0.01))).toBe(true);
+        expect(inside(rings, at(t + 0.01))).toBe(false);
+      }
+    }
+  });
+
+  /** The gap the assertion above is worded around, stated as a number so a later
+   *  reader can see the two readings really do come apart. */
+  it("puts its furthest vertex past a displaced arm's own ray exit", () => {
+    const r = padRadius(DIVIDED, CENTRE, 1);
+    const arm0 = DIVIDED[0];
+    const along = padShape(DIVIDED, CENTRE, r)
+      .flat()
+      .map((p) => p.x * arm0.dir.x + p.y * arm0.dir.y);
+
+    expect(r).toBeCloseTo(24);
+    expect(rayCircleExit(arm0.origin, arm0.dir, r)).toBeCloseTo(19.843);
+    expect(Math.max(...along)).toBeCloseTo(23.812);
+  });
+
+  /**
+   * The containment §2.3 shows is load-bearing: the rim stays a circle, and the
+   * three things that measure to it stay correct **because no ring reaches past
+   * one**. A band run out to the rim with a flat end fails this — its corners
+   * would sit at `sqrt(r² + (w/2)²)`, outside the hit target and the halo.
+   *
+   * As `<= r + ε`, since a chord's ends land *on* the circle. It passes trivially
+   * for an inscribed arc at any chord density, which is why it does not stand in
+   * for the reach assertion above.
+   */
+  it("keeps every vertex inside the disc that sizes the glyph", () => {
+    for (const arms of [BEND, TEE, CROSS, DIVIDED]) {
+      const r = padRadius(arms, CENTRE, 1);
+      for (const p of padShape(arms, CENTRE, r).flat()) {
+        expect(Math.hypot(p.x, p.y)).toBeLessThanOrEqual(r + 1e-9);
+      }
+    }
+  });
+
+  /**
+   * …and the outer arc is not so coarse that containment is all it achieves. At
+   * 10° a chord's middle falls `r * (1 - cos 5°)` short of the arc it replaces,
+   * which is 0.10 units here against a 1.5-unit edge line.
+   */
+  it("holds the outer arc to a chord no coarser than 10 degrees", () => {
+    const r = padRadius(TEE, CENTRE, 1);
+    const sagitta = r * (1 - Math.cos((5 * Math.PI) / 180));
+    expect(sagitta).toBeLessThan(0.11);
+
+    for (const ring of padShape(TEE, CENTRE, r)) {
+      for (let i = 0; i < ring.length; i++) {
+        const a = ring[i];
+        const b = ring[(i + 1) % ring.length];
+        // Only the arc's own chords: both ends sit on the rim.
+        if (Math.abs(Math.hypot(a.x, a.y) - r) > 1e-6) continue;
+        if (Math.abs(Math.hypot(b.x, b.y) - r) > 1e-6) continue;
+        const mid = Math.hypot((a.x + b.x) / 2, (a.y + b.y) / 2);
+        expect(r - mid).toBeLessThanOrEqual(sagitta + 1e-9);
+      }
+    }
+  });
+
+  /**
+   * The headline: a T stops painting asphalt where no road goes.
+   *
+   * The direction is due **north** — the one no arm takes. Not "opposite the
+   * missing arm", which on arms east, west and south names due *south* and is
+   * where the stem is; and not "in the empty quadrant", because at 45° the point
+   * is 17.3 from the through road's axis and so **inside** its band. Both
+   * wordings were tried and both are false (spec §4).
+   */
+  it("paints nothing in the direction no road takes", () => {
+    const r = padRadius(TEE, CENTRE, 1);
+    const rings = padShape(TEE, CENTRE, r);
+
+    // The fixture has to clear the through road's own half-width, or the point
+    // would be off the pad whatever shape it is: 24.46 against 19.5.
+    expect(0.9 * r).toBeGreaterThan(W4 / 2);
+    expect(inside(rings, { x: 0, y: -0.9 * r })).toBe(false);
+    // …while the disc it replaced covered every one of them.
+    expect(0.9 * r).toBeLessThan(r);
+  });
+
+  /**
+   * The discipline the nonzero fill rule costs, and it is invisible to every
+   * other assertion here: two overlapping rings of **opposite** winding cancel,
+   * and they overlap exactly where the roads meet — so the failure is a hole
+   * punched through the middle of the junction, which `inside` still calls
+   * covered because it asks one ring at a time.
+   */
+  it("winds every ring the same way", () => {
+    const area2 = (ring: Vec2[]) =>
+      ring.reduce((sum, a, i) => {
+        const b = ring[(i + 1) % ring.length];
+        return sum + a.x * b.y - b.x * a.y;
+      }, 0);
+
+    for (const arms of [BEND, TEE, CROSS, DIVIDED]) {
+      const rings = padShape(arms, CENTRE, padRadius(arms, CENTRE, 1));
+      const winding = new Set(rings.map((ring) => Math.sign(area2(ring))));
+
+      expect(winding.size).toBe(1);
+      expect(winding.has(0)).toBe(false);
+    }
+  });
+
+  /** A junction the human placed and has not yet joined: no rings, and the glyph
+   *  keeps its circle rather than an inscribed polygon (§2.2). */
+  it("gives a junction with no arms no outline at all", () => {
+    expect(padShape([], CENTRE, padRadius([], CENTRE, 1))).toEqual([]);
+  });
+});
+
+/**
+ * The ray-versus-pad exit — the bound the priority diamond's tips are measured
+ * with, and the one place the boundary convention is load-bearing rather than a
+ * detail (junction glyphs §2.3).
+ */
+describe("rayPadExit", () => {
+  const CENTRE: Vec2 = { x: 0, y: 0 };
+  const N: Vec2 = { x: 0, y: -1 };
+  const E: Vec2 = { x: 1, y: 0 };
+  const S: Vec2 = { x: 0, y: 1 };
+  const W: Vec2 = { x: -1, y: 0 };
+
+  function arm(deg: number, width: number, at: Vec2 = CENTRE): Arm {
+    const rad = (deg * Math.PI) / 180;
+    return {
+      id: `L${deg}`,
+      dir: { x: Math.cos(rad), y: Math.sin(rad) },
+      origin: at,
+      outbound: true,
+      width,
+    };
+  }
+
+  /** The pad of `arms` at the radius the glyph would size itself to. */
+  function pad(arms: Arm[]): Vec2[][] {
+    return padShape(arms, CENTRE, padRadius(arms, CENTRE, 1));
+  }
+
+  /**
+   * **The convention, stated as the case that would break.** The glyph centre
+   * lies exactly *on* every band's inner cut, so an implementation copying
+   * `rayCircleExit`'s strict outside-test returns `0` here and collapses every
+   * diamond to nothing.
+   */
+  it("counts a point on a ring's own boundary as inside it", () => {
+    const arms = [arm(0, roadWidth(defaults(2)))];
+    const r = padRadius(arms, CENTRE, 1);
+
+    expect(rayPadExit(pad(arms), CENTRE, E)).toBeCloseTo(r);
+    // And the same point is on the circle's boundary for the disc's own rule.
+    expect(rayCircleExit(CENTRE, E, r)).toBe(r);
+  });
+
+  /** A four-arm cross reaches the rim in all four tip directions, so the badge
+   *  it carries is the one it always was. */
+  it("reaches the rim in every direction on a four-arm cross", () => {
+    const w = roadWidth(defaults(2));
+    const rings = pad([arm(0, w), arm(90, w), arm(180, w), arm(270, w)]);
+    const r = padRadius([arm(0, w)], CENTRE, 1);
+
+    for (const d of [N, E, S, W]) {
+      expect(rayPadExit(rings, CENTRE, d)).toBeCloseTo(r);
+    }
+  });
+
+  /**
+   * A T reports the **through road's own edge** to the north, because the ray
+   * rides the two bands' inner cuts. That is the number §2.3 bounds the diamond
+   * with, and it is measured rather than derived from the widths — the second
+   * fixture is the one that separates the two readings, since a width-derived
+   * inradius reports the widest arm's 19.5 where the pad reaches 6.
+   */
+  it("measures the pad, not the widths, toward a missing arm", () => {
+    const w4 = roadWidth(defaults(4));
+    const w1 = roadWidth(defaults(1));
+
+    expect(rayPadExit(pad([arm(0, w4), arm(180, w4), arm(90, w4)]), CENTRE, N))
+      .toBeCloseTo(w4 / 2);
+    expect(rayPadExit(pad([arm(0, w1), arm(180, w1), arm(90, w4)]), CENTRE, N))
+      .toBeCloseTo(w1 / 2);
+    expect(w1 / 2).toBe(6);
+  });
+
+  /**
+   * OQ-5's cases, both of them: a junction whose approaches are all divided puts
+   * its centre in the median, and a single-arm junction has a direction its one
+   * band is cut off from. Both report `0`, and `Diagram.tsx` floors the badge
+   * rather than erasing it.
+   */
+  it("gives nothing from a point the pad does not cover", () => {
+    const w = roadWidth(defaults(2));
+    const divided = pad([
+      arm(180, w, { x: 0, y: 13.5 }),
+      arm(180, w, { x: 0, y: -13.5 }),
+    ]);
+    for (const d of [N, E, S, W]) {
+      expect(rayPadExit(divided, CENTRE, d)).toBe(0);
+    }
+
+    // One arm due east: the pad is cut at the centre, so due west is unpainted.
+    expect(rayPadExit(pad([arm(0, w)]), CENTRE, W)).toBe(0);
+    expect(rayPadExit([], CENTRE, E)).toBe(0);
   });
 });
 

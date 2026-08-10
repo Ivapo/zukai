@@ -843,7 +843,7 @@ describe("junction interiors", () => {
     expect(svg.indexOf("jn-pad")).toBeLessThan(svg.indexOf("jn-stopbar"));
     expect(
       svg.slice(svg.indexOf("jn-pad"), svg.indexOf("jn-stopbar")),
-    ).toMatch(/^jn-pad" r="16\.02"><\/circle><line class="$/);
+    ).toMatch(/^jn-pad" d="[^"]+"><\/path><line class="$/);
   });
 
   /**
@@ -981,6 +981,137 @@ describe("junction interiors", () => {
     // 2 lanes: max(20, 28.35) unfloored, against a 24-unit reach.
     expect(ring(round())).toBeCloseTo(28.35);
     expect(ring(round(0.5))).toBeCloseTo(24);
+  });
+
+  /**
+   * The pad follows the roads (junction glyphs Phase 1). The **shape** of it is
+   * `geometry.test.ts`'s subject; what this adds is that the outline survives the
+   * trip from the document to the markup — one element, one class token, and a
+   * `d` rather than an `r`.
+   */
+  it("draws the pad as one path, wound so the bands read as one area", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={crossroad()} />);
+    const d = svg.match(/class="jn-pad" d="([^"]+)"/)![1];
+
+    // One subpath per arm, each closed, in one element.
+    expect(d.match(/M /g)).toHaveLength(2);
+    expect(d.match(/Z/g)).toHaveLength(2);
+    expect(svg.match(/class="jn-pad"/g)).toHaveLength(1);
+    // And nothing sets a fill rule on it, in the markup or the stylesheet: the
+    // default nonzero is what turns two overlapping bands into one pad.
+    expect(svg).not.toContain("fill-rule");
+  });
+
+  /**
+   * The one branch this phase must not move. A junction with no arms has no
+   * roads to follow, still paints a full disc of asphalt, and still carries its
+   * badge at the size it always did — `10.44 * 0.85`, byte for byte.
+   */
+  it("keeps the circle, and the full-size badge, on a junction with no arms", () => {
+    const lone = run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "setNodeKind", id: "N1", kind: "junction" },
+      { type: "setJunctionGlyph", id: "N1", glyph: "priority_cross" },
+    ).doc;
+    const svg = renderToStaticMarkup(<Diagram doc={lone} />);
+
+    expect(svg).toContain('<circle class="jn-pad" r="10.44">');
+    expect(svg).toContain(
+      'points="0,-8.873999999999999 8.873999999999999,0 0,8.873999999999999 -8.873999999999999,0"',
+    );
+    // A vacuous bound would have erased that badge from under a full disc.
+    expect(padR(lone, "N1") * 0.85).toBeCloseTo(8.874);
+  });
+});
+
+/**
+ * The priority diamond is paint **on** the asphalt, so it moves when the asphalt
+ * does — the one badge of the three that Phase 1 touches. A stop bar measures
+ * along an arm and the rim did not move; a signal head is roadside furniture and
+ * needs no asphalt beneath it (junction glyphs §2.6).
+ */
+describe("the priority badge", () => {
+  /** The diamond's half-diagonal, read off its north tip. */
+  function half(doc: Document): number {
+    const svg = renderToStaticMarkup(<Diagram doc={doc} />);
+    return -Number(
+      svg.match(/class="jn-priority" points="0,(\S+?) /)![1],
+    );
+  }
+
+  /** A junction of `lanes`-lane roads: two through arms, plus a stem of `stem`
+   *  lanes leaving south where one is given. */
+  function junction(lanes: number, stem?: number): Document {
+    return run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "addNode", pos: { x: 120, y: 0 } },
+      { type: "addNode", pos: { x: 240, y: 0 } },
+      { type: "addNode", pos: { x: 120, y: 120 } },
+      { type: "startLink", from: "N1" },
+      { type: "completeLink", to: "N2" },
+      { type: "startLink", from: "N2" },
+      { type: "completeLink", to: "N3" },
+      ...(stem === undefined
+        ? []
+        : ([
+            { type: "startLink", from: "N2" },
+            { type: "completeLink", to: "N4" },
+            { type: "setLinkLanes", id: "L3", count: stem },
+          ] as Action[])),
+      { type: "setLinkLanes", id: "L1", count: lanes },
+      { type: "setLinkLanes", id: "L2", count: lanes },
+      { type: "setNodeKind", id: "N2", kind: "junction" },
+      { type: "setJunctionGlyph", id: "N2", glyph: "priority_cross" },
+    ).doc;
+  }
+
+  /**
+   * On a straight-through junction the tips north and south leave the pad at the
+   * road's own edge, so the diamond shrinks to it: 10.5 where `rp * 0.85` alone
+   * would have drawn 13.617 and floated 3.1 units of yellow on bare paper.
+   */
+  it("shrinks the diamond onto the asphalt under it", () => {
+    expect(half(junction(2))).toBeCloseTo(10.5);
+    expect(padR(junction(2)) * 0.85).toBeCloseTo(13.617);
+  });
+
+  /**
+   * **The case that makes the bound measured rather than derived.** A T with a
+   * 1-lane through road and a 4-lane stem is sized by the stem, so any rule
+   * reading the widest arm reports 19.5 — while the pad north of the centre is
+   * the through road's 12-unit band and reaches 6 (junction glyphs §2.3).
+   */
+  it("measures each tip against the pad, not against the widest arm", () => {
+    const mixed = junction(1, 4);
+
+    expect(half(mixed)).toBeCloseTo(6);
+    expect(padR(mixed)).toBeCloseTo(27.18);
+  });
+
+  /**
+   * OQ-5, resolved: where the pad does not cover the glyph centre the measured
+   * bound is `0`, and the badge is floored rather than erased. A divided approach
+   * puts the centre in the median, which is the commonest way to get there.
+   */
+  it("floors the diamond where the pad does not cover the centre", () => {
+    const divided = run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "addNode", pos: { x: 120, y: 0 } },
+      { type: "startLink", from: "N1" },
+      { type: "completeLink", to: "N2" },
+      { type: "startLink", from: "N2" },
+      { type: "completeLink", to: "N1" },
+      { type: "setLinkLanes", id: "L1", count: 2 },
+      { type: "setLinkLanes", id: "L2", count: 2 },
+      { type: "setNodeKind", id: "N2", kind: "junction" },
+      { type: "setJunctionGlyph", id: "N2", glyph: "priority_cross" },
+    ).doc;
+
+    expect(half(divided)).toBeCloseTo(8.4);
+    expect(padR(divided) * 0.35).toBeCloseTo(8.4);
   });
 });
 
