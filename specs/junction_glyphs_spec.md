@@ -5,17 +5,17 @@ note: >
   The junction pad follows the roads that meet at it, instead of being a disc —
   which is what makes a three-arm node read as a T, and what retires the glyph
   that promised to.
-status: draft
+status: accepted
 last_updated: 2026-08-10
 
 phases:
   - name: "Phase 1 — The pad follows its arms"
-    reviewed: null
+    reviewed: 2026-08-10
     shipped: null
     cut: null
     by: null
   - name: "Phase 2 — Retire the glyph the arms made redundant"
-    reviewed: null
+    reviewed: 2026-08-10
     shipped: null
     cut: null
     by: null
@@ -327,10 +327,12 @@ diamond, which is paint on the road surface. Naming which badge breaks and which
 does not is the point; "the badges are untouched" was wrong and is corrected in
 §2.6.
 
-`s` is `0` in exactly two situations, and only one of them is a question. **With
-no arms** it is vacuous and the paragraph above carves it out. **With every
-approach divided** it is real: the glyph centre is in a median, and a diamond
-there genuinely would be on bare paper. That second case is **OQ-5**.
+`s` is `0` in two *kinds* of situation, and only the second is a question. **With
+no arms** it is vacuous and the paragraph above carves it out. Otherwise it is
+real — any single tip direction the pad does not paint drives the `min` to zero,
+and the glyph centre sitting in a median is only the most obvious way to get
+there, not the only one. **OQ-5 carries the enumeration**, which is longer than
+it first looks.
 
 ### 2.4 Then `t_junction` earns nothing, and removing it is not free (decision, recorded)
 
@@ -464,18 +466,20 @@ and as the wedge and the gore both were (`zk-005` §2.7).
   anyway then Phase 2's migration is the cheapest moment to do it.)*
 - **OQ-5** — **What does a `priority_cross` draw when its centre is not paved?**
   §2.3 bounds the diamond by the pad's own reach in each tip direction, which is
-  `0` when every approach is divided — the glyph centre then sits in a median and
-  there is no asphalt under the badge at all. A zero-size diamond means the glyph
-  silently stops saying "priority"; today's oversized one at least says it, on
-  paper. Draw it at a floor anyway, move it onto one carriageway, or leave the
-  junction badge-less? *(design call; blocks nothing — it is one branch in Phase 1
-  either way. **It is cheaper to reach than it looks**, which weakens the "blocks
-  nothing" argument without breaking it: once §2.3 carves out the no-arms disc,
-  every approach being divided is one route to `s = 0`, but so is a **single-arm**
-  junction — one node, one link, one glyph pick — whose uncovered direction
-  measures 0, and so is a Y whose arms all leave the same way. Proposed: floor the
-  bound at a readable minimum rather than 0, and record it, because a badge that
-  vanishes is harder to diagnose than one that overhangs.)*
+  `0` whenever **any one** of the four tip directions is unpainted, and this is the
+  full list, since §2.3 points here for it: every approach divided (the glyph
+  centre sits in a median, the obvious case and not the only one); a **single-arm**
+  junction — one node, one link, one glyph pick — whose backward direction is cut
+  off at `p · dir ≥ 0`; and a **Y whose arms all leave the same way**, which fails
+  on the side none of them covers. A zero-size diamond means the glyph silently
+  stops saying "priority"; today's oversized one at least says it, on paper. Draw
+  it at a floor anyway, move it onto one carriageway, or leave the junction
+  badge-less? *(design call; blocks nothing — it is one branch in Phase 1 either
+  way, and the behaviour is deterministic whichever branch is taken. But it is
+  **cheaper to reach than "a median" suggests**, which is why the list above is
+  spelled out rather than left as an example. Proposed: floor the bound at a
+  readable minimum rather than 0, and record it, because a badge that vanishes is
+  harder to diagnose than one that overhangs.)*
 - **OQ-6** — **Does a two-arm junction read oddly once the pad is derived?** A
   node with two arms and a `junction` kind is really a waypoint the human labelled
   a junction; today it gets a disc, and after Phase 1 it gets a short fat band
