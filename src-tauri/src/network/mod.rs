@@ -68,6 +68,19 @@ const ASSIMILATOR_SCHEMA_VERSION: u32 = 1;
 /// literal so the two spell the same thing.
 pub const UNITS_PER_METRE: f64 = 9.0 / 3.5;
 
+/// How wide a fitted import is drawn, in canvas units.
+///
+/// The longest side of a network's bounding box is laid out across this much
+/// canvas, and no more (see [`layout_factor`]). **Calibrated against both
+/// committed fixtures rather than chosen freely**: at 500 units `t_junction`
+/// (1000 m across) takes a factor of 0.5 and `cross-4` (200 m) takes 2.5, so
+/// each lands a 250-unit arm against a 9-unit lane — 27.8 lane-widths, and the
+/// fixture that already read well moves by 2.8%.
+///
+/// The clamp in [`layout_factor`] binds only below an extent of
+/// `LAYOUT_EXTENT / UNITS_PER_METRE` ≈ 194.4 m.
+const LAYOUT_EXTENT: f64 = 500.0;
+
 /// A parsed `network.yaml`.
 ///
 /// Mirrors Assimilator's `NetworkConfig` (`network.rs:333-356`). `metadata`,
@@ -317,17 +330,68 @@ pub fn parse_network(text: &str) -> Result<NetworkFile, String> {
     serde_yaml::from_str(text).map_err(|e| e.to_string())
 }
 
-/// Assimilator's metric frame → Zukai's canvas frame.
+/// Assimilator's metric frame → Zukai's canvas frame, at the scale the caller
+/// names.
 ///
-/// Scale by [`UNITS_PER_METRE`] and **negate y**: SVG's y grows *down* while the
+/// Scale by `units_per_metre` and **negate y**: SVG's y grows *down* while the
 /// metric frame's grows *up*, so a node 300 m **south** of the origin arrives at
 /// a **positive** canvas y. Getting this wrong mirrors the whole network, which
 /// is self-consistent, silently wrong, and passes any test written from the same
 /// premise — hence the tests name compass bearings rather than signs.
 ///
-/// The export direction is the exact inverse and lands with the writer.
-pub fn metres_to_canvas(point: [f64; 2]) -> Vec2 {
-    Vec2::new(point[0] * UNITS_PER_METRE, -point[1] * UNITS_PER_METRE)
+/// **The scale is the caller's and the negation is not.** Pass
+/// [`UNITS_PER_METRE`] for a true-to-life conversion; import passes
+/// [`layout_factor`]'s fitted answer instead, because a node has to arrive where
+/// it reads well rather than where it is (spec §2.6.1). The y-negation has
+/// exactly one home either way, which is this line.
+pub fn metres_to_canvas(point: [f64; 2], units_per_metre: f64) -> Vec2 {
+    Vec2::new(point[0] * units_per_metre, -point[1] * units_per_metre)
+}
+
+/// The canvas units per metre this network's **nodes are placed at** — fit the
+/// bounding box, and never enlarge.
+///
+/// Import lays out for legibility rather than for fidelity. At true scale a
+/// 500 m arm is 1285 units against a 9-unit lane, which is 143 lane-widths of
+/// road and not a drawing anybody wants to drag into shape; fitting the longest
+/// side of the box into [`LAYOUT_EXTENT`] puts it at 28 instead.
+///
+/// **The clamp is what makes the rule one-directional**, and it is the part that
+/// collapsed a fork this spec argued over for weeks: import shrinks a network
+/// that does not fit and leaves every smaller one at true scale, so a 50 m slip
+/// road stays 50 m of road rather than inflating to 56 lane-widths from the
+/// other side.
+///
+/// **The extent is the longer side, not both.** A network whose nodes are
+/// collinear has a box with one side of zero, and a factor built from that side
+/// divides by it.
+///
+/// **Three degenerate inputs and one guard.** No nodes has no box, one node has
+/// a box of zero size, and so does any number of nodes at one point — each makes
+/// `fitted` non-finite or zero, and all three fall back to true scale. All three
+/// reach here today, because import does not validate what Assimilator wrote.
+///
+/// Nothing stores this. The document records the resulting *positions*, the way
+/// a `.zkai` always has, so no reader can ask what scale a drawing is at — which
+/// is correct rather than regrettable, the drawing making no scale claim and
+/// `Link::length` carrying the truth about the road.
+fn layout_factor(nodes: &[NetworkNode]) -> f64 {
+    let mut min = [f64::INFINITY; 2];
+    let mut max = [f64::NEG_INFINITY; 2];
+    for node in nodes {
+        for axis in 0..2 {
+            min[axis] = min[axis].min(node.point[axis]);
+            max[axis] = max[axis].max(node.point[axis]);
+        }
+    }
+
+    let extent = (max[0] - min[0]).max(max[1] - min[1]);
+    let fitted = LAYOUT_EXTENT / extent;
+    if fitted.is_finite() && fitted > 0.0 {
+        fitted.min(UNITS_PER_METRE)
+    } else {
+        UNITS_PER_METRE
+    }
 }
 
 fn default_coordinate_system() -> String {
@@ -478,16 +542,73 @@ mod tests {
 
     /// The fixture's south node is at `[500, -300]`: 500 m east and 300 m
     /// **south** of the origin. South is `+y` on the canvas, so the sign flips.
+    ///
+    /// The scale passed here is the true one, which is what makes this the
+    /// converter's own test rather than the layout's: what it asserts did not
+    /// change when the factor became the caller's (spec §2.6.1).
     #[test]
     fn a_node_300_metres_south_lands_at_a_positive_canvas_y() {
-        let south = metres_to_canvas([500.0, -300.0]);
+        let south = metres_to_canvas([500.0, -300.0], UNITS_PER_METRE);
 
         assert_eq!(south.x, 500.0 * UNITS_PER_METRE);
         assert_eq!(south.y, 300.0 * UNITS_PER_METRE);
         assert!(south.y > 0.0, "south must be positive-y on the canvas");
 
         // ...and a node north of the origin lands above it.
-        assert!(metres_to_canvas([0.0, 300.0]).y < 0.0);
+        assert!(metres_to_canvas([0.0, 300.0], UNITS_PER_METRE).y < 0.0);
+    }
+
+    /// A network of bare nodes at the given metric points — everything
+    /// [`layout_factor`] reads, and nothing it does not.
+    fn nodes_at(points: &[[f64; 2]]) -> Vec<NetworkNode> {
+        points
+            .iter()
+            .enumerate()
+            .map(|(index, &point)| NetworkNode {
+                id: format!("N{index}").into(),
+                point,
+                z: None,
+                kind: NodeKind::Endpoint,
+            })
+            .collect()
+    }
+
+    /// The factor fits the **longer** side of the box, and the two committed
+    /// fixtures are what calibrate it: 1000 m across takes 0.5, 200 m takes 2.5,
+    /// and each puts its own arm at 250 canvas units.
+    ///
+    /// The third case is the one no fixture can stand in for. `cross-4`'s box is
+    /// **square**, so it cannot tell `max` from `min` at all; `t_junction`'s
+    /// (1000 × 300) can, and a `min` there gives 1.667 rather than 0.5. Neither
+    /// exercises a side of **zero**, which is what a collinear network has and
+    /// what a `min` would divide by.
+    #[test]
+    fn the_factor_fits_the_longer_side() {
+        let t = parse_network(T_JUNCTION).expect("parse");
+        assert_eq!(layout_factor(&t.nodes), 0.5);
+
+        let c = parse_network(CROSS_4).expect("parse");
+        assert_eq!(layout_factor(&c.nodes), 2.5);
+
+        // 1000 m of road along one axis, and no height at all.
+        let collinear = nodes_at(&[[0.0, 0.0], [400.0, 0.0], [1000.0, 0.0]]);
+        assert_eq!(layout_factor(&collinear), 0.5);
+    }
+
+    /// Three networks with no bounding box to speak of, all of which reach
+    /// [`import::network_to_document`] today — import does not validate what
+    /// Assimilator wrote. Each falls back to true scale rather than panicking or
+    /// placing every node at `NaN`.
+    #[test]
+    fn three_degenerate_networks_place_at_true_scale() {
+        let none: Vec<NetworkNode> = Vec::new();
+        assert_eq!(layout_factor(&none), UNITS_PER_METRE);
+
+        let one = nodes_at(&[[7.0, -7.0]]);
+        assert_eq!(layout_factor(&one), UNITS_PER_METRE);
+
+        let stacked = nodes_at(&[[7.0, -7.0], [7.0, -7.0]]);
+        assert_eq!(layout_factor(&stacked), UNITS_PER_METRE);
     }
 
     /// Pinned against the frontend's own derivation rather than a rounded

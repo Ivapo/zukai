@@ -13,10 +13,14 @@
 //! (link-length spec §2.2).
 //!
 //! That seeding is not a nicety. A node with no layout entry has no drawable
-//! polyline, so an unseeded import renders a blank page. The positions arrive
-//! true-to-life and *wrong for a schematic*, and a human drags them into a
-//! legible diagram — semi-automatic, which is the project's stated posture
-//! towards layout, not a step short of auto-layout.
+//! polyline, so an unseeded import renders a blank page. **The positions are
+//! placed for legibility rather than for fidelity**: [`super::layout_factor`]
+//! fits the network's bounding box into one screenful, so a node arrives where
+//! it reads well rather than where it is. That is a scaled *placement*, not a
+//! schematization — every relative position survives it, and no
+//! orthogonalization or octilinear snapping is performed. The human still drags
+//! the diagram into shape; the difference is that they are no longer dragging
+//! 143 lane-widths of road.
 //!
 //! Import also *mints* one thing the file has no equivalent of: a turn arrow per
 //! approach lane, painted from the movements' own `from_lanes` (see
@@ -40,8 +44,8 @@ use crate::model::layout::{JunctionView, LinkAlign, LinkStyle, LinkView, NodeVie
 use crate::model::Document;
 
 use super::{
-    metres_to_canvas, parse_network, MovementKind, NetworkFile, NetworkJunction, NetworkLink,
-    UNITS_PER_METRE,
+    layout_factor, metres_to_canvas, parse_network, MovementKind, NetworkFile, NetworkJunction,
+    NetworkLink, UNITS_PER_METRE,
 };
 
 /// How far a turn arrow runs along the road, in world units.
@@ -103,6 +107,11 @@ pub fn network_to_document(net: NetworkFile) -> Result<Document, String> {
     let mut doc = Document::new(net.metadata.name);
     doc.metadata.author = net.metadata.author;
 
+    // Once, off the whole file, before any node is placed: the fit is a property
+    // of the network rather than of a node, and computing it per node would let
+    // one arrive at a different scale from its neighbour.
+    let factor = layout_factor(&net.nodes);
+
     for node in &net.nodes {
         doc.nodes.push(Node {
             id: node.id.clone(),
@@ -112,7 +121,7 @@ pub fn network_to_document(net: NetworkFile) -> Result<Document, String> {
         doc.layout.nodes.insert(
             node.id.clone(),
             NodeView {
-                pos: metres_to_canvas(node.point),
+                pos: metres_to_canvas(node.point, factor),
             },
         );
         // A junction-kind node gets the default glyph, the way `setNodeKind`
@@ -391,7 +400,7 @@ mod tests {
     use crate::model::graph::{JunctionControl, UnsignalizedRule};
     use crate::model::ids::NodeId;
     use crate::model::layout::JunctionGlyph;
-    use crate::network::{parse_network, CROSS_4, T_JUNCTION, UNITS_PER_METRE};
+    use crate::network::{parse_network, CROSS_4, LAYOUT_EXTENT, T_JUNCTION, UNITS_PER_METRE};
 
     /// The two frontend files this module hand-mirrors a constant out of. Read at
     /// compile time so a drift on the TypeScript side fails a test here rather
@@ -416,6 +425,14 @@ mod tests {
             MarkingKind::TurnArrow { directions, .. } => directions.clone(),
             other => panic!("{link} lane {lane} is painted {other:?}, not an arrow"),
         }
+    }
+
+    /// How far apart two nodes are drawn, in canvas units — the drawing's own
+    /// number, never the road's.
+    fn apart(doc: &Document, from: &str, to: &str) -> f64 {
+        let from = doc.layout.nodes[&NodeId::from(from)].pos;
+        let to = doc.layout.nodes[&NodeId::from(to)].pos;
+        (to.x - from.x).hypot(to.y - from.y)
     }
 
     /// The text between `open` and the first `close` after it.
@@ -487,13 +504,18 @@ mod tests {
     /// **south**. South is `+y` on the canvas, so the y flips sign on the way
     /// in. A test phrased as "one is negative and one is positive" would pass
     /// just as happily against a network mirrored end to end.
+    ///
+    /// The two numbers are the fitted ones: `t_junction` spans 1000 m, so it is
+    /// laid out at 0.5 units per metre. The **shape** assertions below are what
+    /// survived that change untouched, and they are the ones that catch a factor
+    /// which also mirrors or rotates.
     #[test]
     fn the_southern_node_seeds_a_positive_canvas_y() {
         let doc = import(T_JUNCTION);
 
         let south = doc.layout.nodes[&NodeId::from("S")].pos;
-        assert_eq!(south.x, 500.0 * UNITS_PER_METRE);
-        assert_eq!(south.y, 300.0 * UNITS_PER_METRE);
+        assert_eq!(south.x, 250.0);
+        assert_eq!(south.y, 150.0);
 
         // The west end is the origin, and the east end is further east than the
         // junction — so the T is the right way round as well as the right way up.
@@ -503,6 +525,72 @@ mod tests {
         assert_eq!(west.x, 0.0);
         assert!(west.x < junction.x && junction.x < east.x);
         assert!(south.y > junction.y, "the stem hangs below the crossbar");
+    }
+
+    /// **The whole claim of the layout factor, and it needs both fixtures.**
+    /// `t_junction`'s arm is 500 real metres and `cross-4`'s is 100, and each is
+    /// drawn 250 canvas units long — 27.8 lane-widths against a 9-unit lane.
+    ///
+    /// One fixture cannot catch a factor applied to the wrong quantity: any
+    /// single network can be made to land on any figure. **Two networks at
+    /// different real extents landing on one drawn extent** is the discriminator,
+    /// and it is what separates fitting the drawing from rescaling the world.
+    #[test]
+    fn both_fixtures_draw_their_arms_at_one_length() {
+        let t = import(T_JUNCTION);
+        assert_eq!(t.links[0].length, Some(500.0), "500 real metres");
+        assert_eq!(apart(&t, "W", "J"), 250.0);
+
+        let c = import(CROSS_4);
+        assert_eq!(c.links[0].length, Some(100.0), "100 real metres");
+        assert_eq!(apart(&c, "N1", "N5"), 250.0);
+    }
+
+    /// The clamp never enlarges, so the fixture that already read well is left
+    /// almost exactly as it was: `cross-4`'s 200 m span goes from 514.29 units
+    /// to 500, a move of 2.8%.
+    ///
+    /// This one stays green if the clamp is dropped altogether — 2.5 is below
+    /// `UNITS_PER_METRE` either way — which is why
+    /// `a_network_smaller_than_the_frame_keeps_true_scale` is also needed.
+    #[test]
+    fn the_fixture_that_already_fitted_barely_moves() {
+        let doc = import(CROSS_4);
+
+        let span = apart(&doc, "N1", "N2");
+        assert_eq!(span, 500.0);
+
+        let before = 200.0 * UNITS_PER_METRE;
+        assert!((before - 514.28).abs() < 0.01, "{before}");
+        assert!(
+            (1.0 - span / before) < 0.03,
+            "moved by more than 3%: {span}"
+        );
+    }
+
+    /// **The clamp, and the test that fails if `min` becomes `max`.** A network
+    /// smaller than the frame keeps true scale rather than being inflated to fill
+    /// it: 50 m of road is 128.6 units, not 500.
+    ///
+    /// Without the clamp a 50 m slip road would arrive 56 lane-widths long — the
+    /// same illegibility the factor exists to remove, reached from the other side.
+    #[test]
+    fn a_network_smaller_than_the_frame_keeps_true_scale() {
+        let yaml = concat!(
+            "metadata:\n  name: Slip road\n",
+            "nodes:\n  - id: A\n    point: [0, 0]\n    type: endpoint\n",
+            "  - id: B\n    point: [50, 0]\n    type: endpoint\n",
+            "links:\n  - id: L1\n    from_node: A\n    to_node: B\n",
+            "    geometry: [[0, 0], [50, 0]]\n",
+            "    lanes: [{id: 0, width: 3.5, speed_limit: 13.9}]\n",
+        );
+
+        let drawn = apart(&import(yaml), "A", "B");
+
+        // The expression rather than a rounded literal, so a changed lane width
+        // reads as a changed scale rather than as a failed test.
+        assert_eq!(drawn, 50.0 * UNITS_PER_METRE);
+        assert_ne!(drawn, LAYOUT_EXTENT, "import must not enlarge");
     }
 
     /// Layout is seeded with defaults, not inferred. Deriving a road class from
@@ -829,12 +917,18 @@ mod tests {
     }
 
     /// **The decoupling, from one import.** `L_W_J` states 500 metres while the
-    /// canvas holds its two ends 1285.71 units apart — two independent records of
+    /// canvas holds its two ends 250 units apart — two independent records of
     /// one road, which is the whole of `CLAUDE.md`'s founding idea and the answer
     /// this spec gives `network_yaml_spec.md` OQ-2.
     ///
     /// A test asserting only the metres would pass just as happily against an
     /// import that had scaled the canvas to match them.
+    ///
+    /// **The layout factor is what makes the decoupling structural.** Before it
+    /// the two numbers differed by one global constant, which a reader could
+    /// recover from either; they now differ by a factor fitted to this file and
+    /// stored nowhere, so the drawing cannot be read back as a measurement even
+    /// in principle.
     #[test]
     fn the_label_states_metres_while_the_canvas_holds_units() {
         let doc = import(T_JUNCTION);
@@ -846,8 +940,8 @@ mod tests {
         let west = doc.layout.nodes[&NodeId::from("W")].pos;
         let junction = doc.layout.nodes[&NodeId::from("J")].pos;
         let drawn = (junction.x - west.x).hypot(junction.y - west.y);
-        assert_eq!(drawn, 500.0 * UNITS_PER_METRE, "units, the diagram's");
-        assert!(drawn > 1285.0 && drawn < 1286.0, "{drawn}");
+        assert_eq!(drawn, 250.0, "units, the diagram's");
+        assert_ne!(drawn, 500.0 * UNITS_PER_METRE, "and not the metres, scaled");
     }
 
     /// Two imports of one file produce the same document, ids included — which is
