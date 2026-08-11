@@ -2,8 +2,8 @@
 
 # Rules
 
-- **[canvas-interaction](canvas-interaction.md)** — generated 2026-08-10 · 6 sources · 169/190 lines
-  what the pointer and the keyboard do on the drawing surface: the five tools and what each claims, the five Selection arms and the one with no id, the four drags and the one threshold, how a click becomes a document coordinate, and the chrome that exists only here
+- **[canvas-interaction](canvas-interaction.md)** — generated 2026-08-10 · 6 sources · 190/190 lines
+  what the pointer and the keyboard do on the drawing surface: the five tools and what each claims, the five Selection arms and the one with no id, the four drags and the one threshold, how a click becomes a document coordinate, the grid it lands on, and the chrome that exists only here
 - **[diagram-export](diagram-export.md)** — generated 2026-08-09 · 11 sources · 272/275 lines
   the SVG/PNG export path: the one render tree and its two consumers, which paint travels inside the file, the pure/DOM/Tauri layers, how bounds and the margin are derived, and the self-contained-file constraints that fail silently
 - **[document-model](document-model.md)** — generated 2026-08-09 · 7 sources · 135/135 lines

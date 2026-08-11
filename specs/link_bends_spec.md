@@ -21,7 +21,7 @@ phases:
     by: null
   - name: "Phase 3 — The grid holds"
     reviewed: 2026-08-10
-    shipped: null
+    shipped: 2026-08-10
     cut: null
     by: null
 
@@ -507,13 +507,20 @@ join is tested through `export.test.ts` rather than treated as canvas chrome.
   collapse a bend dragged onto the line between its neighbours, which is
   discoverable but easy to trigger by accident. *(deferred by evidence: draw real
   figures after Phase 2 and see whether reaching for Delete is a nuisance.)*
-- **OQ-6** — **Does the grid alone give octilinear routing, or is angle snapping
-  wanted?** A dot grid makes horizontal and vertical easy and 45° accidental. The
-  metro-map idiom this project cites is octilinear, which would mean snapping a
-  bend so its two segments take one of eight directions — a different and larger
-  rule than snapping a point. *(deferred by evidence, deliberately: this is the
-  question Phase 3 exists to answer by drawing, and answering it in advance is how
-  a schematic editor grows a routing engine nobody asked for.)*
+- **OQ-6 — RESOLVED by drawing in Phase 3: the grid alone gets there, and no
+  angle snapping is wanted.** ~~Does the grid alone give octilinear routing?~~
+  §1's own figure — a motorway west–east and an offramp turning south into a
+  roundabout — came out on the first attempt as `M 432 180 L 648 180 L 648 540`,
+  a square corner, because both endpoints were already on the lattice and the
+  bend went at the intersection of one endpoint's row with the other's column.
+  That is the whole idiom: the grid makes an orthogonal corner **reachable and
+  exactly repeatable**, and a human chooses it rather than having it imposed.
+  What the grid deliberately does not do is snap an *angle* — a bend between two
+  dots sharing neither a row nor a column takes whatever angle they imply (26.57°
+  was measured on one). Snapping the angle instead would move the vertex off the
+  lattice to honour a direction, which is a router's job and the non-goal §1.1
+  names. *(was: deferred by evidence. Answered by drawing, which is what the
+  phase existed to do.)*
 
 ## 4. Implementation phases
 

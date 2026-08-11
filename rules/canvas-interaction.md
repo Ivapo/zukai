@@ -10,8 +10,8 @@ sources:
 covers: >
   what the pointer and the keyboard do on the drawing surface: the five tools and
   what each claims, the five Selection arms and the one with no id, the four drags
-  and the one threshold, how a click becomes a document coordinate, and the chrome
-  that exists only here
+  and the one threshold, how a click becomes a document coordinate, the grid it
+  lands on, and the chrome that exists only here
 max_lines: 190
 generated: 2026-08-10
 ---
@@ -129,7 +129,7 @@ chance. Wheel is `zoomAbout` at the pointer.
 Three conversions, and picking the wrong one is the recurring defect:
 
 - **A free position** (`addNode`, `moveNode`, `addSign`, `moveSign`) is
-  `screenToWorld(view, …)`, minus the drag's grab offset. Nothing else.
+  `screenToWorld(view, …)`, minus the drag's grab offset, then `place` (below).
 - **A place on a road** (`addMarking`, `moveMarking`) goes through
   `projectOntoLink`: `nearestOnPolyline` on the **drawn** polyline gives an arc
   length and a signed lateral offset; the length becomes metres through
@@ -141,14 +141,34 @@ Three conversions, and picking the wrong one is the recurring defect:
   which is the same idea one step harder: the pointer is on the **drawn** polyline
   and the bend belongs to the **layout** one. It transfers the arc length by the
   two totals and takes the insertion index from that single walk. The road
-  therefore does not move at all on insert — the bend lands *on* it, not under the
-  pointer — and the grab offset is captured there, so neither the insert nor the
-  start of the drag jumps. Details and the spike it prevents:
+  therefore barely moves on insert — the bend lands *on* it, not under the
+  pointer, within the half-cell `place` may round it — and the grab offset is
+  captured against the **unsnapped** vertex, so neither the insert nor the start
+  of the drag jumps. Details and the spike it prevents:
   `rules/road-rendering.md`.
 
-**Snapping does not exist yet** (`zk-014` Phase 3). The dot grid `Canvas.tsx`
-paints is decoration: its cell is `LANE_PX * 4`, written inline in the `<pattern>`
-and bound to no constant, and nothing honours it.
+## The grid, which every free position lands on
+
+`GRID_PITCH` is `LANE_PX * 4` — 36 world units, the cell the dots have always
+been drawn at. `geometry.ts:snap` rounds each axis to the nearest multiple, and
+`Canvas.tsx:place` is its one call site: it wraps every free position before
+dispatch and returns the point untouched while **Alt** is held, so an exact
+position stays reachable. Six actions go through it — `addNode`, `moveNode`,
+`addSign`, `moveSign`, `addBend`, `moveBend`; a **marking** deliberately does
+not, riding on its road at an arc length in metres a world grid means nothing to.
+
+**The snap never reaches the reducer.** `moveNode(pos)` keeps meaning "put it
+exactly here", which is what lets an import, an undo and a test place a node
+off-grid without fighting anything. `state.test.ts` asserts all six write the
+position they are given exactly — covering one lets a snap in the other five
+pass.
+
+**The dots and the pointer are one lattice, which took moving the tile.** A
+`<pattern>` clips its content to its own tile, so a circle at the tile origin
+draws a quarter of a dot — the neighbours draw their own and never fill it in.
+`geometry.ts:gridPattern` keeps the circle centred and pulls the **tile** back
+half a cell. Before it the dot sat at world `36i + 0.5/k` against `snap`'s
+`36i`: half a screen pixel off a dot of radius 0.9, at every zoom.
 
 ## Chrome: what exists only on the canvas
 
@@ -174,12 +194,13 @@ remedy, and it is a trade rather than a surprise.
 ## Where each piece lives
 
 `Canvas.tsx` owns the `<svg>`, the `Drag` union, every `…PointerDown` handler,
-`projectOntoLink`, `BEND_THRESHOLD` and the grid `<pattern>`. `Diagram.tsx` owns
-the `Interaction` interface, `isSelected`/`isBendSelected`, `hairline` and
-`BendHandle`. `App.tsx` owns the keyboard. `Toolbar.tsx` owns the tool buttons.
-The pure arithmetic is `geometry.ts` — `screenToWorld`, `zoomAbout`,
-`nearestOnPolyline`, `pointAlongPolyline`, `bendInsertion`, `bandAt`,
-`boundaryAt`, `anchoredAlong` — and that is the only part with tests
+`projectOntoLink`, `place`, `BEND_THRESHOLD` and the grid `<pattern>`.
+`Diagram.tsx` owns the `Interaction` interface, `isSelected`/`isBendSelected`,
+`hairline` and `BendHandle`. `App.tsx` owns the keyboard. `Toolbar.tsx` owns the
+tool buttons. The pure arithmetic is `geometry.ts` — `screenToWorld`,
+`zoomAbout`, `nearestOnPolyline`, `pointAlongPolyline`, `bendInsertion`,
+`bandAt`, `boundaryAt`, `anchoredAlong`, `GRID_PITCH`, `snap`, `gridPattern` —
+and that is the only part with tests
 (`geometry.test.ts`). **There is no `Canvas.test.tsx`**, and
 `renderToStaticMarkup` can see a rendered element but not whether it carries a
 callback, so the gestures themselves are covered by a `bun run dev` pass and
