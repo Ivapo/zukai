@@ -102,9 +102,9 @@ export function polylinePath(points: Vec2[]): string {
 
 /**
  * World-space width of one *default* lane, chosen for schematic legibility (not
- * to scale). Also the canvas grid pitch (`Canvas.tsx`), and the peg that fixes
- * `UNITS_PER_METRE` — a lane the model gives some other width draws in
- * proportion to this one.
+ * to scale). Also the peg that fixes `UNITS_PER_METRE` — a lane the model gives
+ * some other width draws in proportion to this one — and the peg
+ * {@link GRID_PITCH} is a multiple of.
  */
 export const LANE_PX = 9;
 /** Extra world-space padding added around the lanes for the road casing. */
@@ -127,6 +127,68 @@ export const UNITS_PER_METRE = LANE_PX / DEFAULT_LANE_WIDTH;
  * 1-lane ramp is 10.2, deliberately *not* floored back up to 12 (§2.2).
  */
 export const MIN_ROAD_WIDTH = DEFAULT_LANE_WIDTH * UNITS_PER_METRE + ROAD_MARGIN;
+
+/**
+ * The canvas grid's cell, in world units — four lane widths.
+ *
+ * The number the dot grid has always been drawn at, named here so the dots and
+ * the pointer honour one lattice instead of two (link bends spec §2.7). Four
+ * lanes rather than one because a grid a reader can count is a grid whose cell
+ * is bigger than the things placed on it.
+ */
+export const GRID_PITCH = LANE_PX * 4;
+
+/**
+ * The dot a world point lands on: each axis to the **nearest** multiple of
+ * {@link GRID_PITCH}.
+ *
+ * Alignment is most of what separates a schematic from a sketch, so a corner
+ * that lands on the same lattice as every other corner reads as deliberate.
+ *
+ * **Pure, and applied in the UI layer only** — `Canvas.tsx` rounds a pointer
+ * before it dispatches, and no reducer arm ever calls this. `moveNode(pos)`
+ * keeps meaning "put it exactly here", which is what lets an imported document,
+ * an undo and a test place a node off-grid without fighting anything (§2.7).
+ * The same split markings §2.3 records for its kind-aware rules, and for its
+ * reason: a reducer that silently rewrites its argument makes one action mean
+ * different things depending on which caller sent it.
+ *
+ * Nearest, never truncated: truncation drags every negative coordinate toward
+ * zero and drifts a whole figure one way.
+ */
+export function snap(p: Vec2): Vec2 {
+  return { x: toGrid(p.x), y: toGrid(p.y) };
+}
+
+/**
+ * One axis of {@link snap}. The trailing `+ 0` normalizes the **negative zero**
+ * `Math.round` answers for a point just left of the origin — arithmetically the
+ * same number, but one that reaches a saved document as `-0`.
+ */
+function toGrid(v: number): number {
+  return Math.round(v / GRID_PITCH) * GRID_PITCH + 0;
+}
+
+/**
+ * The dot grid's tile in **screen** pixels — its size, and where its origin
+ * sits — so that a dot drawn at the tile's centre lands on the same lattice
+ * {@link snap} rounds to.
+ *
+ * **The tile moves and the circle stays centred**, which is worth saying
+ * because the obvious fix is wrong: a `<pattern>` clips its content to its own
+ * tile (`overflow` defaults to hidden), so a circle at the tile origin renders
+ * **a quarter of a dot** — the other three quadrants do not arrive from the
+ * neighbouring tiles, which draw their own. Pulling the origin back half a cell
+ * puts the whole dot on the lattice instead (§2.7).
+ *
+ * It is a real half-pixel too, not a rounding: the tile was anchored at
+ * `(tx, ty)` with its dot half a **screen** pixel inside, so a dot sat at world
+ * `GRID_PITCH·i + 0.5/k` where `snap` answers `GRID_PITCH·i`, at every zoom.
+ */
+export function gridPattern(view: ViewTransform): { cell: number; origin: Vec2 } {
+  const cell = GRID_PITCH * view.k;
+  return { cell, origin: { x: view.tx - cell / 2, y: view.ty - cell / 2 } };
+}
 
 /** Per-class lane-width multipliers. Exhaustive, so a new `LinkStyle` won't build. */
 const CLASS_WIDTH_FACTOR: Record<LinkStyle, number> = {

@@ -37,6 +37,8 @@ import {
   GORE_CHEVRON_PITCH,
   GORE_LENGTH,
   GoreArm,
+  GRID_PITCH,
+  IDENTITY_VIEW,
   JointEnd,
   LABEL_GAP,
   LANE_LINE_GAP,
@@ -72,6 +74,7 @@ import {
   goreChevrons,
   goreFlow,
   gorePair,
+  gridPattern,
   junctionRadius,
   laneBands,
   laneLine,
@@ -94,6 +97,7 @@ import {
   rayIntersection,
   rayPadExit,
   roadWidth,
+  screenToWorld,
   signBox,
   signNoEntry,
   signOctagon,
@@ -102,6 +106,7 @@ import {
   signPriority,
   signRoundel,
   signTriangle,
+  snap,
   taperEdge,
   taperWedge,
   taperWedges,
@@ -1818,6 +1823,87 @@ describe("bendInsertion", () => {
     const dot = [{ x: 4, y: 4 }, { x: 4, y: 4 }];
     expect(bendInsertion(dot, dot, { x: 4, y: 4 })).toBeUndefined();
     expect(bendInsertion([], [], { x: 0, y: 0 })).toBeUndefined();
+  });
+});
+
+/**
+ * The grid the pointer honours, and the dots the eye is offered — which have to
+ * be one lattice (link bends spec §2.7). Before this phase they were two: the
+ * dots were drawn half a **screen** pixel inside their own tile, and nothing
+ * snapped to anything.
+ */
+describe("the grid, and the point that lands on it", () => {
+  it("puts a point on the nearest dot, in both directions", () => {
+    // Past the half-cell and short of it, on each side of the origin. The
+    // negative pair is what a truncating implementation fails: it drags every
+    // coordinate toward zero and drifts a whole figure one way.
+    expect(snap({ x: 20, y: 16 })).toEqual({ x: 36, y: 0 });
+    expect(snap({ x: -20, y: -52 })).toEqual({ x: -36, y: -36 });
+  });
+
+  it("leaves a point already on the grid exactly where it is", () => {
+    for (const p of [{ x: 0, y: 0 }, { x: 72, y: -108 }, { x: -36, y: 360 }]) {
+      expect(snap(p)).toEqual(p);
+    }
+  });
+
+  it("is idempotent", () => {
+    for (const p of [{ x: 17, y: -43 }, { x: 18, y: 18 }, { x: -0.4, y: 500 }]) {
+      expect(snap(snap(p))).toEqual(snap(p));
+    }
+  });
+
+  /**
+   * A point just left of the origin rounds to `-0`, which is the same number
+   * and a different four characters in a saved document. `toEqual` compares
+   * with `Object.is`, so this assertion is the one that can see it.
+   */
+  it("answers a positive zero on either side of the origin", () => {
+    expect(snap({ x: -0.4, y: -17 })).toEqual({ x: 0, y: 0 });
+  });
+
+  /** The step is the constant, not a number that happens to match it today. */
+  it("steps by GRID_PITCH", () => {
+    expect(snap({ x: GRID_PITCH * 3 + 1, y: GRID_PITCH * -7 - 1 })).toEqual({
+      x: GRID_PITCH * 3,
+      y: GRID_PITCH * -7,
+    });
+  });
+
+  /**
+   * **The drawn dot sits on the lattice `snap` rounds to**, at every zoom and
+   * every pan — the half-screen-pixel error that would make the whole phase
+   * read as broken, since a figure whose corners land beside the dots looks
+   * like a snap that missed.
+   *
+   * The tile's own dot is at its centre, so the check runs the centre back
+   * through `screenToWorld` and asks `snap` whether it recognises the point.
+   */
+  it("draws its dot on that same lattice, at any zoom or pan", () => {
+    for (const view of [
+      IDENTITY_VIEW,
+      { tx: 137, ty: -42, k: 2.5 },
+      { tx: -11, ty: 9, k: 0.1 }, // `clampZoom`'s floor
+      { tx: 0.5, ty: 0.5, k: 8 }, // and its ceiling
+    ]) {
+      const { cell, origin } = gridPattern(view);
+      const dot = screenToWorld(view, origin.x + cell / 2, origin.y + cell / 2);
+      // A point `snap` leaves alone: on the lattice, not beside it.
+      expect(snap(dot).x).toBeCloseTo(dot.x, 9);
+      expect(snap(dot).y).toBeCloseTo(dot.y, 9);
+      // And it is the lattice's own origin, which is what pins the half-cell.
+      expect(dot.x).toBeCloseTo(0, 9);
+      expect(dot.y).toBeCloseTo(0, 9);
+    }
+  });
+
+  /**
+   * A tile smaller than its own dot would clip it, which is the failure mode
+   * the centred circle trades for. The dot's radius is 0.9 screen pixels and
+   * `clampZoom` floors the zoom at 0.1, so the tightest half-cell is 1.8.
+   */
+  it("keeps the whole dot inside its tile down to the minimum zoom", () => {
+    expect(gridPattern({ tx: 0, ty: 0, k: 0.1 }).cell / 2).toBeGreaterThan(0.9);
   });
 });
 
