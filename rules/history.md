@@ -11,7 +11,7 @@ covers: >
   drag coalescing, the trap where an action deleting nothing must return the
   same doc, what resets history, and the three trigger surfaces
 max_lines: 160
-generated: 2026-08-08
+generated: 2026-08-10
 ---
 
 # Undo / Redo
@@ -31,9 +31,9 @@ disk. The design rationale lives in `specs/undo_redo_spec.md`.
 
 History stores whole past `Document` values. The reducer builds each next document
 by spreading the previous one, so successive snapshots **share every untouched
-node, link, and layout entry** — a snapshot costs about as much as the changed
-sub-tree, and no edit action needs a hand-written inverse. `HISTORY_LIMIT = 100`
-caps `past`; the oldest snapshot is dropped on overflow (`pushPast`).
+node, link and layout entry** — a snapshot costs about as much as the changed
+sub-tree, and no edit needs a hand-written inverse. `HISTORY_LIMIT = 100` caps
+`past` (`pushPast`).
 
 ## The one signal: document identity
 
@@ -54,69 +54,64 @@ it is the reducer's `default:` arm, so `setTool` and `setView` pass through it t
 A node drag dispatches one `moveNode` per pointer-move (`onPointerMove`,
 `src/components/Canvas.tsx`); pointer-up only clears the drag ref and dispatches
 nothing. So `coalesceKeyFor` gives `moveNode` the key `"moveNode:<id>"`,
-`moveSign` the key `"moveSign:<id>"` and `moveMarking` the key
-`"markingDrag:<id>"` — **three drags**, the third since lane arrows Phase 1 gave a
-marking a position of its own to move — and every other edit `null`:
+`moveSign` `"moveSign:<id>"`, `moveMarking` `"markingDrag:<id>"` and the bend
+gesture `"bendDrag:<link>:<index>"` — **four drags**, the fourth since link bends
+Phase 2 gave a road a vertex to move — and every other edit `null`:
 
 - key non-null **and** equal to `state.coalesceKey` → the gesture is still open:
   update `doc`, leave `past` alone.
 - otherwise → push a new entry.
 
-**The run is broken by the leading `select`.** Every drag starts with
-`onNodePointerDown` / `onMarkingPointerDown` / `onSignPointerDown` dispatching
-`select`, which leaves `doc` unchanged and therefore resets `coalesceKey` — so
-move #1 pushes and moves #2…N replace, with no Canvas involvement. A future
-high-frequency gesture *without* that leading dispatch would silently merge with
-the previous one; that is the point to add an explicit end-of-gesture action (spec
-OQ-2). Consequence worth knowing: a wheel-zoom mid-drag dispatches `setView`,
+**The run is broken by the leading `select`.** Every `…PointerDown` handler
+dispatches `select` first, which leaves `doc` unchanged and therefore resets
+`coalesceKey` — so move #1 pushes and moves #2…N replace, with no Canvas
+involvement. A future high-frequency gesture *without* that leading dispatch would
+silently merge with the previous one; that is the point to add an explicit
+end-of-gesture action (spec OQ-2). A wheel-zoom mid-drag dispatches `setView`,
 which also resets the key, so one drag becomes two undo steps.
 
-**The third drag is the one whose reducer has to refuse a no-op**, and it is the
-odd one out. `moveNode`/`moveSign` rebuild `doc` unconditionally, so a pointer-move
-that resolves to the same place still pushes; that is harmless for them because a
-pixel of pointer travel is a new position. `moveMarking` re-projects onto a road,
-where many neighbouring pixels resolve to the same `(position, lane)` — so it
-returns `state` by identity when nothing changed, and `state.test.ts` pins it.
+**The bend drag is the one key covering two actions**, and the one opened by
+something other than a `select`. A press on a road *creates* the thing it then
+drags, so `addBend` answers the same key as `moveBend`; keyed on `moveBend` alone
+the insert would carry `null`, push a snapshot of its own, and one undo would land
+on a bend-inserted-but-unmoved document. The insert opens the run instead.
+
+**The marking drag is the one whose reducer has to refuse a no-op.**
+`moveNode`/`moveSign`/`moveBend` rebuild `doc` unconditionally, which is harmless
+because a pixel of pointer travel is a new position. `moveMarking` re-projects onto
+a road, where many neighbouring pixels resolve to the same `(position, lane)` — so
+it returns `state` by identity when nothing changed, and `state.test.ts` pins it.
 
 Discrete clicks never coalesce. The Lanes and junction Size steppers are ±1 /
 ±0.25 per click, so N clicks are N undo steps — deliberate, since this design has
-no time or focus boundary that could close such a gesture. The **other** marking
-actions are discrete on the same terms: placing three stop lines across a
-carriageway is three undo steps, and repainting one as a crossing and then widening
-it to the whole carriageway is two more, which is the honest reading of five
-deliberate clicks.
+no time or focus boundary that could close such a gesture. Every other marking,
+sign and junction action is discrete on the same terms, which is the honest
+reading of N deliberate clicks.
 
 **Typing is the second gesture, and the only one that is not a drag.** The
-Inspector's four text fields — a marking's **Words**, a sign's **Label**, a
-warning sign's **Symbol** and a direction sign's **Destination** — dispatch a
-whole `setMarkingKind`/`setSignKind` per keystroke so the paint follows the
-typing, so `coalesceKeyFor` gives them `"markingText:<id>"`, `"signLabel:<id>"`,
-`"signSymbol:<id>"` and `"signText:<id>"` — without which a five-letter word would
-burn five of the hundred snapshots.
+Inspector's five text fields — a marking's **Words**, a sign's **Label**,
+**Symbol** and **Destination**, and a link's **Length** — dispatch a whole
+`setMarkingKind`/`setSignKind`/`setLinkLength` per keystroke so the drawing
+follows the typing, so `coalesceKeyFor` gives them `"markingText:<id>"`,
+`"signLabel:<id>"`, `"signSymbol:<id>"`, `"signText:<id>"` and
+`"linkLength:<id>"` — without which a five-letter word would burn five of the
+hundred snapshots.
 
-**A key per field, not per sign.** The three sign fields belong to three different
-kinds and cannot be typed into in the same breath — switching between them *is* a
-pick, which closes the run — so one shared key would only make the runs
-indistinguishable in the stack for nothing. `state.test.ts` asserts that
-directly: type a label, pick Direction, type a destination, and two undos land on
-the label still whole.
+**A key per field, not per kind.** The sign fields belong to different kinds and
+cannot be typed into in the same breath — switching between them *is* a pick,
+which closes the run — so one shared key would only make the runs
+indistinguishable for nothing. `state.test.ts` asserts it: type a label, pick
+Direction, type a destination, and two undos land on the label still whole.
 
-**Only for non-empty content, and that boundary is the interesting half.** The
-Kind picker mints a fresh text marking as `content: ""`; if that shared the run's
-key, the first keystroke would *replace* it and one undo after picking Text and
-typing a word would jump back past the repaint to whatever the marking was before.
-Excluded, the pick is its own step and the word is another. The cost, recorded
-rather than discovered: clearing a field back to empty also closes the run, which
-is a fair reading of deleting a word. Verified in the app — `BUS` then undo gives
-an empty text marking, undo again gives back the `stop_line`.
-
-A sign's empty label arrives from `addSign` instead, a different action that gets
-`null` anyway — so for one phase the carve-out was doing nothing there. **Signs
-Phase 3's Kind picker is what made it load-bearing**: picking Warning or Custom
-mints `{ symbol: "" }`/`{ label: "" }` through `setSignKind` itself, so without the
-carve-out the first keystroke would swallow a kind change the user can see. Both
-verified in the app — `TOLL`, undo, and the sign is still standing with an empty
-plate; undo again and it is gone. `state.test.ts` pins the picker case directly.
+**Only for non-empty content, and that boundary is the interesting half.** Each
+picker mints its fresh payload empty (`content: ""`, `{ label: "" }`, Length's
+"states nothing"), and if that shared the run's key the first keystroke would
+*replace* it — so one undo after picking Text and typing a word would jump back
+past the repaint to whatever the marking was before. Excluded, the pick is its own
+step and the word another. The cost, recorded rather than discovered: clearing a
+field back to empty also closes the run, the honest reading of deleting a word.
+Verified in the app both ways — `BUS`, undo, an empty text marking, undo again,
+the `stop_line` back; `TOLL`, undo, the sign still standing with an empty plate.
 
 ## The trap on the other side: an action that deletes nothing must return the doc
 
@@ -126,19 +121,18 @@ file for no visible change. `deleteSelection` had exactly that bug the moment
 `Selection` grew a third arm: a marking selection fell into the **node** branch,
 which filters no marking out and still spreads a fresh `doc`.
 
-So every arm that may remove nothing has to preserve identity deliberately — the
-marking arm returns `doc` itself when the id is not there, and `keepMarkings`
-returns the *same array* when its filter drops nothing, so history snapshots keep
-sharing it. `state.test.ts` asserts both. See `rules/road-markings.md`, "What
-removes a marking".
+So every arm that may remove nothing preserves identity deliberately — the marking
+arm returns `doc` itself when the id is not there, `keepMarkings` returns the
+*same array* when its filter drops nothing, and the **bend** arm returns `state`
+for an index already gone. `state.test.ts` asserts all three (`rules/road-markings.md`).
 
 The **sign** arm has two places to delete from (`doc.signs` and
 `doc.layout.signs`), so it checks before touching either; and `clearSignLinks` is
 a `map` where `keepMarkings` is a `filter`, so it cannot recover identity from a
-length comparison and pre-checks instead — otherwise every link deletion in a
-document with signs would hand history a fresh array to stop sharing
-(`rules/signs.md`). The **link** arm needs no such helper for junctions: a
-`Junction` names no link, so `doc.junctions` is left untouched by construction.
+length comparison and pre-checks instead (`rules/signs.md`). The **link** arm needs
+no such helper for junctions: a `Junction` names no link, so `doc.junctions` is
+untouched by construction — as `doc.links` is by the bend arm, which reaches only
+the layout.
 
 ## What resets history, and what must not touch it
 
@@ -146,8 +140,8 @@ document with signs would hand history a fresh array to stop sharing
   `importDocument` — go through one `install()` helper, which clears `past`,
   `future` and `coalesceKey` along with `selection`, `linkFrom` and the view.
   There is nothing to undo across a file boundary, and history is never written to
-  `.zkai`. Only `currentPath` and `dirty` differ between the three: an import
-  arrives **dirty and pathless**, because a `network.yaml` is not a `.zkai`.
+  `.zkai`. Only `currentPath` and `dirty` differ: an import arrives **dirty and
+  pathless**, because a `network.yaml` is not a `.zkai`.
 - `markSaved` / `setRecents` leave **all three** fields alone, `coalesceKey`
   included. `setRecents` returns `state` by identity for an unchanged list (the
   menu rebuild keys off that identity, and `state.test.ts` asserts it), so it must
@@ -160,6 +154,11 @@ document with signs would hand history a fresh array to stop sharing
   still reads as dirty (spec OQ-1). `selectionValid` is a `never`-checked
   `switch`, and that is a scar: every id is a bare `type X = string`, so a new
   `Selection` arm falls silently through a binary test and stops surviving undo.
+- **A `bend` selection is dropped outright, ahead of that check**, and it is the
+  only arm that is. The id-bearing arms survive a stale id correctly, because
+  `selectionValid` finds nothing and clears; a bend is named `{ link, index }`, so
+  a stale index can still be **in range** and then names a *different* vertex —
+  the one outcome no id can produce. Pinned in `state.test.ts`.
 
 ## Triggers
 
@@ -172,4 +171,5 @@ All three dispatch the same `{ type: "undo" }` / `{ type: "redo" }`:
 | Native menu | Edit submenu (`src/editor/menu.ts`) — Zukai's items **replace** Tauri's predefined Undo/Redo, which drive webview text editing, not the document |
 
 The menu items are always enabled and no-op at the ends; the toolbar carries the
-disabled affordance, so no per-flip IPC. Ctrl+Y is browser-only by design — a `MenuItem` carries exactly one accelerator.
+disabled affordance, so no per-flip IPC. Ctrl+Y is browser-only by design — a
+`MenuItem` carries exactly one accelerator.

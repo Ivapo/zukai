@@ -15,8 +15,9 @@ sources:
 covers: >
   how a link becomes a picture of a road: the one lane-width derivation
   everything descends from, class as a token, two-way carriageways, alignment,
-  lane kinds and the hatch, the painted centreline, and the length a link states
-max_lines: 250
+  the route a road turns through, lane kinds and the hatch, the painted
+  centreline, and the length a link states
+max_lines: 272
 generated: 2026-08-10
 ---
 
@@ -62,9 +63,9 @@ Four things are load-bearing and each has a test that fails if "simplified":
 
 - **Convert per lane, then sum — never sum metres first.** `9/3.5` has no exact
   binary form, so `sum(width) * UNITS_PER_METRE` lands on `30.000000000000004` at
-  3 default lanes and `57.00000000000001` at 6. The pinned rate exists so a default
-  document draws *exactly* as when every lane was hardcoded to `LANE_PX`; the wrong
-  grouping breaks `export.test.ts`'s `toBe(15)`.
+  3 default lanes. The pinned rate exists so a default document draws *exactly* as
+  when every lane was hardcoded to `LANE_PX`; the wrong grouping breaks
+  `export.test.ts`'s `toBe(15)`.
 - **The one-lane floor is on the lane *count*, not the output width.** An empty
   `lanes` array is one default lane. A `Math.max(MIN_ROAD_WIDTH, …)` clamp on the
   result looks identical until a class narrows its lanes, then rounds a 1-lane ramp
@@ -73,10 +74,10 @@ Four things are load-bearing and each has a test that fails if "simplified":
   finished `roadWidth` narrows the casing while the band-derived dividers stay at
   full pitch and spill outside it. The bands, the dividers, `edgeInset`, the hit path,
   the halo, the arrowhead, `junctionArms` and `strokeAllowance` all inherit that.
-- **`ROAD_MARGIN` is the casing lip, not a lane, so it is not scaled**, and
-  `roadWidth` is therefore *not* proportional to the factor — the two differ by
-  `ROAD_MARGIN * (1 - factor)`. Width identities across classes are **exact per
-  lane band**, approximate in aggregate; assert per band.
+- **`ROAD_MARGIN` is the casing lip, not a lane, so it is not scaled**: `roadWidth`
+  is *not* proportional to the factor, the two differing by
+  `ROAD_MARGIN * (1 - factor)`. Width identities across classes are exact per lane
+  band, approximate in aggregate; assert per band.
 **Lane 0 is the nearside (kerb) lane**, so it comes back with the most positive
 offset — the side a positive `offsetPolyline` distance draws on under right-hand
 traffic. Everything keyed on `Lane.kind` depends on it: a `shoulder` at index 0 must
@@ -98,21 +99,20 @@ opposing twin — the model has no other way to spell a two-way road.
 
 - **Pairing is on an exact reversed node pair**, never "roughly parallel", which
   would mis-pair a slip road with the mainline beside it. Three or more links on
-  one node pair stay on the centreline rather than have a layout guessed, and two
-  self-loops are excluded for satisfying the test trivially.
+  one node pair stay on the centreline, and two self-loops are excluded for
+  satisfying the test trivially.
 - `offset = DRIVE_SIDE * (roadWidth / 2 + SEPARATION / 2)`, with `SEPARATION =
   max(SCHEMATIC_MEDIAN, median_gap * UNITS_PER_METRE)`. **The road's own
   half-width is the point**: a step from the median alone leaves two 4-lane
   carriageways almost entirely on top of each other.
 - **Every offset returned is positive, and that is not a bug.** The number is
   `offsetPolyline`'s `d`, in each link's *own* frame; a reversed twin traverses the
-  same ground the other way, so its segment normal already points the other way and
-  the same positive `d` draws it on the opposite visual side. Asserting the signs
-  *differ* fails a correct implementation, negating one twin puts both carriageways
-  on the same side, and only a drawn-`y` assertion catches an inverted `DRIVE_SIDE`.
+  same ground the other way, so its normal already points the other way and the same
+  positive `d` draws it on the opposite visual side. Asserting the signs *differ*
+  fails a correct implementation, negating one twin puts both carriageways on the
+  same side, and only a drawn-`y` assertion catches an inverted `DRIVE_SIDE`.
 - `SCHEMATIC_MEDIAN = 6` because `median_gap` defaults to 0.5 m ≈ 1.3 units, thinner
-  than the 1.5-unit edge line over it. Above ~2.33 m the model's value takes over, so
-  the field is honoured ordinally.
+  than the 1.5-unit edge line over it. Above ~2.33 m the model's value takes over.
 
 **One `drawnPolyline` helper** applies this, shared by the roads and by
 `junctionArms` (`rules/road-joints.md`) so the two cannot disagree about where a road
@@ -131,9 +131,30 @@ offset this replaced, which cut every corner short. `.road-casing` mitres to mat
 since `.road-edge`, `.road-divider` and `.lane-band` declare no join and take SVG's
 default; the 4 is written twice (a CSS rule cannot read a constant) and is derived —
 SVG's `1/sin(ι/2)` and this `1/cos(φ/2)` are one quantity, so both turn over at
-28.96°. **The vertex count never changes**, past the clamp too, because a bend's
-insertion index is measured on the drawn polyline and applied to the layout one; a
-reversal and a zero-length segment have no bisector and take a plain normal at `d`.
+28.96°. **The vertex count never changes**, past the clamp too — see the route
+below, which depends on it; a reversal and a zero-length segment have no bisector
+and take a plain normal at `d`.
+
+### The route: a road can turn a corner
+
+`linkPolyline` is `[from, ...LinkView.bends, to]`, so a road's route is its two
+nodes plus any number of **presentation** vertices between them. A bend is not a
+graph vertex — nothing in `doc.nodes`, `doc.links` or `doc.junctions` knows a road
+turned — and it is placed by hand, never derived: nothing computes where one should
+go, avoids obstacles, or reflows a route when a node moves. `addBend`/`moveBend`
+write them, the canvas gesture is `rules/canvas-interaction.md`, and everything
+downstream simply sees a longer polyline: `offsetPolyline` gains a mitred vertex per
+element, the markings measure by arc length and are unaffected, and `junctionArms`
+takes its direction from the segment *adjacent to the node* — so a bend beside a
+junction re-aims that arm and reshapes the pad, and a bend at a through joint can
+put it outside `TAPER_MAX_BEND` and suppress the taper (`rules/road-joints.md`).
+
+**A bend's index is the layout polyline's, and the drawn one disagrees.** Offsetting
+lengthens the outer segment and shortens the inner, so an interior vertex sits at a
+different *fraction* of arc length in the two frames. `bendInsertion` therefore
+transfers the pointer's arc length by the two totals and takes the index from that
+one walk of the layout polyline (`PolylinePoint.segment`) — reading it off the drawn
+polyline instead splices a spike into the road.
 
 ## Alignment: the second lateral term, composing by addition
 
@@ -153,9 +174,8 @@ widths meet at a node sharing that edge, which is what a lane drop looks like.
   offside-aligned road hangs to the *nearside* of its polyline. A magnitude
   assertion passes under an inversion — pin the drawn `y`.
 - **Addition, at one site.** The roads and everything at a joint inherit it
-  through `drawnPolyline`, as they inherit `classWidthFactor`
-  (`rules/road-joints.md`); that function returns the *same array* when the sum is
-  zero, so a document that set neither emits byte-identical markup.
+  through `drawnPolyline` (`rules/road-joints.md`), which returns the *same array*
+  when the sum is zero, so a document that set neither emits identical markup.
 - **On a divided road it is per-carriageway.** `carriageways` knows nothing about
   alignment and the pair's offsets are measured in opposing frames, so aligning one
   twin moves it relative to the **median** — the halves close up or spread apart,
@@ -216,9 +236,9 @@ consequences. **`RoadShape` gained one input, `replaced`** (`laneLineOffsets`,
 `boundaryTaken`), and such a boundary derives no line at all, because a painted line
 **replaces** the divider or shoulder line it lands on; overpainting leaves a dashed
 line under a solid one, visible at every dash gap. And the lane line's own offset
-runs *character-for-character* the divider derivation's expression: the two are
-compared as numbers, so an equivalent-but-different one differs in the last bit and
-the divider survives under it. The rest is `rules/marking-kinds.md`.
+runs *character-for-character* the divider derivation's expression: compared as
+numbers, an equivalent-but-different one differs in the last bit and the divider
+survives under it. The rest is `rules/marking-kinds.md`.
 
 ## The length a link states, and the invariant under it
 
@@ -232,10 +252,11 @@ drawn polyline is a diagram of that road. A link labelled `1800m` retyped as
 computes `Link.length` *from* the canvas (`polylineLength`, `drawnPolyline`), and
 nothing sizes the canvas *from* it (`drawnPolyline`, `roadWidth`, `laneBands`, a
 node position). The second is enforced by shape rather than discipline —
-`lengthLabel(points, width)` takes **no length**, so nothing it returns can depend
-on one. The regression tests are **reference** checks rather than value ones: a
-`moveNode` leaves `doc.links` identical and a `setLinkLength` leaves `doc.layout`
-identical, an untouched layout being an untouched drawing.
+`lengthLabel(points, width)` takes **no length**. The regression tests are
+**reference** checks rather than value ones: a `moveNode` leaves `doc.links`
+identical and a `setLinkLength` leaves `doc.layout` identical, an untouched layout
+being an untouched drawing. A bend is the same claim from the drawing's side: it
+moves the road and cannot touch the number.
 
 **The label is derived, so it is not a `Marking`**: no id, no hit target, no
 `Selection` arm, and a link stating nothing emits no element at all. `lengthLabel`
@@ -254,11 +275,13 @@ third arm of `needsText` — `rules/diagram-export.md`.
 `drawnPolyline`/`lateralShift`, `offsetPolyline`/`segmentNormals` and the
 constants (`LANE_PX`, `ROAD_MARGIN`, `UNITS_PER_METRE`, `MIN_ROAD_WIDTH`,
 `DRIVE_SIDE`, `SCHEMATIC_MEDIAN`, `MITER_LIMIT`, `LABEL_GAP`) plus
-`lengthLabel`/`formatLength` — under `geometry.test.ts`. `Diagram.tsx` holds
-`RoadShape`, `arrowTriangle`, `HatchPattern`/`hasShoulder` and the derived label
-layer through `renderToStaticMarkup`; the joint shapes beside them are
-`rules/road-joints.md`'s. Paint is `diagram.css`;
-`setLaneKind`/`setLinkLanes`/`setLinkAlign`/`setLinkLength` are `state.ts`; the
+`lengthLabel`/`formatLength` and `bendInsertion` — under `geometry.test.ts`;
+`linkPolyline` is `document.ts`'s. `Diagram.tsx` holds `RoadShape`,
+`arrowTriangle`, `HatchPattern`/`hasShoulder`, the derived label layer and the
+`interaction`-gated `BendHandle`, through `renderToStaticMarkup`; the joint shapes
+are `rules/road-joints.md`'s. Paint is `diagram.css`;
+`setLaneKind`/`setLinkLanes`/`setLinkAlign`/`setLinkLength`/`addBend`/`moveBend`
+are `state.ts`; the
 controls are `Inspector.tsx`, chrome CSS in `styles.css` — which is also where
 `user-select: none` sits, so a drag across a text run does not select its glyphs.
 This rule has **two** model additions, in different layers for different reasons:

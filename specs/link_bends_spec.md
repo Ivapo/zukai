@@ -16,7 +16,7 @@ phases:
     by: null
   - name: "Phase 2 — A bend is an object you place, drag and delete"
     reviewed: 2026-08-10
-    shipped: null
+    shipped: 2026-08-10
     cut: null
     by: null
   - name: "Phase 3 — The grid holds"
