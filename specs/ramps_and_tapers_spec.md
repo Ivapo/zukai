@@ -2,7 +2,7 @@
 id: zk-005
 title: ramps-and-tapers
 status: accepted
-last_updated: 2026-08-10
+last_updated: 2026-08-11
 note: >
   Draw the transitions between roads — lane-count tapers, ramp gores, and
   junction interiors that follow a divided road's carriageways.
@@ -31,6 +31,11 @@ phases:
   - name: "Phase 5 — The gore says which way to go round it"
     reviewed: 2026-08-10
     shipped: 2026-08-10
+    cut: null
+    by: null
+  - name: "Phase 6 — The node dot sits on the road"
+    reviewed: 2026-08-11
+    shipped: null
     cut: null
     by: null
 
@@ -690,6 +695,197 @@ byte-identical in what they paint (`rules/marking-kinds.md`).
 control.** The chevrons are derived entirely from the gore's own geometry and the
 directions of the two links it already found.
 
+### 2.10 The node dot sits on the road, not in the median (added 2026-08-11, reopening — Phase 6)
+
+This section is the second reopening
+(`/Users/ivapo/.claude/skills/spec-driven-dev/spec-authoring.md` §6.1), and it
+takes up **OQ-4**, which Phase 1 opened and left.
+
+`Diagram.tsx:NodeShape` draws one dot at `nodePos`. On a divided road that
+position is the **shared centreline**: `carriageways` steps each carriageway out
+from it by `carriagewayOffset`, so the dot lands on neither. A reader of the
+figure sees a mark between two roads and reads it as an object *in* the median —
+an island, a sign, a gantry leg — rather than as the end of the road. It appears
+wherever a divided road **ends or passes through a non-junction node** (a
+junction draws a glyph and no dot at all), and `.node-dot` lives in
+`diagram.css`, so it travels into every exported file.
+
+**The median is not the only place the dot comes off the road.** Phase 2 shipped
+`LinkAlign`, and `lateralShift` is `carriagewayOffset + alignmentShift`, so an
+`offside`- or `nearside`-aligned **undivided** link is drawn stepped off its own
+polyline by half its lane region — and its node's dot stays behind on the
+centreline exactly as a divided road's does. `Arm.origin`'s own doc comment still
+says "the node position for an undivided road", which Phase 2 falsified and
+nobody corrected. It is one defect with two sources, and §2.10.2's rule addresses
+the shift rather than the divide, so it fixes both.
+
+#### 2.10.1 OQ-4 asked "a dot per carriageway, or nothing at all", and the answer is a dot per carriageway
+
+Three reasons, and the first is the one that settles it:
+
+- **The dot is not only paint — it is the node's only hit target.** The `<g>`
+  around it carries `onNodePointerDown`, so "nothing at all" does not draw less;
+  it makes a divided road's endpoint unselectable and undraggable. That is not a
+  drawing decision, it is the removal of a gesture, and it would have to buy the
+  gesture back with a hit target somewhere else. A dot per carriageway keeps the
+  target where the pointer already reaches for it.
+- **A dot on the carriageway says what the median dot was trying to say.** The
+  road ends *here*, and on a divided road it ends twice.
+- **It costs no new derivation.** `Arm.origin` is exactly this position and has
+  been since Phase 1 — "where that carriageway actually meets the node". §2.2
+  built it, `junctionArms` returns it, and `junctionArms`'s own doc comment
+  already names this defect as open.
+
+`nodePos` does **not** move, and that is the two-layer split holding: the node is
+at the centreline, and only its *mark* moves onto the roads. Dragging either dot
+dispatches the same `moveNode` with the same node position it does today.
+
+"Per carriageway" is OQ-4's own wording and it is what the answer *means*; §2.10.2
+sharpens it to **per drawn road end**, which is the same thing everywhere except
+at a joint where one carriageway's two halves are drawn to two places.
+
+#### 2.10.2 One dot per drawn road end, which is not one dot per arm
+
+An arm is per *link*, so counting arms over-counts wherever two arms are drawn to
+the same place. Write each arm's **displacement** `v = origin − nodePos` and the
+shapes this reaches come out like this:
+
+| Node | Arms | Displacements | Dots |
+|---|---|---|---|
+| Undivided endpoint, centre-aligned | 1 | one, exactly `0` | 1 |
+| Undivided waypoint, centre-aligned | 2 | two, both exactly `0` | 1 |
+| Divided endpoint | 2 | two, opposed | 2 |
+| Divided waypoint, straight through | 4 | two coincident pairs | 2 |
+| Divided waypoint with a lane drop | 4 | two pairs, same-way, `4.5` apart | **4** |
+
+So the rule is **one dot per distinct arm origin**, and "distinct" means distinct
+as a position — nothing about sides, angles or averages. The last row is the one
+worth stating out loud, because it is where an earlier draft of this section went
+wrong twice over.
+
+**The last row draws four dots, deliberately.** A carriageway's step from the
+centreline is `w / 2 + separation / 2`, so dropping one lane moves it by exactly
+half a lane — measured at `±22.5` and `±18` on a 4→3 divided waypoint, a gap of
+`4.5`. Those genuinely are two road ends at two places, and the drawing already
+shows the step between them; two overlapping dots is what that looks like. The
+alternative was to merge them and draw one dot at the mean, and it was tried:
+review measured (round 2, 2026-08-11) that **any** rule clever enough to know
+those two belong together is a clustering rule, that "same side" is not
+transitive, and that greedy clustering over a three-arm fan changes the **number
+of dots drawn** under a permutation of `doc.links` — two identical drawings
+drawing differently, and redrawing one link changing the picture. A rule that
+reads only "is this the same point" cannot do that, so it is the rule.
+
+**The tolerance is float slack and not a design parameter**, which is the whole
+of what that distinction buys. Two arms drawn to the same place *are* the same
+place: rows 2 and 4 are exact — `drawnPolyline` returns the layout polyline
+unmodified when the shift is `0` (row 2 compares the node's own `pos` object with
+itself), and a straight divided waypoint offsets both links by the same `d` along
+the same segment delta. Measured (2026-08-11, over 400 straight divided splits):
+a centre waypoint's two arms return the *same object*, **314 of the 400** split
+pairs are **bitwise** identical, and the rest part by a slack whose worst
+observed value is **2.84e-14** — an instance and not a bound, since the slack
+grows with distance from the world origin (≈1.6e-10 at 1e6 units out).
+
+So the epsilon absorbs that and nothing else, and it is `1e-6` world units. The
+margin is measured on both sides: the nearest **genuinely distinct** pair of
+lateral shifts the UI can produce is `0.45` units apart — enumerating every lane
+count against every class factor gives 37 distinct shifts, and `32.85` against
+`33.3` is the closest two — while the `4.5` this must never merge is six orders
+above it. Breakeven against the slack would need a drawing about 10¹⁰ units from
+the origin, on a 36-unit grid. It is a guard against the last bits of a `hypot`,
+never a decision.
+
+**It gets its own name rather than reusing `SAME_EDGE`,** which is already `1e-6`
+in this file and already documented as exactly this kind of guard. The magnitude
+being precedented is the point — no new *quantity* enters `geometry.ts` — but the
+two answer different questions (are two lane edges at one lateral offset; are two
+road ends at one point), and a shared constant is how tuning one silently retunes
+the other. Same lesson as `geometry_length` against `polylineLength` (`zk-012`).
+
+**No angle, no mean, no ordering, no new quantity.** The result is a set of
+positions, so it does not depend on `junctionArms`' iteration order or on
+`doc.links` order — which is the property the clustering draft could not have,
+and the reason this one is smaller. Exactly: **by construction** for the pairs
+that are bitwise equal, and **by quantisation** for the rest, which is the
+paragraph below.
+
+**The one thing that could take that property back, stated rather than left to be
+found:** comparing within an epsilon is not transitive, so a *chain* of origins
+each within `1e-6` of the next but spanning more than `1e-6` end to end would
+again make the count depend on which one is kept first. It cannot be built. Two
+origins are separated either by float slack — worst measured `2.84e-14`, eight
+orders below the epsilon — or by a design quantity, and the smallest design
+quantity the UI can produce is the `0.45` above. Reaching a sub-`1e-6` step
+therefore needs two lanes whose widths differ by about `1e-7` **metres**, which
+the Inspector's stepper cannot express, `network.yaml` has no reason to carry, and
+a `.zkai` could hold only by being edited by hand to that purpose; a chain needs
+two such coincidences at once. This is a smaller claim than the clustering
+draft's and it is the whole of what the epsilon risks: not "an odd document draws
+oddly", but "a document nobody can author draws one dot differently".
+
+**A dot per arm would also be order-independent, and it is still wrong**: rows 2
+and 4 would draw two circles where one is wanted, and row 2 — the ordinary
+undivided waypoint — would stop being byte-identical for a difference no reader
+can see.
+
+**The undivided aligned "jink" gets two dots, and that is the fix rather than a
+cost.** §2.4's table already supports two links meeting at a waypoint with
+different `align` values — "the road jinks sideways and the picture says so" —
+and their origins differ, so each drawn road end takes its own dot. Today both
+are represented by one dot on a centreline neither road touches.
+
+**A degenerate first segment lands its dot on the node, and that is right by
+construction.** `offsetPolyline`'s endpoint branches take the first and last
+segment normals without the interior branch's degenerate guard, and
+`segmentNormals` answers `(0, 0)` for a zero-length segment — so a bend snapped
+onto its own node (reachable since `zk-014`) leaves a divided arm's origin *on*
+the node. The dot follows the drawn road end wherever it is, including there, so
+this needs no case: it is `offsetPolyline`'s pre-existing behaviour showing
+through, not a rule of this one.
+
+#### 2.10.3 A node with no links keeps its dot at the node, and this is the default rather than the edge case
+
+An arms-derived rule returns nothing for a node no link touches — an **invisible
+and unclickable** node, which makes the node tool look broken. And this is not a
+rare document: every node is link-less for the interval between being placed and
+being connected, which is every first click of every drawing. The fallback to
+`nodePos` is therefore the ordinary path through the function, and the gate tests
+it as one.
+
+#### 2.10.4 The dots share one group, so the hit target and the halo follow them
+
+Both circles go inside the existing `<g>`, which keeps `onNodePointerDown` on one
+element and leaves the drag exactly as it is. `Canvas.tsx:onNodePointerDown`
+already takes its grab offset from `nodePos` rather than from the drawn dot, so
+either dot drags the node correctly with nothing changed there. The halo draws
+**per dot** for the same reason the dot does: a selection ring around one
+carriageway and not the other reads as half a selection. The halo is chrome —
+`.node-halo` is in `styles.css`, not `diagram.css` — so it stays out of exports
+by construction either way (`rules/canvas-interaction.md`).
+
+The radius still comes from the node type (endpoint 6, waypoint 4), unchanged and
+per dot.
+
+**The group's `transform` stays on `nodePos` and each dot enters as a
+displacement**, which is what makes the centre-aligned undivided case come out
+byte-identical rather than merely identical-looking: a displacement of `0` must
+emit **no** `cx`/`cy` at all, since React renders `cx={0}` as `cx="0"` and today's
+markup carries neither attribute. `undefined` where the number is zero is the
+whole mechanism, and it is named here because the natural spelling fails the
+gate's identity assertion for a reason that has nothing to do with the geometry.
+
+`junctionArms` keeps its name. It reads every link touching a node and filters on
+nothing, so it already answers this question — but the name now understates it,
+and the correction belongs in its doc comment rather than in a rename that would
+ripple through four rules and two specs for no behaviour. The cost is one loop
+over the links per node, which is what the junction layer already pays for every
+junction, on a document that holds a fragment of a network.
+
+**No model change, no `SCHEMA_VERSION` move, no Rust, no new action and no new
+control.** This is drawing, derived from geometry the app already computes for
+every node it draws a glyph at.
+
 ## 3. Open questions
 
 - **OQ-1** — **Taper direction for a lane addition.** §2.4 opens the new lane
@@ -713,12 +909,16 @@ directions of the two links it already found.
   `persist.rs:42` turns a raw serde failure into the sentence it was written for.
   No migration arm is needed — a v1 document is a valid v2 document. Landed in
   §2.6 and Phase 4's scope; **no longer blocks Phase 4**.
-- **OQ-4** — **Node dots on a divided road.** The road spec's Phase 3 note
-  records that an endpoint/waypoint dot now sits *in the median* of a divided
-  road rather than on either carriageway (`NodeShape`, `Diagram.tsx:357`, draws
-  at `nodePos`). Phase 1 gives arms an `origin`, which makes "one dot per
-  carriageway" cheap — but is a dot per carriageway right, or should a divided
-  road's endpoint show nothing at all? (design-call; does not block any phase.)
+- **OQ-4 — TAKEN UP by §2.10 and Phase 6 (added 2026-08-11): a dot per
+  carriageway.** ~~Node dots on a divided road.~~ The road spec's Phase 3 note
+  recorded that an endpoint/waypoint dot sits *in the median* of a divided road
+  rather than on either carriageway (`src/components/Diagram.tsx:NodeShape`,
+  which draws at `nodePos`). Phase 1 gave arms an `origin`, which made "one dot
+  per carriageway" cheap; the question left open was whether it is *right*, or
+  whether a divided road's endpoint should show nothing at all. §2.10.1 takes the
+  dot per carriageway, and the argument that settles it is not aesthetic: the dot
+  is the node's only hit target, so "nothing at all" removes the drag rather than
+  removing a mark. **Open until Phase 6 ships.**
 - **OQ-5** — **Could alignment be derived instead of set?** At a joint with a
   ramp leaving on one side, the side the lane is dropped on is arguably readable
   from the ramp's own direction. That would remove a control, at the cost of a
@@ -786,6 +986,20 @@ directions of the two links it already found.
   an imported fragment can hold this case, and `endpoint` arms make it reachable
   without anyone drawing anything odd on purpose. (design-call; proposed: the
   floor, matching §2.5's "the closest pair still wins". Worth a round-0 challenge.)
+- **OQ-10 — does a waypoint dot belong in an exported figure at all?** (added
+  2026-08-11 with §2.10, and deliberately **not** folded into Phase 6.) A
+  waypoint marks where two links meet in series without a junction. Before
+  `zk-014` that was also the only way to bend a road, so the dot marked something
+  a reader could see the point of; now a bend is a presentation vertex and a
+  waypoint's remaining job is a *semantic* split — a lane count changing, an
+  alignment changing — each of which the road already shows by getting wider or
+  stepping over. So the dot may now be marking nothing the figure needs, and
+  `.node-dot` is in `diagram.css`, which means it ships in every export. The
+  alternative is to make a waypoint dot chrome, on the `interaction` gate that
+  keeps handles out of exports by construction. Phase 6 moves the dot to the road
+  without answering this, because moving it and deleting it are independent
+  decisions and the first one is right either way. (design-call; proposed: leave
+  it, and look at a real figure once Phase 6 has drawn one.)
 
 ## 4. Implementation phases
 
@@ -1096,3 +1310,119 @@ cleared to implement**.
   constant in this corpus has been. Four mutations were run rather than trusting a
   green first pass — a fixed orientation, an absolute lean, a clamped cell and a
   hard-coded count — and each failed exactly one test, a different one.
+
+### Phase 6 — The node dot sits on the road  (added 2026-08-11)
+
+Added by the second reopening
+(`/Users/ivapo/.claude/skills/spec-driven-dev/spec-authoring.md` §6.1). Phases
+1–5 are untouched. It depends on Phase 1, which built the `Arm.origin` it reads,
+and on Phase 2, whose `LinkAlign` is half of what it fixes (§2.10). It passed its
+own scoped review (§7's phase-level gate) in three rounds on 2026-08-11 and **is
+cleared to implement**.
+
+*Produces the observable: **yes**, and it is the only thing the phase does — a
+mark moves in every figure where a divided or aligned road meets a node that is
+not a junction.*
+
+- **Scope:** §2.10 — a node's dot is drawn on each of its carriageways instead of
+  once on the centreline between them. **TypeScript only** — no model change, no
+  Rust, no `SCHEMA_VERSION` move, no new action, no new control, no new build
+  constant, and `nodePos` does not move (§2.10.1).
+  - `geometry.ts` — `nodeDots(doc, nodeId, offsets): Vec2[]`, the phase's one new
+    function and pure, so `geometry.test.ts` can put every row of §2.10.2's table
+    through it. It returns the arms' **distinct origins** — distinct as positions,
+    within a `1e-6` float-slack epsilon that is a guard and not a design
+    parameter, carried as its **own** named constant rather than borrowing
+    `SAME_EDGE`'s (§2.10.2) — in `junctionArms`' order, with no angle, mean or
+    grouping anywhere in it. It **falls back to a single dot at `nodePos` when the
+    node has no arms**
+    (§2.10.3), and returns `[]` when the node has no layout entry at all — which
+    is the hand-edited case the node layer already guards with `if (!p) return
+    null`.
+  - `geometry.ts` — two doc comments this phase falsifies: `junctionArms` loses
+    its "the node *dots* still draw at the node position … (ramps spec OQ-4,
+    open)" paragraph and gains the note that it reads every node type rather than
+    only a junction (§2.10.4); and `Arm.origin`'s "the node position for an
+    undivided road", which **Phase 2 already falsified** via `alignmentShift` and
+    which §2.10 depends on being read correctly.
+  - `Diagram.tsx` — `NodeShape` takes the dot positions rather than one `pos`,
+    and maps its `<circle>` (and the halo's) over them inside the **same** group,
+    which is what leaves `onNodePointerDown` and the drag untouched. The group's
+    `transform` stays on `nodePos` and a zero displacement emits **no** `cx`/`cy`
+    (§2.10.4) — the mechanism the identity assertion below turns on. The junction
+    branch of the node layer is not touched at all: a junction draws a glyph, and
+    §2.10 is about the two types that draw a dot.
+- **Exit gate:** `bun run build` + `bun run test` + `cargo test` green, with
+  `cargo test` **unchanged at 69** — no Rust is touched, so a moved count means
+  something escaped the scope. Report the vitest count against the 473 that
+  `zk-014` Phase 3 left.
+  - `geometry.test.ts`, one assertion per row of §2.10.2's table: a **centre
+    endpoint** and a **centre waypoint** each return exactly one dot, at the node;
+    a **divided endpoint** returns two, each equal to its own carriageway's end as
+    `drawnPolyline` reports it — read from the drawn polyline, never re-derived
+    from `carriagewayOffset`, or the test asserts the implementation against a
+    copy of itself; a **straight divided waypoint** returns two.
+  - **The lane-drop divided waypoint returns four**, at the measured `±22.5` and
+    `±18` — §2.10.2's deliberate row, and the test that pins the epsilon as float
+    slack rather than a design tolerance. Any implementation that merges those two
+    into one dot has taken a decision this phase rejects, and this row is the only
+    one that can see it.
+  - **A divided road split unevenly at a waypoint still returns two**, the only
+    assertion the epsilon itself answers to — and **the fixture has to be measured
+    rather than picked**, because most splits are bitwise equal and pass under
+    exact equality (314 of 400 scanned). The recipe that parts: `N1 (0, 0)` to
+    `N3 (97, 233)` with the waypoint at `f = 0.95`, measured at `2.84e-14`. The
+    property to check before trusting any substitute is that an **exact-equality
+    dedupe returns three** there; a third of a 45° diagonal, the obvious choice,
+    measures exactly `0` and tests nothing.
+  - **A three-arm fan returns the same three dots for every permutation of
+    `doc.links`**, which is the assertion round 2 was owed: three
+    `offside`-aligned links off one endpoint node at unequal angles, run through
+    all six orders. **Compare as a set** — sorted, or by membership — because the
+    scope returns them in `junctionArms`' order, so permuting the links legitimately
+    permutes the array and a `toEqual` on it fails a correct implementation. A
+    clustering implementation gives 2, 1, 2, 2, 1, 2 dots — measured — so this is
+    the one assertion separating "a set of positions" from every rule that groups.
+  - **A node with a link but no layout entry returns `[]`**, and **the aligned
+    undivided endpoint returns one dot off the node** — the jink's own half of
+    §2.10's two-source claim, asserted in its own right rather than only as the
+    exclusion that scopes the identity test.
+  - **A link-less node returns exactly one dot, at the node** (§2.10.3) — the
+    path every node takes between being placed and being connected.
+  - **A centre-aligned undivided document's markup is unchanged, character for
+    character.** `Diagram.test.tsx` and `export.test.ts` assert only that
+    `node-dot` is *present*; what this phase adds is the identity, because
+    §2.10.2's collapse is worth nothing unless it is exact. Scoped to
+    centre-aligned deliberately: an aligned link's dot **moves**, which §2.10 says
+    is the same defect and not a side effect, and is asserted as a change rather
+    than smuggled under an identity claim that would be false.
+  - **A divided endpoint emits two `.node-dot` circles inside one `<g>`**, which
+    is the picture, and the one group is what keeps the gesture.
+  - Three mutations, one per rule, since each has a plausible absent form the
+    other assertions tolerate: **widen the epsilon to a design-sized tolerance**
+    (`LANE_PX / 2`) and confirm the lane-drop row fails alone; **drop the dedupe
+    entirely** (one dot per arm) and confirm the two centre rows and the identity
+    assertion fail; **drop the link-less fallback** and confirm only the link-less
+    test fails.
+  - A `bun run dev` pass, on the two things no assertion above can see: place a
+    node with the node tool on an empty canvas and confirm it is **visible and
+    draggable before any road exists** (§2.10.3's default path), then drag a
+    divided road's endpoint **by each of its two dots** and confirm both grab the
+    same node and the road follows. Then look at §2.10.2's deliberate four-dot
+    row — a divided waypoint with a lane drop, where two dots overlap `4.5` apart
+    on each side — and confirm it reads as one road end rather than as two, which
+    is the claim that section makes and the only part of the rule settled by
+    looking. If it reads badly, that is a reopening with its own round and not a
+    mid-phase revert.
+- **Docs touched:** `rules/road-joints.md`, whose "**Still open (ramps OQ-4)**"
+  paragraph this phase answers outright; **`rules/canvas-interaction.md`**, since
+  the node's hit target is now several circles rather than one and that file owns
+  what the pointer picks up — it sits at **exactly** its `max_lines: 190`, so the
+  edit trades prose rather than adding, on `zk-014` Phase 3's precedent; this
+  spec's **OQ-4**, which becomes resolved when the phase ships; and the
+  project-memory roadmap, whose "what remains" list carries the median dot as its
+  first entry. **Not** touched: `rules/road-rendering.md` (the carriageway offsets
+  and the alignment shift it documents are read, not changed) and
+  `rules/diagram-export.md` (no new class, no new `<defs>`, no gate —
+  `measureDiagram` frames from `getBBox()` over the whole group, so a moved dot is
+  measured with no change).

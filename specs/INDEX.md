@@ -10,7 +10,7 @@
   Export the schematic as a standalone SVG (and PNG) — the picture leaves the app, chrome-free, at its own scale.
 - **[road-rendering](road_rendering_spec.md)** — `zk-004` · accepted · done
   Make the drawn road honour the road model — class, lane widths, lane kinds, and two-way carriageways that don't sit on top of each other.
-- **[ramps-and-tapers](ramps_and_tapers_spec.md)** — `zk-005` · accepted · done
+- **[ramps-and-tapers](ramps_and_tapers_spec.md)** — `zk-005` · accepted · partial
   Draw the transitions between roads — lane-count tapers, ramp gores, and junction interiors that follow a divided road's carriageways.
 - **[road-markings](road_markings_spec.md)** — `zk-006` · accepted · done
   Render and place road-surface markings — stop and give-way lines, crossings, lane arrows, lane lines. Paint only; signs and any painted text wait on font embedding.
