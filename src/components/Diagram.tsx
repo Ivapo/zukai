@@ -56,6 +56,7 @@ import {
   markingTeeth,
   markingText,
   markingZebra,
+  nodeDots,
   offsetPolyline,
   padRadius,
   padShape,
@@ -217,6 +218,7 @@ export function Diagram({
             key={node.id}
             node={node}
             pos={p}
+            dots={nodeDots(doc, node.id, offsets)}
             interaction={interaction}
           />
         );
@@ -946,20 +948,39 @@ function arrowTriangle(tip: Vec2, dir: Vec2, size: number, back: number): string
   return `${p1} ${p2} ${p3}`;
 }
 
-/** A graph node, drawn by kind. */
+/**
+ * A graph node, drawn by kind — **once per drawn road end** rather than once at
+ * the node, so a divided road's endpoint is marked on both carriageways instead
+ * of in the median between them (ramps spec §2.10). `dots` is `nodeDots`' answer.
+ *
+ * **One group, whatever the count**, which is what leaves the hit target and the
+ * drag exactly as they were: `onNodePointerDown` stays on a single element, and
+ * `Canvas.tsx` takes its grab offset from the node's own position rather than
+ * from the dot that was pressed. The `transform` therefore stays on `pos` and
+ * each circle enters as a displacement from it — a zero displacement emitting
+ * **no** `cx`/`cy`, since React writes `cx={0}` as `cx="0"` and a centred
+ * undivided node's markup carries neither attribute.
+ *
+ * The halos come first as a block, not paired with their dots: where two dots
+ * overlap — a divided waypoint at a lane drop puts them `4.5` apart — a halo
+ * emitted after the first dot would paint over it.
+ */
 function NodeShape({
   node,
   pos,
+  dots,
   interaction,
 }: {
   node: Node;
   pos: Vec2;
+  dots: Vec2[];
   interaction?: Interaction;
 }) {
   const r = node.type === "junction" ? 9 : node.type === "waypoint" ? 4 : 6;
   const selected = isSelected(interaction?.selection ?? null, "node", node.id);
   const highlight = selected || interaction?.linkFrom === node.id;
   const nse = hairline(interaction);
+  const at = dots.map((d) => ({ cx: d.x - pos.x || undefined, cy: d.y - pos.y || undefined }));
   return (
     <g
       className={`node node-${node.type}${selected ? " is-selected" : ""}`}
@@ -968,10 +989,27 @@ function NodeShape({
         interaction && ((e: React.PointerEvent) => interaction.onNodePointerDown(e, node))
       }
     >
-      {highlight && (
-        <circle className="node-halo" r={r + 4} vectorEffect={nse} />
-      )}
-      <circle className="node-dot" r={r} vectorEffect={nse} />
+      {highlight &&
+        at.map((d, i) => (
+          <circle
+            key={i}
+            className="node-halo"
+            r={r + 4}
+            cx={d.cx}
+            cy={d.cy}
+            vectorEffect={nse}
+          />
+        ))}
+      {at.map((d, i) => (
+        <circle
+          key={i}
+          className="node-dot"
+          r={r}
+          cx={d.cx}
+          cy={d.cy}
+          vectorEffect={nse}
+        />
+      ))}
     </g>
   );
 }

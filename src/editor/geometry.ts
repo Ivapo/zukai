@@ -1105,9 +1105,12 @@ export interface Arm {
   dir: Vec2;
   /**
    * Where that carriageway actually meets the node, in **world** units — the
-   * node position for an undivided road, stepped off it for one carriageway of a
-   * divided pair. A glyph's own group is translated to the node, so an interior
-   * detail drawn from this has to enter as `origin - center`.
+   * node position stepped off by {@link lateralShift}, so **both** of its terms
+   * move this point: the carriageway offset of a divided pair, and the shift an
+   * aligned link takes to hold its own edge on the polyline. Only a centred link
+   * with no opposing twin has its origin *at* the node. A glyph's own group is
+   * translated to the node, so an interior detail drawn from this has to enter as
+   * `origin - center`.
    */
   origin: Vec2;
   /**
@@ -1130,8 +1133,10 @@ export interface Arm {
  * a second call to `carriageways`: it is already sitting in the drawn polyline's
  * own end point (ramps spec §2.2, road spec OQ-6).
  *
- * The node *dots* still draw at the node position, so an endpoint or waypoint on
- * a divided road sits in its median (ramps spec OQ-4, open).
+ * **The name understates it: this reads every node type, not only a junction.**
+ * It filters on nothing but the links that touch the node, so {@link nodeDots}
+ * asks it about an endpoint and a waypoint too. Renaming it would ripple through
+ * four rules and two specs for no behaviour, so the correction lives here.
  *
  * **Lives here rather than in `Diagram.tsx`**, where it started, for
  * {@link drawnPolyline}'s reason one step on: an `end`-anchored marking measures
@@ -1167,6 +1172,65 @@ export function junctionArms(
     });
   }
   return arms;
+}
+
+/**
+ * How close two arm origins must be to count as **one drawn road end**.
+ *
+ * This absorbs float slack and nothing else. Two arms drawn to the same place
+ * usually *are* the same object — `drawnPolyline` returns the layout polyline
+ * unmodified for a centred link — and a straight divided waypoint offsets both
+ * its links by the same distance along the same delta, which came out bitwise
+ * identical in 314 of 400 scanned splits; the rest parted by at worst `2.84e-14`
+ * (an instance, not a bound: the slack grows with distance from the world
+ * origin). The nearest genuinely *distinct* pair of lateral shifts the UI can
+ * produce is `0.45` apart, and the lane-drop step this must never merge is `4.5`.
+ * So the guard sits six orders below the smallest decision and eight above the
+ * largest slack, and it is never a design parameter.
+ *
+ * **Its own constant rather than {@link SAME_EDGE}'s**, which is the same
+ * magnitude. The two answer different questions — are these lane edges at one
+ * lateral offset; are these road ends at one point — and a shared constant is how
+ * tuning one silently retunes the other (ramps spec §2.10.2).
+ */
+const SAME_POINT = 1e-6;
+
+/**
+ * Where a node's dots are drawn: **one per distinct arm origin**, so a divided
+ * road's end is marked on each of its carriageways instead of once in the median
+ * between them, and an aligned link's end is marked on the road rather than on
+ * the polyline it stepped off (ramps spec §2.10).
+ *
+ * "Distinct" means distinct as a **position** — no angle, no mean, no grouping.
+ * That is what makes the result a set rather than an ordering: a rule clever
+ * enough to know that two same-side origins `4.5` apart belong together is a
+ * clustering rule, and greedy clustering over a three-arm fan changes the number
+ * of dots under a permutation of `doc.links`. So a divided waypoint with a lane
+ * drop draws **four** dots, two overlapping on each side, which is what two road
+ * ends at two places look like.
+ *
+ * The node keeps its own position: only the *mark* moves, and a drag still
+ * dispatches `moveNode` with the node's own position.
+ */
+export function nodeDots(
+  doc: Document,
+  nodeId: NodeId,
+  offsets: Record<LinkId, number>,
+): Vec2[] {
+  const p = nodePos(doc, nodeId);
+  // No layout entry at all — the hand-edited case the node layer already guards.
+  if (!p) return [];
+  const arms = junctionArms(doc, nodeId, offsets);
+  // A node no link touches keeps its dot at the node, and this is the ordinary
+  // path rather than the edge case: every node is link-less between being placed
+  // and being connected, so an arms-only rule would make the node tool look
+  // broken on its first click (§2.10.3).
+  if (!arms.length) return [p];
+  const dots: Vec2[] = [];
+  for (const arm of arms) {
+    if (!dots.some((d) => distance(d, arm.origin) < SAME_POINT)) dots.push(arm.origin);
+  }
+  return dots;
 }
 
 /**

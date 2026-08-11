@@ -459,6 +459,95 @@ describe("two-way carriageways", () => {
   });
 });
 
+/**
+ * The node's dots — one per drawn road end rather than one at the node (ramps
+ * spec §2.10). The geometry is `nodeDots`' and is asserted in `geometry.test.ts`;
+ * what these two cases carry is the markup, which is where the rule can be right
+ * and the picture still wrong.
+ */
+describe("node dots", () => {
+  /** A one-way road due east, and the same pair with a twin coming back. */
+  function road(...extra: Action[]): Document {
+    return run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "addNode", pos: { x: 120, y: 0 } },
+      { type: "startLink", from: "N1" },
+      { type: "completeLink", to: "N2" },
+      { type: "setLinkLanes", id: "L1", count: 2 },
+      ...extra,
+    ).doc;
+  }
+
+  const twoWay = (): Document =>
+    road(
+      { type: "startLink", from: "N2" },
+      { type: "completeLink", to: "N1" },
+      { type: "setLinkLanes", id: "L2", count: 2 },
+    );
+
+  /** Two links in series, so the middle node is a waypoint with two arms. */
+  const chain = (): Document =>
+    road(
+      { type: "addNode", pos: { x: 240, y: 0 } },
+      { type: "startLink", from: "N2" },
+      { type: "completeLink", to: "N3" },
+      { type: "setLinkLanes", id: "L2", count: 2 },
+      { type: "setNodeKind", id: "N2", kind: "waypoint" },
+    );
+
+  /**
+   * **The identity, and it is exact rather than equivalent.** §2.10.2's collapse
+   * to a single dot is worth nothing unless a centred undivided document emits
+   * character-for-character what it emitted before the phase: the dot is drawn
+   * from a map now, and each circle takes a displacement that must render as
+   * *no* `cx`/`cy` at zero — React writes `cx={0}` as `cx="0"`, so the natural
+   * spelling fails this for a reason that has nothing to do with the geometry.
+   *
+   * Scoped to a centred link deliberately: an aligned link's dot **moves**, which
+   * §2.10 calls the same defect rather than a side effect, and which is asserted
+   * as a change in `geometry.test.ts` instead of smuggled under this claim.
+   *
+   * **The waypoint is the load-bearing half of this test.** An endpoint has one
+   * arm, so it emits one circle however the dots are collapsed; the waypoint has
+   * two arms at one point, so it is the row that stops being byte-identical the
+   * moment the rule draws per arm instead of per place.
+   */
+  it("emits a centred undivided node exactly as it did before the dots moved", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={chain()} />);
+
+    expect(svg).toContain(
+      '<g class="node node-endpoint" transform="translate(0 0)">' +
+        '<circle class="node-dot" r="6"></circle></g>',
+    );
+    expect(svg).toContain(
+      '<g class="node node-waypoint" transform="translate(120 0)">' +
+        '<circle class="node-dot" r="4"></circle></g>',
+    );
+  });
+
+  /**
+   * The picture the phase exists for — and **one group**, which is what keeps the
+   * gesture: `onNodePointerDown` stays on a single element, so either dot drags
+   * the node and `Canvas.tsx` needs no change at all.
+   */
+  it("marks a divided road's endpoint on both carriageways, from one group", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={twoWay()} />);
+    const group = svg.slice(
+      svg.indexOf('<g class="node node-endpoint" transform="translate(0 0)">'),
+    );
+    const end = group.indexOf("</g>");
+
+    expect(group.slice(0, end).match(/node-dot/g)).toHaveLength(2);
+    // On the carriageways, not between them: the eastbound half below the
+    // centreline and its westbound twin above, as the casings are drawn.
+    expect(group.slice(0, end)).toContain('cy="13.5"');
+    expect(group.slice(0, end)).toContain('cy="-13.5"');
+    // The node itself has not moved.
+    expect(svg).toContain('<g class="node node-endpoint" transform="translate(0 0)">');
+  });
+});
+
 describe("link alignment", () => {
   /** A 4-lane arterial drawn due east from the origin, aligned `align`. */
   function aligned(align: LinkAlign): Document {
