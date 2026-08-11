@@ -38,6 +38,21 @@ phases:
     shipped: 2026-08-11
     cut: null
     by: null
+  - name: "Phase 7 — A figure carries no node dots"
+    reviewed: null
+    shipped: null
+    cut: null
+    by: null
+  - name: "Phase 8 — A gore's arms stop bulging over the roads they part"
+    reviewed: null
+    shipped: null
+    cut: null
+    by: null
+  - name: "Phase 9 — The panel says which side the lanes hang on"
+    reviewed: null
+    shipped: null
+    cut: null
+    by: null
 
 extends: null
 supersedes: null
@@ -886,6 +901,118 @@ junction, on a document that holds a fragment of a network.
 control.** This is drawing, derived from geometry the app already computes for
 every node it draws a glyph at.
 
+### 2.11 What a printed figure got wrong (added 2026-08-11, third reopening — Phases 7–9)
+
+This section is the third reopening
+(`/Users/ivapo/.claude/skills/spec-driven-dev/spec-authoring.md` §6.1), and unlike
+the first two it starts from **a figure rather than from a reading of the code.**
+Phase 6 shipped; §1's motorway exit was then built through the reducer, exported
+through `measureDiagram`/`diagramSvg`, and printed. Three things in that file are
+wrong. A fourth looked wrong and was not, which is recorded here because the
+mistake is instructive and reachable by any user.
+
+**The one that was not a defect, recorded first so nobody re-opens it.** In the
+first print the offramp was drawn **straight across the mainline**, and the gore
+sat on paper below the road. That is not a rendering fault: the mainline was
+aligned `offside`, so its lane region hangs *below* its polyline (§2.3's pinned
+sign), and the ramp was sent down the same side — so the ramp left the road's far
+edge and had to cross it. The identical document with the mainline aligned
+`nearside` draws §1's picture exactly, gore and all. **Ramps OQ-8 is therefore
+confirmed rather than reopened**: the chevrons read correctly at figure scale, and
+what looked like collapsed paint was the overlap. What the episode *does* prove
+belongs to OQ-5, and §2.11.3 takes it.
+
+#### 2.11.1 A node's dot is an editing mark, not figure content (Phase 7 — answers OQ-10)
+
+Every free road end in the printed figure carries a filled bead: `.node-endpoint
+.node-dot`, paper-filled with a dark stroke, 6 units across. A schematic shows a
+*fragment* of a network, so its roads run off the edge of the frame — and a bead
+on the cut end states the opposite, that the road stops there. There were four in
+one figure.
+
+**So the dot becomes chrome**, on the gate that already keeps every other editing
+affordance out of a file: `Diagram.tsx` takes an optional `interaction`, and
+`export.tsx:diagramInner` renders without it, so nothing needs a filter anyone can
+forget (`rules/canvas-interaction.md`). `.node-dot` moves `styles/diagram.css` →
+`styles.css` with it, which is the same move and the reason the halo was never in
+a figure.
+
+- **This answers OQ-10, and it answers it for the endpoint rather than the
+  waypoint.** That question asked whether a *waypoint* dot belongs in a figure.
+  Phase 6's dev pass then found that a waypoint's dot is already invisible in one —
+  `.node-waypoint .node-dot` is `fill: var(--asphalt); stroke: none`, so on the
+  road it cannot be seen. The endpoint's is the one that prints, and it is the one
+  OQ-10 did not ask about. Deleting the whole class of mark from figures answers
+  both at once and needs no rule about which node types print.
+- **It does not undo Phase 6, it relocates what Phase 6 built.** The dots still sit
+  on the carriageways, still share one group, and are still the node's hit target —
+  on the canvas, which is the only place a hit target means anything. What changes
+  is that a figure stops carrying them.
+- **The junction glyph is untouched.** A pad, a ring, a gore and a diamond are what
+  the roads *do* at that node, so they are figure content. A dot is where the human
+  clicks.
+- **A document of nothing but unconnected nodes then exports as a blank sheet**,
+  since `measureDiagram` frames from `getBBox` and there is no geometry left to
+  frame. Named rather than discovered: it is the honest answer (a figure of no
+  roads is a figure of nothing), and `diagramSvg` already renders a `null` bounds
+  as a small blank page rather than failing.
+
+**Three shipped assertions invert, and two of them are Phase 6's own** — named here
+so they are edited rather than met at implementation time. `export.test.ts`'s "a
+figure contains `node-dot`" and `Diagram.test.tsx`'s root-markup case both assert
+the dot is **present** in export mode. Phase 6's identity case and its
+two-dots-in-one-group case render with no `interaction` at all, so both must pass
+one to keep asserting what they were written for. **The identity claim survives the
+move and must**: with an `interaction`, a centred undivided node still emits its
+group character for character, `vector-effect` aside.
+
+#### 2.11.2 A gore's arms keep their round caps (Phase 8)
+
+At the diverge the ramp's casing ends in a **round cap**, so a half-disc of asphalt
+of its own half-width bulges back over the mainline and breaks the mainline's edge
+line where the two part. It is the same defect §2.4 already solved one node type
+along: a taper gives **both** its links a butt cap, because an outset link's round
+cap paints past the joint and no added polygon can remove it.
+
+A gore never got that treatment, and the geometry says it should: the gore's legs
+are *literal continuations of the two roads' own edge lines* (Phase 4's as-built
+note), so a cap that crosses a leg crosses an edge line that is drawn to be
+continuous. The fix is the modifier class that exists — `.road-casing--butt`, on
+the arms of a `gore` glyph — not a new mechanism.
+
+**What this does not claim.** It does not move where the ramp starts. A ramp still
+leaves from its shared node, so with the alignment chosen correctly (§2.11.3) its
+asphalt still begins inside the mainline's; the butt cap removes the *bulge past*
+that, which is what breaks the line. Starting a ramp at the gore's nose instead is
+a larger change to what a link's drawn end means, and it is not proposed here.
+
+#### 2.11.3 The panel says which side a road's lanes hang on (Phase 9 — OQ-5, taken)
+
+OQ-5 asked whether alignment could be **derived** rather than set, and proposed
+keeping it explicit, "revisit[ing] if setting it twice per exit becomes tedious in
+practice". The figure says the cost is not tedium. The wrong pick does not make a
+slightly worse drawing; it draws a ramp through a motorway, and it does so while
+every assertion in the suite passes, because each road is individually correct.
+
+**The decision is to keep it manual and make the state legible** (taken by the user
+on the evidence, 2026-08-11). Deriving it was the alternative and is declined for
+the reason OQ-5 already recorded: a derived side flips when a node is dragged past
+the mainline, so the drawing would change under a gesture that means nothing.
+
+So the Inspector's Alignment control gains a **readout of what the setting does to
+this road**, in the drawing's own terms rather than in the enum's: which side of
+its own polyline the lane region sits on, for this link as drawn. `alignmentShift`
+already returns exactly that number and its sign is pinned (§2.3), so the readout
+is derived from the same function the renderer uses and cannot drift from it.
+
+**This phase's output is a panel, so it owes the explicit argument `CLAUDE.md`
+demands.** It produces no picture. It exists because the picture it prevents is
+panel A — and the general rule it follows is the one the corpus already keeps
+finding: a silent mirror is worth a control that states its direction. The
+alternative that *would* produce a picture — drawing the overlap as an error state
+on the canvas — is a validation layer this project does not have and should not
+grow for one case.
+
 ## 3. Open questions
 
 - **OQ-1** — **Taper direction for a lane addition.** §2.4 opens the new lane
@@ -922,7 +1049,16 @@ every node it draws a glyph at.
   confirms the reading §2.10.2 claimed: the four-dot row reads as one road end per
   carriageway.** What it also exposes is OQ-10's question in a sharper form — see
   there.
-- **OQ-5** — **Could alignment be derived instead of set?** At a joint with a
+- **OQ-5 — TAKEN 2026-08-11 by §2.11.3 and Phase 9: keep it explicit, and make the
+  state legible.** ~~Could alignment be derived instead of set?~~ The revisit
+  condition this question set was *tedium*, and the printed figure produced a
+  different and better reason to look again: the wrong pick draws **a ramp through
+  a motorway** (§2.11's panel A) while every assertion passes, because each road is
+  individually correct. Deriving it was weighed on that evidence and declined — for
+  this question's own recorded cost, a side that flips when a node is dragged past
+  the mainline. The Inspector states which side the lane region sits on instead.
+  **Open until Phase 9 ships.** The original text follows.
+  At a joint with a
   ramp leaving on one side, the side the lane is dropped on is arguably readable
   from the ramp's own direction. That would remove a control, at the cost of a
   heuristic the road spec's §2.4 was careful to reject for pairing, and of a
@@ -1003,7 +1139,13 @@ every node it draws a glyph at.
   without answering this, because moving it and deleting it are independent
   decisions and the first one is right either way. (design-call; proposed: leave
   it, and look at a real figure once Phase 6 has drawn one.)
-  **Sharpened 2026-08-11 by Phase 6 shipping, and still open.** A waypoint's dot is
+  **TAKEN UP 2026-08-11 by §2.11.1 and Phase 7, and answered wider than it asked:
+  no node dot of any type reaches a figure**, because a dot is where the human
+  clicks rather than something the road does. The printed figure is what settled
+  it — a bead on a road that runs off the frame states that the road stops there,
+  and there were four. **Open until Phase 7 ships.** The sharpening that preceded
+  it follows, and it is why the answer is not about waypoints.
+  **Sharpened 2026-08-11 by Phase 6 shipping.** A waypoint's dot is
   `fill: var(--asphalt); stroke: none`, so now that it sits *on* the road it is
   invisible — the figure already does not carry it, and the median mark that made
   it look otherwise was the defect Phase 6 removed. So the question is no longer
@@ -1471,3 +1613,96 @@ not a junction.*
     makes **OQ-10** sharper than when it was written: for a waypoint the question
     is no longer "should the figure carry this dot" but "the figure already does
     not, so should the model of it say so".
+
+### Phase 7 — A figure carries no node dots  (added 2026-08-11)
+
+Added by the third reopening, from a printed figure rather than from a reading
+(§2.11). Phases 1–6 are untouched. It depends on Phase 6, whose dots it relocates
+rather than removes. **Not yet reviewed — this phase is blocked until its own
+scoped round sets its `reviewed` date (§7).**
+
+*Produces the observable: **yes**. Four beads leave the printed figure, and every
+figure with a road that runs off the frame is affected.*
+
+- **Scope:** §2.11.1 — the node dot becomes chrome. **TypeScript and CSS only** —
+  no model change, no Rust, no `SCHEMA_VERSION` move, no new action, no new
+  control, and no geometry at all: `nodeDots` is not touched.
+  - `Diagram.tsx` — `NodeShape`'s circles render only when `interaction` is
+    present, on the gate every other affordance already uses. The group, its
+    `transform` and `onNodePointerDown` are unchanged, so the canvas is
+    byte-identical and the drag is untouched.
+  - `styles/diagram.css` → `styles.css` — the four `.node-dot` rules move, so the
+    class stops travelling inside every exported file. `.node-halo` is already
+    there and shows the shape of the move.
+  - `export.test.ts`'s `CHROME` regex gains `node-dot`, which is what makes the
+    nine assertions that reuse it police the new class rather than pass around it.
+- **Exit gate:** `bun run build` + `bun run test` + `cargo test` green, `cargo
+  test` **unchanged at 69**. Report vitest against the 484 Phase 6 left.
+  - **Four shipped assertions are edited rather than met by surprise** (§2.11.1):
+    `export.test.ts`'s `toContain("node-dot")` and `Diagram.test.tsx`'s root-markup
+    case **invert**; Phase 6's identity case and its two-dots-in-one-group case
+    must pass an `interaction`, since they were written in export mode and are
+    about the canvas.
+  - **The identity claim survives the move**: with an `interaction`, a centred
+    undivided node still emits its group character for character apart from
+    `vector-effect`. Asserted, because the collapse Phase 6 proved is what this
+    phase must not quietly break.
+  - **An exported figure matches `CHROME` nowhere**, with `node-dot` now in it —
+    and the assertion is checked for vacuity by confirming the canvas markup *does*
+    match it. A regex that catches nothing passes every file.
+  - A document of nodes and no links exports as a blank sheet (§2.11.1), asserted
+    rather than left to be found.
+  - A `bun run dev` pass: the canvas still shows every dot, a node is still
+    selectable and draggable, and an export of the same document carries none.
+- **Docs touched:** `rules/canvas-interaction.md` (the chrome list gains the dot,
+  and the "a node's halo is chrome while its dot is not" clause this phase
+  falsifies — it sits at exactly 190, so trade); `rules/road-joints.md`'s
+  node-dot section; `rules/diagram-export.md` if it enumerates what a figure
+  carries; this spec's **OQ-10**, which becomes resolved; the project-memory
+  roadmap.
+
+### Phase 8 — A gore's arms stop bulging over the roads they part  (added 2026-08-11)
+
+Added by the third reopening (§2.11.2). Depends on Phase 4, which drew the gore.
+**Not yet reviewed (§7).**
+
+*Produces the observable: **yes** — the mainline's edge line runs unbroken past
+the point where the ramp leaves it.*
+
+- **Scope:** §2.11.2 — the arms of a `gore` glyph take the butt cap `.road-casing--butt`
+  that a tapered joint already applies, so no round cap paints back over the road
+  it just left. **TypeScript and CSS only**, and no new class: Phase 3 built the
+  modifier.
+- **Exit gate:** `bun run build` + `bun run test` + `cargo test` green and
+  unchanged at 69.
+  - A gore's two chosen arms carry the butt-cap class; a document with no gore
+    emits markup **unchanged**, which is the assertion that keeps the change local.
+  - **The third arm is decided rather than assumed**: state whether a gore's
+    *unchosen* arm takes the cap too, and assert it. A three-arm diverge has one,
+    and it is the arm whose cap sits under the pad-less glyph.
+  - A `bun run dev` pass on §1's exit: the mainline's edge line is continuous
+    where the ramp leaves, at both a shallow and a steep splay.
+- **Docs touched:** `rules/road-joints.md` (the cap rule now has two owners, the
+  taper and the gore); the project-memory roadmap.
+
+### Phase 9 — The panel says which side the lanes hang on  (added 2026-08-11)
+
+Added by the third reopening (§2.11.3), and the phase that **produces no picture**
+— §2.11.3 carries its explicit argument, as `CLAUDE.md` requires. Depends on
+Phase 2, which shipped `LinkAlign`. **Not yet reviewed (§7).**
+
+- **Scope:** the Inspector's Alignment control gains a readout of what the current
+  setting does to *this* road: which side of its own polyline the lane region sits
+  on, and by how much. Derived from `alignmentShift` — the same function the
+  renderer uses, so the readout cannot drift from the drawing. **No model change,
+  no new action, no geometry, no Rust.**
+- **Exit gate:** `bun run build` + `bun run test` + `cargo test` green.
+  - The readout's **sign is asserted against the drawing**, not against the enum:
+    for a 4-lane eastbound link the `offside` reading must agree with the `y` the
+    road is actually drawn at (§2.3's pinned direction, the trap this spec hit
+    repeatedly). A test that only checks the words passes under an inversion.
+  - `centre` reads as no offset, and the two others are exact negations.
+  - A `bun run dev` pass: set each alignment on a real road and confirm the
+    readout matches which way the asphalt moved.
+- **Docs touched:** `rules/road-rendering.md` if it documents the control; this
+  spec's **OQ-5**, which becomes resolved; the project-memory roadmap.
