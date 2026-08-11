@@ -277,6 +277,30 @@ export const TAPER_LENGTH = 24;
 export const TAPER_MAX_BEND = 8;
 
 /**
+ * How far a mitred corner may reach past its own vertex, as a multiple of the
+ * offset distance — {@link offsetPolyline}'s clamp at a sharp bend.
+ *
+ * **Derived, not picked, and it has to be this number** (link bends spec OQ-3).
+ * A corner is drawn twice over: {@link offsetPolyline} places each element's
+ * centreline, and SVG joins that element's own stroke at the vertex. SVG bevels
+ * a join once `miterLength / strokeWidth` passes `stroke-miterlimit`, and that
+ * ratio is `1 / sin(ι/2)` for an included angle `ι` — the same quantity as this
+ * function's `1 / cos(φ/2)`, since `ι = 180° − φ`. So clamping here at SVG's
+ * **default** of 4 is what makes the paint and the asphalt under it change
+ * behaviour at one angle, 28.96°, which no independently chosen number would.
+ *
+ * The number is written twice — here and as `.road-casing`'s
+ * `stroke-miterlimit` in `diagram.css` — because a CSS rule cannot read a
+ * constant, the same reason the road class's width factor does not live there.
+ *
+ * Past the limit the two differ in *kind*: this clamps the **distance** along
+ * the same bisector, where SVG bevels. That is accepted. A hairpin that sharp is
+ * not a road this project draws, and the alternative costs the vertex
+ * correspondence a bend's insertion index rests on (link bends spec §2.4).
+ */
+export const MITER_LIMIT = 4;
+
+/**
  * How close two casing-edge offsets must be to count as the same edge.
  *
  * The pairs that *should* agree do agree exactly today — two `offside`-aligned
@@ -876,10 +900,47 @@ function segmentNormals(points: Vec2[]): Vec2[] {
 }
 
 /**
- * A polyline parallel to `points`, offset by signed distance `d` along the
- * per-vertex normal (averaged at interior vertices) — positive `d` to the right
- * of the direction of travel as drawn. Good enough for the gentle bends a
- * schematic uses; not a true miter offset at sharp corners.
+ * How short a vector may be before {@link offsetPolyline} stops treating it as a
+ * direction — a missing segment normal, or a bisector that cancelled out.
+ *
+ * Loose rather than tight, and deliberately: normalizing a sum of two unit
+ * vectors that nearly cancel amplifies its error without bound, so a threshold
+ * near float noise would keep a direction whose *angle* is already meaningless.
+ * Nothing above it is at risk, because the {@link MITER_LIMIT} clamp already
+ * caps how far a near-reversal reaches.
+ */
+const NO_BISECTOR = 1e-6;
+
+/**
+ * A polyline parallel to `points`, offset by signed distance `d` — positive `d`
+ * to the right of the direction of travel as drawn. **Every vertex comes back
+ * exactly `d` from its own segment's infinite line**, at an interior corner as
+ * much as at an end, which is the invariant to assert and the one an averaged
+ * normal breaks.
+ *
+ * An end vertex steps along its one segment's normal. An interior vertex is a
+ * true **miter**: it steps along the bisector `m = normalize(n₁ + n₂)` by
+ * `d / (m · n₁)`, which is `d / cos(φ/2)` for a turn of `φ`. Stepping by `d`
+ * instead — the average-normal offset this replaced — leaves every corner short,
+ * so the paint cuts inside the asphalt it belongs on (link bends spec §2.4).
+ *
+ * **The vertex count and order never change**, past the clamp as much as before
+ * it. A bend's insertion index is measured on the drawn polyline and applied to
+ * the layout one, and that transfer is valid only because this function emits
+ * one vertex per vertex — so the clamp shortens the miter's *distance* and never
+ * inserts a bevel vertex the way SVG's own join would.
+ *
+ * Two degeneracies have no bisector at all, and both are reachable once a human
+ * can drag a bend onto a grid:
+ *
+ * - a **zero-length segment** has no normal — {@link segmentNormals} gives it
+ *   `(0, 0)` — so there is no corner here to mitre and the vertex takes
+ *   whichever normal exists, at plain `d`. Left to the miter it would divide by
+ *   a dot product of zero and clamp to a 4·`d` spike sideways;
+ * - an **exact reversal** puts `n₁ + n₂` at the origin, so there is no direction
+ *   to normalize. It steps `d` along `n₁` — the *first* segment's normal, named
+ *   rather than "either" — which is finite and sane, where the reversal
+ *   otherwise emits `NaN` into the path.
  */
 export function offsetPolyline(points: Vec2[], d: number): Vec2[] {
   if (points.length < 2) return points;
@@ -887,6 +948,9 @@ export function offsetPolyline(points: Vec2[], d: number): Vec2[] {
   return points.map((p, i) => {
     let nx: number;
     let ny: number;
+    // How far along that direction, in multiples of `d`: 1 everywhere except a
+    // mitred corner, where the bisector is shorter than the offset it carries.
+    let reach = 1;
     if (i === 0) {
       nx = seg[0].x;
       ny = seg[0].y;
@@ -894,13 +958,31 @@ export function offsetPolyline(points: Vec2[], d: number): Vec2[] {
       nx = seg[seg.length - 1].x;
       ny = seg[seg.length - 1].y;
     } else {
-      nx = seg[i - 1].x + seg[i].x;
-      ny = seg[i - 1].y + seg[i].y;
-      const len = Math.hypot(nx, ny) || 1;
-      nx /= len;
-      ny /= len;
+      const a = seg[i - 1];
+      const b = seg[i];
+      // A normal that is not a unit vector came from a zero-length segment, so
+      // this vertex sits on top of its neighbour and there is no corner here.
+      const degenerate = Math.hypot(a.x, a.y) < NO_BISECTOR;
+      if (degenerate || Math.hypot(b.x, b.y) < NO_BISECTOR) {
+        const u = degenerate ? b : a;
+        nx = u.x;
+        ny = u.y;
+      } else {
+        nx = a.x + b.x;
+        ny = a.y + b.y;
+        const len = Math.hypot(nx, ny);
+        if (len < NO_BISECTOR) {
+          // An exact reversal: `n₁` at plain `d`, per the note above.
+          nx = a.x;
+          ny = a.y;
+        } else {
+          nx /= len;
+          ny /= len;
+          reach = Math.min(MITER_LIMIT, 1 / (nx * a.x + ny * a.y));
+        }
+      }
     }
-    return { x: p.x + nx * d, y: p.y + ny * d };
+    return { x: p.x + nx * d * reach, y: p.y + ny * d * reach };
   });
 }
 

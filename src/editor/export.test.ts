@@ -222,6 +222,29 @@ describe("diagramSvg", () => {
   });
 
   /**
+   * **The corner of a bent road is drawn twice over, and both halves have to
+   * agree** — so this is the one link-bends edit that reaches an exported figure
+   * rather than the canvas (link bends spec §2.4). `offsetPolyline` places every
+   * painted element's centreline; SVG then joins that element's own stroke at
+   * the vertex. `.road-edge`, `.road-divider` and `.lane-band` declare no join
+   * and take SVG's default, which is miter, so a casing left on `round` rounds
+   * the asphalt under mitred paint and hangs a white line off the outside of
+   * every bend.
+   *
+   * Asserted **positively**, on the property this stylesheet sets rather than on
+   * the paint around it: the existing rules above cannot fail if the CSS edit is
+   * simply skipped, which is the vacuous shape this file's assertions avoid.
+   */
+  it("mitres the road casing, so the asphalt agrees with the paint on it", () => {
+    const css = embeddedCss(diagramSvg(road(2), null));
+
+    expect(css).toContain("stroke-linejoin: miter");
+    // The limit is stated rather than left to the default, because the same
+    // number lives in `geometry.ts` as `MITER_LIMIT` and clamps the offset.
+    expect(css).toContain("stroke-miterlimit: 4");
+  });
+
+  /**
    * The road class travels as a class token plus a rule in the embedded
    * stylesheet, so an exported file paints it with no exporter change at all —
    * the claim that made class-in-CSS the right mechanism (road spec 2.3). A

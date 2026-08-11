@@ -60,11 +60,29 @@
 
 /* ----- roads ----- */
 
+/* The asphalt. It mitres at a corner because the paint on it does: `.road-edge`,
+   `.road-divider` and `.lane-band` declare no join at all and so take SVG's
+   default, which is miter. A rounded casing under mitred paint is the same
+   corner drawn two ways - it leaves a white line hanging off the outside of a
+   bend, over bare paper (link bends spec 2.4).
+
+   The limit is SVG's own default, set explicitly so the number is stated where a
+   reader of this file finds it. It is the same 4 as `MITER_LIMIT` in
+   `editor/geometry.ts`, which clamps where the *centreline* of every painted
+   element turns: SVG bevels a join once `1 / sin` of half the included angle
+   passes this limit, and that is the same quantity the offset clamps on, so the
+   asphalt and the paint change behaviour at one angle rather than two. Written
+   twice because a CSS rule cannot read a constant - the road class's width
+   factor is here for the same reason (road spec 2.3).
+
+   `stroke-linecap` is untouched: that is about a road's *ends*, and
+   `.road-casing--butt` below depends on it. */
 .road-casing {
   fill: none;
   stroke: var(--asphalt);
   stroke-linecap: round;
-  stroke-linejoin: round;
+  stroke-linejoin: miter;
+  stroke-miterlimit: 4;
 }
 
 /* A road that tapers at either end takes butt caps, because the round one

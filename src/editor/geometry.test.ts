@@ -43,6 +43,7 @@ import {
   LANE_PX,
   MARKING_PITCH,
   MIN_ROAD_WIDTH,
+  MITER_LIMIT,
   MarkingAnchor,
   PLATE_PAD,
   ROAD_MARGIN,
@@ -1189,6 +1190,167 @@ describe("gore chevrons", () => {
   });
 });
 
+/**
+ * The signed perpendicular distance from the **infinite** line through `a → b`
+ * to `p`, in the frame `offsetPolyline` and `laneBands` share.
+ *
+ * *Infinite* is load-bearing, not a wording preference. The quantity a correct
+ * miter holds constant is the distance to each segment's **line**; a clamped
+ * point-to-*segment* distance reports 12.73 at a right-angle corner offset by 9,
+ * so a test written that way fails a correct implementation and passes the
+ * average-normal one it replaced (link bends spec §2.4).
+ */
+function perpendicular(a: Vec2, b: Vec2, p: Vec2): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = Math.hypot(dx, dy);
+  return ((p.x - a.x) * -dy + (p.y - a.y) * dx) / len;
+}
+
+/** A three-point polyline turning `degrees` at its middle vertex. */
+function bentBy(degrees: number): Vec2[] {
+  const t = (degrees * Math.PI) / 180;
+  return [
+    { x: 0, y: 0 },
+    { x: 100, y: 0 },
+    { x: 100 + 100 * Math.cos(t), y: 100 * Math.sin(t) },
+  ];
+}
+
+describe("offsetPolyline", () => {
+  /**
+   * **The invariant, and the whole of what the miter buys.** Every vertex is
+   * `d` from its own segment's line — the interior corner included, which is
+   * where an average-normal offset lands short by a factor of `cos(φ/2)` and
+   * pulls the paint inside the asphalt it belongs on.
+   *
+   * Both signs of `d`, because the two sides of a road are the same offset
+   * mirrored and an implementation that took `Math.abs` somewhere would pass one.
+   */
+  it("holds every vertex `d` from its own segment's infinite line", () => {
+    const cases: [string, Vec2[]][] = [
+      ["a right angle", [{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 50, y: 150 }]],
+      ["36.87°", [{ x: 0, y: 0 }, { x: 60, y: 20 }, { x: 120, y: 0 }]],
+      ["a shallow 10°", bentBy(10)],
+    ];
+
+    for (const [, points] of cases) {
+      for (const d of [13.5, -13.5, 9]) {
+        const out = offsetPolyline(points, d);
+        for (let i = 0; i < points.length - 1; i++) {
+          expect(perpendicular(points[i], points[i + 1], out[i])).toBeCloseTo(d);
+          expect(perpendicular(points[i], points[i + 1], out[i + 1])).toBeCloseTo(d);
+        }
+      }
+    }
+  });
+
+  /**
+   * **Why this phase is invisible**, and the claim is about the *shape* of the
+   * polylines the app can produce, not about a float identity. `linkPolyline` is
+   * `[from, ...bends, to]` and no action writes a bend, so every polyline in a
+   * document today has exactly two points and no interior vertex to mitre.
+   *
+   * A collinear multi-point polyline is the honest `toBeCloseTo` case: on a
+   * diagonal `m · n₁` lands 1 ± 1 ULP, and `polylinePath` does no rounding.
+   */
+  it("leaves a two-point polyline exact and a collinear one on its own line", () => {
+    const east: Vec2[] = [{ x: 0, y: 0 }, { x: 120, y: 0 }];
+
+    expect(offsetPolyline(east, 13.5)).toEqual([
+      { x: 0, y: 13.5 },
+      { x: 120, y: 13.5 },
+    ]);
+
+    const diagonal: Vec2[] = [
+      { x: 0, y: 0 },
+      { x: 50, y: 50 },
+      { x: 100, y: 100 },
+    ];
+    for (const p of offsetPolyline(diagonal, 13.5)) {
+      expect(perpendicular(diagonal[0], diagonal[2], p)).toBeCloseTo(13.5);
+    }
+  });
+
+  /**
+   * **The clamp shortens a miter; it never bevels.** A bend's insertion index is
+   * measured on the drawn polyline and applied to the layout one, and that
+   * transfer is valid only while this function emits one vertex per vertex — so
+   * an implementation that copied SVG's own behaviour past the limit, inserting
+   * a bevel vertex, would silently break the phase that follows.
+   */
+  it("keeps the vertex count and order at every turn angle", () => {
+    for (let degrees = 0; degrees < 180; degrees += 5) {
+      const points = bentBy(degrees);
+      const out = offsetPolyline(points, 13.5);
+
+      expect(out).toHaveLength(points.length);
+      // Order, not just count: the ends are untouched by the miter, so they pin
+      // which way round the result runs.
+      expect(out[0]).toEqual({ x: 0, y: 13.5 });
+      expect(perpendicular(points[1], points[2], out[2])).toBeCloseTo(13.5);
+    }
+  });
+
+  /**
+   * Past the limit the miter stops growing rather than running away: at 151.04°
+   * the factor `1 / cos(φ/2)` reaches 4, and `1 / cos(89°)` would be 57 — a
+   * corner reaching 774 units off a road 21 wide.
+   *
+   * `MITER_LIMIT` is asserted here rather than assumed, because the same number
+   * is written a second time as `.road-casing`'s `stroke-miterlimit` in
+   * `diagram.css`, where no test can read it as a value.
+   */
+  it("clamps a hairpin at MITER_LIMIT instead of spiking", () => {
+    expect(MITER_LIMIT).toBe(4);
+
+    const hairpin = bentBy(170);
+    const out = offsetPolyline(hairpin, 13.5);
+    expect(distance(hairpin[1], out[1])).toBeCloseTo(13.5 * MITER_LIMIT);
+
+    for (let degrees = 0; degrees < 180; degrees += 5) {
+      const points = bentBy(degrees);
+      const reach = distance(points[1], offsetPolyline(points, 13.5)[1]);
+      expect(reach).toBeLessThanOrEqual(13.5 * MITER_LIMIT + 1e-9);
+    }
+  });
+
+  /**
+   * The two vertices with no bisector at all. Both are unreachable today and
+   * both arrive with the grid: a dragged bend snapped back onto its own segment
+   * reverses the road, and one snapped onto its neighbour duplicates a vertex.
+   *
+   * The requirement is only that the result is finite and sane — an `Infinity`
+   * or a `NaN` reaches the `d` attribute, where it takes the whole path with it.
+   */
+  it("offsets a reversal and a duplicated vertex finitely, not as NaN", () => {
+    const reversal: Vec2[] = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 0, y: 0 }];
+    const out = offsetPolyline(reversal, 13.5);
+
+    for (const p of out) {
+      expect(Number.isFinite(p.x)).toBe(true);
+      expect(Number.isFinite(p.y)).toBe(true);
+    }
+    // The first segment's normal, at plain `d` — the corner has no width.
+    expect(out[1]).toEqual({ x: 100, y: 13.5 });
+
+    // A duplicated vertex: the zero-length segment has no normal, so each of the
+    // two vertices takes the real segment beside it, at `d` and not at 4·`d`.
+    const duplicated: Vec2[] = [
+      { x: 0, y: 0 },
+      { x: 50, y: 0 },
+      { x: 50, y: 0 },
+      { x: 50, y: 150 },
+    ];
+    expect(offsetPolyline(duplicated, 13.5)).toEqual([
+      { x: 0, y: 13.5 },
+      { x: 50, y: 13.5 },
+      { x: 36.5, y: 0 },
+      { x: 36.5, y: 150 },
+    ]);
+  });
+});
+
 describe("carriageways", () => {
   /** A link carrying what `completeLink` writes, at `lanes` default lanes. */
   function link(
@@ -1315,6 +1477,19 @@ describe("carriageways", () => {
     expect(off.L1 - w / 2).toBeCloseTo(SCHEMATIC_MEDIAN / 2);
   });
 
+  /**
+   * **What is invariant is the distance to each segment's line, not to the
+   * vertex.** This test used to assert `distance(spine[i], drawn[i])` was
+   * `OFFSET_2` at every vertex, the bend included — the average-normal offset
+   * written down as if it were the rule. Its fixture turns 36.87°, where a true
+   * miter reaches `13.5 / cos(18.435°)` = 14.23, so the old form fails a correct
+   * implementation and the assertion below is the one that does not (link bends
+   * spec §2.4).
+   *
+   * The `toHaveLength` claim is kept and load-bearing: a bend's insertion index
+   * transfers between the layout and drawn polylines only while this preserves
+   * vertex count and order.
+   */
   it("offsets a bent road along its whole length", () => {
     const bend = { x: 60, y: 20 };
     const off = carriageways(
@@ -1330,9 +1505,12 @@ describe("carriageways", () => {
     const drawn = offsetPolyline(spine, off.L1);
 
     expect(drawn).toHaveLength(spine.length);
-    for (let i = 0; i < spine.length; i++) {
-      expect(distance(spine[i], drawn[i])).toBeCloseTo(OFFSET_2);
+    for (let i = 0; i < spine.length - 1; i++) {
+      expect(perpendicular(spine[i], spine[i + 1], drawn[i])).toBeCloseTo(OFFSET_2);
+      expect(perpendicular(spine[i], spine[i + 1], drawn[i + 1])).toBeCloseTo(OFFSET_2);
     }
+    // The corner itself reaches further than `OFFSET_2`, which is the point.
+    expect(distance(spine[1], drawn[1])).toBeCloseTo(14.2302);
   });
 });
 
