@@ -10,10 +10,11 @@ sources:
 covers: >
   what is drawn where links meet a node: the arms and the two radii, the rim
   three things measure to, the pad that follows the arms inside it, taper
-  wedges at a through joint, and the gore between two separating arms — its
-  triangle, its chevrons, and the one derivation that faces them at the driver
-max_lines: 245
-generated: 2026-08-10
+  wedges at a through joint, the gore between two separating arms — its
+  triangle, its chevrons, and the one derivation that faces them at the driver —
+  and the dots that mark a node once per drawn road end
+max_lines: 264
+generated: 2026-08-11
 ---
 
 # Road joints
@@ -72,9 +73,28 @@ multiplies the base term only; the floor is unscaled**, so **Size clamps**: belo
 roughly half scale the floor binds even on an undivided junction, because a pad
 narrower than its own approach is not a smaller junction but a broken one.
 
-**Still open (ramps OQ-4):** the node *dots* draw at the node position, so an endpoint
-or waypoint on a divided road sits in the median. `Arm.origin` makes "one dot per
-carriageway" cheap; whether it *should* show that is the question.
+## A node is marked once per drawn road end (ramps OQ-4, closed)
+
+`nodeDots(doc, nodeId, offsets)` returns the arms' **distinct origins** — distinct
+as *positions*, within a `1e-6` guard of its own named `SAME_POINT`, in
+`junctionArms`' order. So a divided road's end is marked on both carriageways
+rather than in the median, and an aligned link's dot steps off with the road.
+`nodePos` does **not** move: only the mark does, and a drag still dispatches
+`moveNode` with the node's own position. `junctionArms`' name understates it — it
+filters on nothing but the links touching a node, so it answers here too.
+
+- **No angle, no mean, no grouping**, so the answer cannot depend on the order of
+  `doc.links`. A divided waypoint at a lane drop draws **four** dots, two
+  overlapping `4.5` apart per side: two road ends at two places. Merging them needs
+  clustering, which is not transitive and changes the *count* under a permutation.
+- **The epsilon is float slack, not a tolerance** — worst measured parting
+  `2.84e-14`, against a smallest distinct design step of `0.45`. Its own constant,
+  not `SAME_EDGE`'s: same magnitude, different question. A link-less node keeps its
+  dot at the node — the path every node takes before it is joined; no layout entry
+  returns nothing.
+- **One `<g>` holds every dot and halo**, so `onNodePointerDown` stays on one
+  element and either dot grabs the node. A zero displacement emits no `cx`/`cy`, so
+  a centred undivided document's markup is unchanged character for character.
 
 ## The pad is the roads, not a disc — and it stays inside the rim
 

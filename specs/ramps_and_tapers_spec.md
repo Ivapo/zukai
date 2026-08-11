@@ -35,7 +35,7 @@ phases:
     by: null
   - name: "Phase 6 — The node dot sits on the road"
     reviewed: 2026-08-11
-    shipped: null
+    shipped: 2026-08-11
     cut: null
     by: null
 
@@ -909,8 +909,8 @@ every node it draws a glyph at.
   `persist.rs:42` turns a raw serde failure into the sentence it was written for.
   No migration arm is needed — a v1 document is a valid v2 document. Landed in
   §2.6 and Phase 4's scope; **no longer blocks Phase 4**.
-- **OQ-4 — TAKEN UP by §2.10 and Phase 6 (added 2026-08-11): a dot per
-  carriageway.** ~~Node dots on a divided road.~~ The road spec's Phase 3 note
+- **OQ-4 — RESOLVED 2026-08-11 by Phase 6, as §2.10 proposed: a dot per drawn road
+  end.** ~~Node dots on a divided road.~~ The road spec's Phase 3 note
   recorded that an endpoint/waypoint dot sits *in the median* of a divided road
   rather than on either carriageway (`src/components/Diagram.tsx:NodeShape`,
   which draws at `nodePos`). Phase 1 gave arms an `origin`, which made "one dot
@@ -918,7 +918,10 @@ every node it draws a glyph at.
   whether a divided road's endpoint should show nothing at all. §2.10.1 takes the
   dot per carriageway, and the argument that settles it is not aesthetic: the dot
   is the node's only hit target, so "nothing at all" removes the drag rather than
-  removing a mark. **Open until Phase 6 ships.**
+  removing a mark. ~~Open until Phase 6 ships.~~ **Shipped, and the drawing
+  confirms the reading §2.10.2 claimed: the four-dot row reads as one road end per
+  carriageway.** What it also exposes is OQ-10's question in a sharper form — see
+  there.
 - **OQ-5** — **Could alignment be derived instead of set?** At a joint with a
   ramp leaving on one side, the side the lane is dropped on is arguably readable
   from the ramp's own direction. That would remove a control, at the cost of a
@@ -1000,6 +1003,14 @@ every node it draws a glyph at.
   without answering this, because moving it and deleting it are independent
   decisions and the first one is right either way. (design-call; proposed: leave
   it, and look at a real figure once Phase 6 has drawn one.)
+  **Sharpened 2026-08-11 by Phase 6 shipping, and still open.** A waypoint's dot is
+  `fill: var(--asphalt); stroke: none`, so now that it sits *on* the road it is
+  invisible — the figure already does not carry it, and the median mark that made
+  it look otherwise was the defect Phase 6 removed. So the question is no longer
+  whether to delete a mark a reader can see; it is whether an invisible circle in
+  `diagram.css` should be chrome in `styles.css` instead, which is a smaller change
+  than this OQ was drafted against. An **endpoint** dot is a different question:
+  it is paper-coloured with a dark stroke and reads clearly on the asphalt.
 
 ## 4. Implementation phases
 
@@ -1426,3 +1437,37 @@ not a junction.*
   `rules/diagram-export.md` (no new class, no new `<defs>`, no gate —
   `measureDiagram` frames from `getBBox()` over the whole group, so a moved dot is
   measured with no change).
+- **Shipped 2026-08-11.** As specified: TypeScript only, 484 vitest (up 11 from
+  `zk-014` Phase 3's 473) and `cargo test` unchanged at 69. `nodeDots` and
+  `SAME_POINT` in `geometry.ts`; `NodeShape` maps its circles over the dots inside
+  the one group it already had. §2.10.2's four-dot row was confirmed in the app at
+  the measured `±22.5`/`±18`. Four things the spec did not force, each found by
+  building or by looking:
+  - **The gate's own epsilon mutation is a no-op at the value it names.**
+    `LANE_PX / 2` is `4.5` and the lane-drop gap **is** `4.5`, so a strict `<`
+    leaves the row passing and the mutation survives — measured, 484 green. Run at
+    `LANE_PX` it fails the lane-drop row *and* the permutation row, which is the
+    intended demonstration. Worth carrying: a mutation sized from the same quantity
+    as the fixture can land exactly on the comparison's boundary and report
+    "covered" for a rule nothing tested.
+  - **The identity assertion has to be written against a *waypoint*, not an
+    endpoint.** An endpoint has one arm, so it emits one circle however the dots
+    are collapsed; the dedupe-dropping mutation left the first draft of that test
+    green. §2.10.2's row 2 is the ordinary undivided **waypoint**, and it is the
+    only markup row where per-arm and per-place differ. Fixed before committing,
+    and the mutation then failed it as the gate predicted.
+  - **§2.10.2's own uneven-split recipe does not part.** `N3 (97, 233)` at
+    `f = 0.95` comes out **bitwise equal** on both sides here (exact dedupe: 2), so
+    it would have tested nothing. A scan of 240 candidates found 34 that do; the
+    fixture shipped is `N3 (137, 233)` at `f = 0.85`, parting by `2.842e-14` — the
+    magnitude review measured — with the exact-equality count asserted **in the
+    test**, so the fixture cannot quietly stop exercising the tolerance.
+  - **A waypoint's dot is asphalt-on-asphalt, so moving it onto the road makes it
+    invisible** — `.node-waypoint .node-dot` is `fill: var(--asphalt); stroke:
+    none`. This is the fix working rather than a regression: an undivided
+    waypoint's dot has always been invisible for exactly this reason, and it was
+    *visible* on a divided road only by sitting on paper in the median, which is
+    the defect. It still takes pointer events, so the drag is unaffected. It also
+    makes **OQ-10** sharper than when it was written: for a waypoint the question
+    is no longer "should the figure carry this dot" but "the figure already does
+    not, so should the model of it say so".

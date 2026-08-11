@@ -43,10 +43,10 @@ lets the Inspector's five text fields be typed into without switching tools.
 
 Two asymmetries are deliberate. The **marking** tool claims the event on a road
 (`stopPropagation`), because letting it reach the background would lose the click
-and pan instead; every other tool lets a road's event fall through. And the
-**sign** tool on a sign selects rather than dropping a second one — the node
-tool's rule, not the marking tool's, because a sign minted exactly beneath the
-first would be invisible, whereas a road has room for two markings.
+and pan instead; every other tool lets a road's event fall through. And the **sign**
+tool on a sign selects rather than dropping a second one — the node tool's rule,
+because a sign minted beneath the first would be invisible, whereas a road has room
+for two markings.
 
 ## Selection: five arms, and the fifth has no id
 
@@ -106,23 +106,26 @@ does not re-render on its own account. Pointer capture goes on the `<svg>`.
 | `pan` | view + screen start | `setView` |
 
 **A marking carries no grab offset, and that is a decision.** A node, a sign and a
-bend are dragged *by the point you took hold of*; a marking is re-projected onto
-its road **absolutely**, so the paint goes wherever the pointer is. The cost is a
-jump of up to half its hit strip; what it buys is the case that matters after an
-import — a marking whose metres run past the drawn end of its road is clamped into
-the junction pad, and only an absolute drag can bring it back.
+bend are dragged *by the point you took hold of*; a marking is re-projected onto its
+road **absolutely**. The cost is a jump of up to half its hit strip; what it buys is
+the case that matters after an import — a marking whose metres run past the drawn
+end of its road is clamped into the pad, and only this brings it back.
+
+**A node is several circles now, and the drag did not notice.** `nodeDots` marks a
+node once per drawn road end, so a divided road's endpoint carries two
+(`rules/road-joints.md`); they share **one** `<g>`, and the offset comes off
+`nodePos` rather than the dot pressed — so either one grabs the node.
 
 **Only the bend gesture has a threshold**, and it is the only one that *creates*
 what it drags. A press on a road selects it immediately and records a `linkPress`;
 `BEND_THRESHOLD` (4 **screen** pixels — world units would change the gesture's
 meaning with zoom) must be crossed before `addBend` mints anything, or every
 ordinary selecting click litters the document with zero-length bends. The
-threshold-crossing move performs the insert; the drag starts on the next move.
-Nodes have never needed one, because a node drag starts on an object that exists.
+threshold-crossing move performs the insert; the drag starts on the next.
 
-Middle-click always pans, from every handler — a guard each `…PointerDown` needs
-individually, since their `stopPropagation` means the `<svg>` never gets its
-chance. Wheel is `zoomAbout` at the pointer.
+Middle-click always pans, from every handler — a guard each `…PointerDown` needs of
+its own, since their `stopPropagation` means the `<svg>` never gets its chance.
+Wheel is `zoomAbout` at the pointer.
 
 ## From a click to a document coordinate
 
@@ -160,15 +163,13 @@ not, riding on its road at an arc length in metres a world grid means nothing to
 **The snap never reaches the reducer.** `moveNode(pos)` keeps meaning "put it
 exactly here", which is what lets an import, an undo and a test place a node
 off-grid without fighting anything. `state.test.ts` asserts all six write the
-position they are given exactly — covering one lets a snap in the other five
-pass.
+position given exactly — covering one lets a snap in the other five pass.
 
 **The dots and the pointer are one lattice, which took moving the tile.** A
 `<pattern>` clips its content to its own tile, so a circle at the tile origin
 draws a quarter of a dot — the neighbours draw their own and never fill it in.
-`geometry.ts:gridPattern` keeps the circle centred and pulls the **tile** back
-half a cell. Before it the dot sat at world `36i + 0.5/k` against `snap`'s
-`36i`: half a screen pixel off a dot of radius 0.9, at every zoom.
+`geometry.ts:gridPattern` keeps the circle centred and pulls the **tile** back half
+a cell. Before it the dot sat at world `36i + 0.5/k` against `snap`'s `36i`.
 
 ## Chrome: what exists only on the canvas
 
@@ -181,15 +182,15 @@ callbacks, the fat invisible hit paths (`.road-hit`, `.marking-hit`, `.jn-hit`,
 and `vector-effect="non-scaling-stroke"` on every hairline.
 
 Two rules that keep it honest. Chrome paint lives in `src/styles.css`, **never** in
-`styles/diagram.css`, which travels inside every exported file. And every chrome
-class must be listed in `export.test.ts`'s `CHROME` regex — nine assertions reuse
-it, and an unlisted class makes all nine pass for markup that leaks straight into
-the figure. Measured, not assumed: a bend handle leaked into every export passed
-that file unchanged before `bend-handle`/`bend-hit` were added.
+`styles/diagram.css`, which travels inside every exported file — so a node's halo
+is chrome by construction while its dot is not. And every chrome class must be in
+`export.test.ts`'s `CHROME` regex — nine assertions reuse it, and an unlisted class
+makes all nine pass for markup that leaks into the figure. Measured, not assumed: a
+bend handle leaked into every export passed that file unchanged before
+`bend-handle`/`bend-hit` were added.
 
-A marking and a sign each carry an unconditional `stopPropagation`, which makes
-them small **dead zones for the node tool** — nudging the click is the whole
-remedy, and it is a trade rather than a surprise.
+A marking and a sign each carry an unconditional `stopPropagation`, making them
+small **dead zones for the node tool** — nudging the click is the whole remedy.
 
 ## Where each piece lives
 
@@ -199,9 +200,8 @@ remedy, and it is a trade rather than a surprise.
 `hairline` and `BendHandle`. `App.tsx` owns the keyboard. `Toolbar.tsx` owns the
 tool buttons. The pure arithmetic is `geometry.ts` — `screenToWorld`,
 `zoomAbout`, `nearestOnPolyline`, `pointAlongPolyline`, `bendInsertion`,
-`bandAt`, `boundaryAt`, `anchoredAlong`, `GRID_PITCH`, `snap`, `gridPattern` —
-and that is the only part with tests
-(`geometry.test.ts`). **There is no `Canvas.test.tsx`**, and
-`renderToStaticMarkup` can see a rendered element but not whether it carries a
-callback, so the gestures themselves are covered by a `bun run dev` pass and
-nothing else.
+`bandAt`, `boundaryAt`, `anchoredAlong`, `GRID_PITCH`, `snap`, `gridPattern`,
+`nodeDots` — and that is the only part with tests (`geometry.test.ts`). **There is
+no `Canvas.test.tsx`**, and `renderToStaticMarkup` can see a rendered element but
+not whether it carries a callback, so the gestures themselves are covered by a
+`bun run dev` pass and nothing else.
