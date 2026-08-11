@@ -11,7 +11,7 @@ last_updated: 2026-08-10
 phases:
   - name: "Phase 1 — The offset turns a corner"
     reviewed: 2026-08-10
-    shipped: null
+    shipped: 2026-08-10
     cut: null
     by: null
   - name: "Phase 2 — A bend is an object you place, drag and delete"

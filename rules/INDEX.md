@@ -16,11 +16,11 @@
   reading Assimilator's network.yaml: the serde mirror and what earns a place in it, the header and version probe, the scale and the fitted factor that places nodes, the two lane-numbering conventions, what import throws away, the one number it keeps off the polyline, and the turn arrows it mints, and why there is no writer
 - **[persistence](persistence.md)** — generated 2026-08-08 · 10 sources · 121/122 lines
   the .zkai save/open path end to end — trigger, dialog and IPC, Rust commands, the version probe and the one migration arm, reducer, the normalize-at-one-boundary rule, the close guard — plus the JS-built native menu and how recents are stored and pruned
-- **[road-joints](road-joints.md)** — generated 2026-08-10 · 6 sources · 243/245 lines
+- **[road-joints](road-joints.md)** — generated 2026-08-10 · 6 sources · 245/245 lines
   what is drawn where links meet a node: the arms and the two radii, the rim three things measure to, the pad that follows the arms inside it, taper wedges at a through joint, and the gore between two separating arms — its triangle, its chevrons, and the one derivation that faces them at the driver
 - **[road-markings](road-markings.md)** — generated 2026-08-09 · 9 sources · 277/280 lines
   the marking as an object a human owns: the anchor and the one metre/unit boundary, the rim an end anchor measures to, placement from the click, the importer as second author, dragging, the kind-aware controls, what removes a marking, and the third Selection arm
-- **[road-rendering](road-rendering.md)** — generated 2026-08-09 · 11 sources · 250/250 lines
+- **[road-rendering](road-rendering.md)** — generated 2026-08-10 · 11 sources · 250/250 lines
   how a link becomes a picture of a road: the one lane-width derivation everything descends from, class as a token, two-way carriageways, alignment, lane kinds and the hatch, the painted centreline, and the length a link states
 - **[signs](signs.md)** — generated 2026-08-09 · 11 sources · 229/250 lines
   the objects a human stands beside the road: why a sign is node-shaped rather than marking-shaped, the four actions, what removes one, the topmost sign layer and what a sign is drawn from, the shape-then-colour vocabulary, and the panel

@@ -19,11 +19,10 @@ generated: 2026-08-10
 # Road joints
 
 What is drawn where links **meet**: the arms a junction glyph is sized from, the
-wedge that closes a width step, and the triangle between two arms that separate.
-The road either side of a joint is `rules/road-rendering.md`, whose
-`drawnPolyline`, `roadWidth`/`laneBands` and `carriageways` sign reasoning
-everything here consumes rather than repeats. Rationale:
-`specs/ramps_and_tapers_spec.md`.
+wedge that closes a width step, and the triangle between two arms that separate. The
+road either side of a joint is `rules/road-rendering.md`, whose `drawnPolyline`,
+`roadWidth`/`laneBands` and `carriageways` sign reasoning everything here consumes
+rather than repeats. Rationale: `specs/ramps_and_tapers_spec.md`.
 
 ## Arms carry their position, so the glyph follows the carriageways
 
@@ -40,12 +39,17 @@ link's `from_node`, so traffic **leaves** along this arm.
 from the node whichever way traffic runs. `id` is `gorePair`'s tie-break and,
 since the movement arcs went, all it is; `outbound` is `goreFlow`'s only input.
 
-**`Arm`, `junctionArms` and both radii live in `geometry.ts`**, not the render
-body — `drawnPolyline`'s move one step on, and for its reason: a marking anchored
-to a link's far end measures its clearance from the **rim of the glyph these arms
-size**, and where a glyph reaches is not a render-time question. The radii are
-pure, so the drawing is byte-identical across the move — the gate on such a lift
-being `Diagram.test.tsx` passing untouched.
+**`dir` is read off the segment *adjacent* to the node**, not off the node pair, so
+a link's bends re-aim its arm and the pad follows — likewise `taperWedges`, whose
+collinearity test then sees the bent joint and draws no wedge. Both are the feature
+working (`specs/link_bends_spec.md` §2.5), not a regression to chase.
+
+**`Arm`, `junctionArms` and both radii live in `geometry.ts`**, not the render body
+— `drawnPolyline`'s move one step on, and for its reason: a marking anchored to a
+link's far end measures its clearance from the **rim of the glyph these arms size**,
+and where a glyph reaches is not a render-time question. The radii are pure, so the
+drawing is byte-identical across the move — the gate on such a lift being
+`Diagram.test.tsx` passing untouched.
 
 **Three things meet at that rim: two measure to it, the third sizes it.** The two
 share one expression, `rayCircleExit(origin - center, dir, r)`:
@@ -56,23 +60,21 @@ share one expression, `rayCircleExit(origin - center, dir, r)`:
   centre-derived code it replaced, and a divided approach gets a bar per half.
 - **An `end`-anchored marking clears the rim by the same call** — `rimClearance`,
   with no constant at all, since the marking supplies its own `position` past it
-  (`rules/road-markings.md`). Its radius is `junctionRadius`, differing from `rp`
-  in one case: a **roundabout** measures to `ro`, because a ring buries an
-  approach arrow as a pad does.
+  (`rules/road-markings.md`). Its radius is `junctionRadius`, differing from `rp` in
+  one case: a **roundabout** measures to `ro`, a ring burying an arrow as a pad does.
 
 The third is `armReach`, a **floor** on both radii and never a replacement:
-`reach = max(distance(origin, center) + width / 2)`, then `rp = max((maxW * 0.62
-+ 3) * scale, reach)` and `ro = max(max(20, maxW * 1.35) * scale, reach)`. Only
-the floor is shared; the two base terms differ. Substituting the floor for the
-base would *shrink* every undivided pad ever drawn, since `0.62 w + 3 > w / 2`.
-**`scale` multiplies the base term only; the floor is unscaled**, so **Size
-clamps**: below roughly half scale the floor binds even on an undivided junction,
-because a pad narrower than its own approach is not a smaller junction but a
-broken one.
+`reach = max(distance(origin, center) + width / 2)`, then `rp = max((maxW * 0.62 +
+3) * scale, reach)` and `ro = max(max(20, maxW * 1.35) * scale, reach)`. Only the
+floor is shared; the two base terms differ. Substituting the floor for the base
+would *shrink* every undivided pad ever drawn, since `0.62 w + 3 > w / 2`. **`scale`
+multiplies the base term only; the floor is unscaled**, so **Size clamps**: below
+roughly half scale the floor binds even on an undivided junction, because a pad
+narrower than its own approach is not a smaller junction but a broken one.
 
-**Still open (ramps OQ-4):** the node *dots* draw at the node position, so an
-endpoint or waypoint on a divided road sits in the median. `Arm.origin` makes "one
-dot per carriageway" cheap; whether it *should* show that is the question.
+**Still open (ramps OQ-4):** the node *dots* draw at the node position, so an endpoint
+or waypoint on a divided road sits in the median. `Arm.origin` makes "one dot per
+carriageway" cheap; whether it *should* show that is the question.
 
 ## The pad is the roads, not a disc — and it stays inside the rim
 
