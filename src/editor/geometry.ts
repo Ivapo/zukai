@@ -1485,6 +1485,24 @@ export interface PolylinePoint {
   at: Vec2;
   /** Unit direction along the segment `at` lies on. */
   dir: Vec2;
+  /**
+   * Which segment that is, as an index into the **polyline's own** points:
+   * `points[segment] → points[segment + 1]`.
+   *
+   * **The polyline's index, never the walk's** (link bends spec OQ-1). The walk
+   * below skips segments too short to have a direction, so a link carrying a
+   * duplicate bend makes the two disagree — and a bend spliced at the walk's
+   * index would land one place off, which is a spike in the road rather than a
+   * vertex a pixel out.
+   *
+   * Non-optional, because the no-walk case is already modelled: a polyline with
+   * nothing to walk gives `undefined` for the whole {@link PolylinePoint}, so
+   * there is no state left for an absent field to stand for. It rides on this
+   * type rather than on {@link PolylineHit} because the insertion index belongs
+   * to the **layout** polyline, which is the one this function walks; the two
+   * frames disagree about where an interior vertex sits (link bends §2.6).
+   */
+  segment: number;
 }
 
 /**
@@ -1544,13 +1562,21 @@ export function pointAlongPolyline(
   points: Vec2[],
   along: number,
 ): PolylinePoint | undefined {
-  const segments: { a: Vec2; dir: Vec2; len: number }[] = [];
+  // `index` is the point's own index in `points`, carried rather than inferred
+  // from this array's position: the `continue` below skips degenerate segments,
+  // so the two run apart the moment a polyline carries a duplicate vertex.
+  const segments: { a: Vec2; dir: Vec2; len: number; index: number }[] = [];
   for (let i = 0; i < points.length - 1; i++) {
     const a = points[i];
     const b = points[i + 1];
     const len = Math.hypot(b.x - a.x, b.y - a.y);
     if (len < SAME_EDGE) continue;
-    segments.push({ a, dir: { x: (b.x - a.x) / len, y: (b.y - a.y) / len }, len });
+    segments.push({
+      a,
+      dir: { x: (b.x - a.x) / len, y: (b.y - a.y) / len },
+      len,
+      index: i,
+    });
   }
   // Not `polylineLength(points) === 0`: an empty polyline and two identical
   // points both measure zero, and both must return nothing rather than walk.
@@ -1562,6 +1588,7 @@ export function pointAlongPolyline(
       return {
         at: { x: s.a.x + s.dir.x * remaining, y: s.a.y + s.dir.y * remaining },
         dir: s.dir,
+        segment: s.index,
       };
     }
     remaining -= s.len;
@@ -1571,7 +1598,64 @@ export function pointAlongPolyline(
   return {
     at: { x: last.a.x + last.dir.x * last.len, y: last.a.y + last.dir.y * last.len },
     dir: last.dir,
+    segment: last.index,
   };
+}
+
+/** Where a bend is to be spliced into a link's layout polyline. */
+export interface BendInsertion {
+  /** The point itself, in the **layout** polyline's frame. */
+  pos: Vec2;
+  /**
+   * The layout segment it landed on, which is also its index in `LinkView.bends`
+   * — a polyline is `[from, ...bends, to]`, so splicing at segment `i` puts the
+   * new vertex at `bends[i]`.
+   */
+  index: number;
+}
+
+/**
+ * Where a press on a road puts a bend: the pointer's place along the polyline
+ * the road is **drawn** along, answered in the polyline it is **routed** along
+ * (link bends spec §2.6).
+ *
+ * **The two frames are not the same road, and that is the whole reason this
+ * exists.** A divided or aligned link is drawn `lateralShift` off its layout
+ * polyline, so storing the raw pointer position steps the road sideways the
+ * instant a bend is minted. Worse, the two put an interior vertex at *different
+ * fractions* of arc length, because offsetting lengthens the outer segment and
+ * shortens the inner one: on layout `A(0,0) → B(50,0) → C(50,150)` at `d` 13.5
+ * the bend sits at fraction 0.211 drawn against 0.250 layout, so a press at drawn
+ * length 40 is on **drawn** segment 1 while its layout point is on **layout**
+ * segment 0. Splice at the drawn index and the route doubles back on itself — a
+ * spike, in a band about 6.75 drawn units either side of every existing bend.
+ *
+ * So the arc length transfers by the two totals and **the index comes out of the
+ * same walk as the point**, never from the drawn polyline and never from
+ * anywhere else. One walk, one answer, and the two cannot disagree by
+ * construction.
+ *
+ * The conversion is exactly `Canvas.tsx:projectOntoLink`'s for metres, since
+ * {@link pointAlongPolyline} takes an absolute length rather than a fraction.
+ * `undefined` for a polyline with nothing to walk, that function's own posture.
+ *
+ * **Valid only because {@link offsetPolyline} preserves vertex count and order**
+ * (§2.4), which is what makes a segment index mean the same thing in both frames
+ * even where the arc lengths do not.
+ */
+export function bendInsertion(
+  layout: Vec2[],
+  drawn: Vec2[],
+  world: Vec2,
+): BendInsertion | undefined {
+  const drawnLength = polylineLength(drawn);
+  if (drawnLength < SAME_EDGE) return undefined;
+  const { along } = nearestOnPolyline(drawn, world);
+  const at = pointAlongPolyline(
+    layout,
+    (along / drawnLength) * polylineLength(layout),
+  );
+  return at && { pos: at.at, index: at.segment };
 }
 
 /**

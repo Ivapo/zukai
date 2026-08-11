@@ -60,6 +60,7 @@ import {
   alignmentShift,
   anchoredAlong,
   bandAt,
+  bendInsertion,
   boundaryAt,
   boundaryTaken,
   carriageways,
@@ -1613,11 +1614,32 @@ describe("pointAlongPolyline", () => {
     expect(pointAlongPolyline(bent, 40)).toEqual({
       at: { x: 40, y: 0 },
       dir: { x: 1, y: 0 },
+      segment: 0,
     });
     expect(pointAlongPolyline(bent, 140)).toEqual({
       at: { x: 100, y: 40 },
       dir: { x: 0, y: 1 },
+      segment: 1,
     });
+  });
+
+  /**
+   * **The index is the polyline's own, never the walk's** (link bends OQ-1). The
+   * walk skips segments too short to have a direction, so a duplicated vertex
+   * puts the two one apart — and a bend spliced at the walk's index would land
+   * one place off, which is a spike in the road rather than a vertex a pixel out.
+   */
+  it("reports the polyline's own segment index, past a degenerate segment", () => {
+    const doubled: Vec2[] = [
+      { x: 0, y: 0 },
+      { x: 100, y: 0 },
+      // A duplicate of its predecessor: segment 1 has no direction and is
+      // skipped, so the walk's own second segment is the polyline's third.
+      { x: 100, y: 0 },
+      { x: 100, y: 100 },
+    ];
+    expect(pointAlongPolyline(doubled, 40)!.segment).toBe(0);
+    expect(pointAlongPolyline(doubled, 140)!.segment).toBe(2);
   });
 
   /**
@@ -1704,6 +1726,98 @@ describe("pointAlongPolyline", () => {
         y: 0,
       });
     });
+  });
+});
+
+/**
+ * Where a press on a road puts a bend — the transfer from the polyline the road
+ * is **drawn** along to the one it is **routed** along (link bends spec §2.6).
+ *
+ * **The fixture already carries a bend, and it has to.** A link's *first* bend
+ * cannot expose the defect this exists to rule out: with one segment either
+ * frame reports index 0. The two frames only come apart at an interior vertex.
+ */
+describe("bendInsertion", () => {
+  /** `A → B → C`, one bend at B, turning a right angle. */
+  const layout: Vec2[] = [
+    { x: 0, y: 0 },
+    { x: 50, y: 0 },
+    { x: 50, y: 150 },
+  ];
+  /**
+   * The same road drawn as one carriageway of a divided pair — `d` 13.5, the
+   * lateral shift a default two-lane arterial takes. The mitred corner is what
+   * moves B, and it moves it *along* the road as well as across it.
+   */
+  const OFFSET = 13.5;
+  const drawn = offsetPolyline(layout, OFFSET);
+
+  it("offsets the fixture the way the worked example says", () => {
+    expect(drawn).toEqual([
+      { x: 0, y: 13.5 },
+      { x: 36.5, y: 13.5 },
+      { x: 36.5, y: 150 },
+    ]);
+    // 173 drawn against 200 layout: the outer segment shortened by the corner.
+    expect(polylineLength(drawn)).toBeCloseTo(173);
+    expect(polylineLength(layout)).toBeCloseTo(200);
+  });
+
+  /**
+   * **The assertion the whole helper exists for.** At drawn arc length 40 the
+   * press is past the drawn bend (36.5) and so on drawn segment 1, while the
+   * layout point it transfers to is at 46.24 — short of the layout bend at 50,
+   * and so on layout segment **0**. Splicing at 1 would give
+   * `(0,0) → (50,0) → (46.24,0) → (50,150)`: the road runs east past the corner,
+   * doubles back 3.76 units, and leaves.
+   */
+  it("takes the index from the layout walk, where the drawn one disagrees", () => {
+    // Where on the drawn road a press at length 40 lands: a hair past the bend.
+    const press = { x: 36.5, y: 13.5 + (40 - 36.5) };
+    expect(nearestOnPolyline(drawn, press).along).toBeCloseTo(40);
+    expect(pointAlongPolyline(drawn, 40)!.segment).toBe(1);
+
+    const insert = bendInsertion(layout, drawn, press)!;
+    expect(insert.index).toBe(0);
+    expect(insert.pos.x).toBeCloseTo((40 / 173) * 200);
+    expect(insert.pos.y).toBe(0);
+  });
+
+  /** The other side of the same bend, where the two frames agree again. */
+  it("lands on the second segment once the press is past the layout bend", () => {
+    const insert = bendInsertion(layout, drawn, { x: 36.5, y: 100 })!;
+    expect(insert.index).toBe(1);
+    expect(insert.pos.x).toBe(50);
+  });
+
+  /**
+   * A link with no lateral shift is drawn along its own layout polyline — the
+   * same array, not a copy (`drawnPolyline`) — so the transfer is the identity
+   * and a press lands exactly where the pointer is.
+   */
+  it("is the identity where the road is drawn on its own polyline", () => {
+    const insert = bendInsertion(layout, layout, { x: 30, y: 4 })!;
+    expect(insert).toEqual({ pos: { x: 30, y: 0 }, index: 0 });
+  });
+
+  /** A press past either end lands on that end, which is `nearestOnPolyline`'s
+   *  clamp rather than a case of its own. */
+  it("clamps a press past the road onto its nearer end", () => {
+    expect(bendInsertion(layout, drawn, { x: -80, y: 13.5 })).toEqual({
+      pos: { x: 0, y: 0 },
+      index: 0,
+    });
+    expect(bendInsertion(layout, drawn, { x: 36.5, y: 900 })!.pos).toEqual({
+      x: 50,
+      y: 150,
+    });
+  });
+
+  /** Nothing to walk, so nothing to insert — `pointAlongPolyline`'s posture. */
+  it("gives nothing for a polyline with no length", () => {
+    const dot = [{ x: 4, y: 4 }, { x: 4, y: 4 }];
+    expect(bendInsertion(dot, dot, { x: 4, y: 4 })).toBeUndefined();
+    expect(bendInsertion([], [], { x: 0, y: 0 })).toBeUndefined();
   });
 });
 
@@ -1799,7 +1913,12 @@ describe("drawnPolyline", () => {
  */
 describe("markingTeeth and markingZebra", () => {
   function anchor(offset: number, width: number): MarkingAnchor {
-    return { at: { x: 0, y: 0 }, dir: { x: 1, y: 0 }, span: { offset, width } };
+    return {
+      at: { x: 0, y: 0 },
+      dir: { x: 1, y: 0 },
+      segment: 0,
+      span: { offset, width },
+    };
   }
 
   /** The whole lane region of `n` default lanes — a carriageway-wide marking. */
@@ -1960,7 +2079,12 @@ describe("markingArrow", () => {
   ];
 
   function anchor(offset: number, width: number): MarkingAnchor {
-    return { at: { x: 0, y: 0 }, dir: { x: 1, y: 0 }, span: { offset, width } };
+    return {
+      at: { x: 0, y: 0 },
+      dir: { x: 1, y: 0 },
+      segment: 0,
+      span: { offset, width },
+    };
   }
 
   /** Every point the arrow is drawn from. */
@@ -2428,7 +2552,7 @@ describe("textWidth and markingText", () => {
     width: number,
     dir: Vec2 = { x: 1, y: 0 },
   ): MarkingAnchor {
-    return { at: { x: 0, y: 0 }, dir, span: { offset, width } };
+    return { at: { x: 0, y: 0 }, dir, segment: 0, span: { offset, width } };
   }
 
   /**
@@ -2562,7 +2686,14 @@ describe("formatLength and lengthLabel", () => {
   it("turns a backwards run upright, unlike the paint it is not", () => {
     const west = lengthLabel(road({ x: 100, y: 0 }, { x: 0, y: 0 }), W)!;
     expect(west.angle).toBe(0);
-    expect(markingText({ at: { x: 0, y: 0 }, dir: { x: -1, y: 0 }, span: { offset: 0, width: LANE_PX } }).angle).toBe(180);
+    expect(
+      markingText({
+        at: { x: 0, y: 0 },
+        dir: { x: -1, y: 0 },
+        segment: 0,
+        span: { offset: 0, width: LANE_PX },
+      }).angle,
+    ).toBe(180);
 
     expect(lengthLabel(road({ x: 0, y: 100 }, { x: 0, y: 0 }), W)!.angle).toBe(-90);
     expect(lengthLabel(road({ x: 0, y: 0 }, { x: 0, y: 100 }), W)!.angle).toBe(-90);
@@ -2649,7 +2780,12 @@ describe("signPlate", () => {
   /** A due-east anchor on one band, for the one assertion that compares the two
    *  text sites directly. */
   function anchor(offset: number, width: number): MarkingAnchor {
-    return { at: { x: 0, y: 0 }, dir: { x: 1, y: 0 }, span: { offset, width } };
+    return {
+      at: { x: 0, y: 0 },
+      dir: { x: 1, y: 0 },
+      segment: 0,
+      span: { offset, width },
+    };
   }
 
   /** Every label here is past the floor the next test pins, so this measures the
