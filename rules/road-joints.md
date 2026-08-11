@@ -5,6 +5,7 @@ sources:
   - src/editor/export.tsx
   - src/editor/geometry.ts
   - src/model/types.ts
+  - src/styles.css
   - src/styles/diagram.css
   - src-tauri/src/model/layout.rs
 covers: >
@@ -12,8 +13,8 @@ covers: >
   three things measure to, the pad that follows the arms inside it, taper
   wedges at a through joint, the gore between two separating arms — its
   triangle, its chevrons, and the one derivation that faces them at the driver —
-  and the dots that mark a node once per drawn road end
-max_lines: 264
+  and the dots that mark a node once per drawn road end, on the canvas only
+max_lines: 268
 generated: 2026-08-11
 ---
 
@@ -73,7 +74,7 @@ multiplies the base term only; the floor is unscaled**, so **Size clamps**: belo
 roughly half scale the floor binds even on an undivided junction, because a pad
 narrower than its own approach is not a smaller junction but a broken one.
 
-## A node is marked once per drawn road end (ramps OQ-4, closed)
+## A node is marked once per drawn road end — on the canvas (ramps OQ-4, OQ-10)
 
 `nodeDots(doc, nodeId, offsets)` returns the arms' **distinct origins** — distinct
 as *positions*, within a `1e-6` guard of its own named `SAME_POINT`, in
@@ -95,6 +96,11 @@ filters on nothing but the links touching a node, so it answers here too.
 - **One `<g>` holds every dot and halo**, so `onNodePointerDown` stays on one
   element and either dot grabs the node. A zero displacement emits no `cx`/`cy`, so
   a centred undivided document's markup is unchanged character for character.
+- **A figure carries none of them** (ramps §2.11.1) — a bead on a road that runs
+  off the frame says the road stops there, which is false of every fragment. The
+  circles are gated on `interaction` and `.node-dot` lives in `styles.css`, so
+  every rule above is a *canvas* fact and a node no road touches exports as an
+  empty `<g>`.
 
 ## The pad is the roads, not a disc — and it stays inside the rim
 
@@ -119,10 +125,9 @@ outer arc. `JunctionGlyphShape` emits them as subpaths of one
   winds the same way**, or two overlapping rings cancel into a hole exactly where
   the roads meet. The frame `(dir, perp dir)` is a rotation, so one vertex order
   in the arm's own coordinates gives one winding in the drawing's.
-- **The arc is chorded at 10°**, and the bound is stated because containment
-  passes for an inscribed arc at *any* density — 0.10 units of sagitta on a
-  4-lane T, 0.47 on the largest pad the app can make, against a 1.5-unit edge
-  line.
+- **The arc is chorded at 10°**, and the bound is stated because containment passes
+  for an inscribed arc at *any* density — 0.10 units of sagitta on a 4-lane T, 0.47
+  on the largest pad the app can make, against a 1.5-unit edge line.
 - **Two numbers that look like one.** Along a **displaced** carriageway the ray
   exit and the ring's furthest vertex differ — 19.84 against 23.81 on a divided
   2-lane approach — so anything phrased on the vertex is a different claim.

@@ -45,23 +45,26 @@ The consequence that matters: **a new glyph exports for free.** Draw it in
 `Diagram` and it is in the file, with no second implementation to keep in sync.
 The rejected alternative — clone the live `<svg>` and delete the chrome — ships
 chrome the day someone adds an affordance and forgets. `export.test.ts` asserts
-the class tokens are absent, matching **tokens, not bare words**
-(`road-hit|jn-hit|marking-hit|sign-hit|-halo|is-selected|link-preview|grid|cursor`),
-because `--paint-white` contains the substring `hit`.
+the class tokens are absent, matching **tokens, not bare words** (`road-hit|jn-hit|
+marking-hit|sign-hit|bend-hit|bend-handle|node-dot|-halo|is-selected|link-preview|
+grid|cursor`), because `--paint-white` contains the substring `hit`.
 
 ## The paint travels inside the file
 
 A standalone `.svg` reaches no external stylesheet, so `src/styles/diagram.css` is
-the single definition site of the palette and every `.road*`/`.node*`/`.jn-*`/
-`.marking-*`/`.sign-*` rule, with two importers: `styles.css` `@import`s it for the
+the single definition site of the palette and every `.road*`/`.jn-*`/`.marking-*`/
+`.sign-*` rule, with two importers: `styles.css` `@import`s it for the
 app, and `export.tsx` embeds the same text verbatim via `?raw`. One source of
 truth, so a file on disk cannot disagree with the picture on screen.
 
 Three rules about that file, each asserted in `src/editor/export.test.ts`:
 
-- **A rule that paints belongs in `diagram.css`; a rule that serves interaction
-  stays in `styles.css`** (hit targets, halos, `cursor`, `.link-preview`,
-  `.grid-dot`, `.canvas`). Added to `diagram.css`, chrome ships in every export.
+- **A rule belongs in `diagram.css` if it paints something a *figure carries*;
+  everything else stays in `styles.css`** (hit targets, halos, `cursor`,
+  `.link-preview`, `.grid-dot`, `.canvas`). The test of the rule is `.node-dot`,
+  which **paints and still lives in `styles.css`**: a node's dot is where a human
+  clicks, and a figure carries none (ramps §2.11.1). Put here, it ships in every
+  export.
 - **`diagram.css` owns its variables outright.** `styles.css` must not redeclare
   `--asphalt`/`--paper`/`--paint-white`/`--paint-yellow`: the later declaration
   wins in the app, so a duplicate would let an edit to `diagram.css` change the

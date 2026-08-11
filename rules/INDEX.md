@@ -4,7 +4,7 @@
 
 - **[canvas-interaction](canvas-interaction.md)** — generated 2026-08-10 · 6 sources · 190/190 lines
   what the pointer and the keyboard do on the drawing surface: the five tools and what each claims, the five Selection arms and the one with no id, the four drags and the one threshold, how a click becomes a document coordinate, the grid it lands on, and the chrome that exists only here
-- **[diagram-export](diagram-export.md)** — generated 2026-08-09 · 11 sources · 272/275 lines
+- **[diagram-export](diagram-export.md)** — generated 2026-08-09 · 11 sources · 275/275 lines
   the SVG/PNG export path: the one render tree and its two consumers, which paint travels inside the file, the pure/DOM/Tauri layers, how bounds and the margin are derived, and the self-contained-file constraints that fail silently
 - **[document-model](document-model.md)** — generated 2026-08-09 · 7 sources · 135/135 lines
   the three parts of a Document and what separates them, the invariants, the Rust-TypeScript mirror discipline and its one instructive exception, and what does and does not move SCHEMA_VERSION
@@ -18,8 +18,8 @@
   reading Assimilator's network.yaml: the serde mirror and what earns a place in it, the header and version probe, the scale and the fitted factor that places nodes, the two lane-numbering conventions, what import throws away, the one number it keeps off the polyline, and the turn arrows it mints, and why there is no writer
 - **[persistence](persistence.md)** — generated 2026-08-08 · 10 sources · 121/122 lines
   the .zkai save/open path end to end — trigger, dialog and IPC, Rust commands, the version probe and the one migration arm, reducer, the normalize-at-one-boundary rule, the close guard — plus the JS-built native menu and how recents are stored and pruned
-- **[road-joints](road-joints.md)** — generated 2026-08-11 · 6 sources · 264/264 lines
-  what is drawn where links meet a node: the arms and the two radii, the rim three things measure to, the pad that follows the arms inside it, taper wedges at a through joint, the gore between two separating arms — its triangle, its chevrons, and the one derivation that faces them at the driver — and the dots that mark a node once per drawn road end
+- **[road-joints](road-joints.md)** — generated 2026-08-11 · 7 sources · 268/268 lines
+  what is drawn where links meet a node: the arms and the two radii, the rim three things measure to, the pad that follows the arms inside it, taper wedges at a through joint, the gore between two separating arms — its triangle, its chevrons, and the one derivation that faces them at the driver — and the dots that mark a node once per drawn road end, on the canvas only
 - **[road-markings](road-markings.md)** — generated 2026-08-09 · 9 sources · 277/280 lines
   the marking as an object a human owns: the anchor and the one metre/unit boundary, the rim an end anchor measures to, placement from the click, the importer as second author, dragging, the kind-aware controls, what removes a marking, and the third Selection arm
 - **[road-rendering](road-rendering.md)** — generated 2026-08-10 · 11 sources · 272/272 lines

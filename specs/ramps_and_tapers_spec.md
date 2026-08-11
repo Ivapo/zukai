@@ -40,7 +40,7 @@ phases:
     by: null
   - name: "Phase 7 — A figure carries no node dots"
     reviewed: 2026-08-11
-    shipped: null
+    shipped: 2026-08-11
     cut: null
     by: null
   - name: "Phase 8 — A gore's arms stop bulging over the roads they part"
@@ -911,9 +911,9 @@ through `measureDiagram`/`diagramSvg`, and printed. Three things in that file ar
 wrong. A fourth looked wrong and was not, which is recorded here because the
 mistake is instructive and reachable by any user.
 
-**Phase 7 is reviewed and cleared (three rounds, 2026-08-11). Phases 8 and 9 are
-not**: each is its own episode under §7.0 and takes its own scoped round before it
-can be planned.
+**Phase 7 shipped 2026-08-11 (reviewed in three rounds the same day). Phases 8 and
+9 are not reviewed**: each is its own episode under §7.0 and takes its own scoped
+round before it can be planned.
 
 **The one that was not a defect, recorded first so nobody re-opens it.** In the
 first print the offramp was drawn **straight across the mainline**, and the gore
@@ -1178,12 +1178,13 @@ grow for one case.
   without answering this, because moving it and deleting it are independent
   decisions and the first one is right either way. (design-call; proposed: leave
   it, and look at a real figure once Phase 6 has drawn one.)
-  **TAKEN UP 2026-08-11 by §2.11.1 and Phase 7, and answered wider than it asked:
-  no node dot of any type reaches a figure**, because a dot is where the human
-  clicks rather than something the road does. The printed figure is what settled
-  it — a bead on a road that runs off the frame states that the road stops there,
-  and there were four. **Open until Phase 7 ships.** The sharpening that preceded
-  it follows, and it is why the answer is not about waypoints.
+  **RESOLVED 2026-08-11 by Phase 7, and answered wider than it asked: no node dot
+  of any type reaches a figure**, because a dot is where the human clicks rather
+  than something the road does. The printed figure is what settled it — a bead on a
+  road that runs off the frame states that the road stops there, and there were
+  four. ~~Open until Phase 7 ships.~~ **Shipped**, and the figure confirms it: the
+  same exit exports with four fewer beads and nothing else moved. The sharpening
+  that preceded it follows, and it is why the answer is not about waypoints.
   **Sharpened 2026-08-11 by Phase 6 shipping.** A waypoint's dot is
   `fill: var(--asphalt); stroke: none`, so now that it sits *on* the road it is
   invisible — the figure already does not carry it, and the median mark that made
@@ -1657,8 +1658,8 @@ not a junction.*
 
 Added by the third reopening, from a printed figure rather than from a reading
 (§2.11). Phases 1–6 are untouched. It depends on Phase 6, whose dots it relocates
-rather than removes. **Not yet reviewed — this phase is blocked until its own
-scoped round sets its `reviewed` date (§7).**
+rather than removes. It passed its own scoped review (§7's phase-level gate) in
+three rounds on 2026-08-11 and **is cleared to implement**.
 
 *Produces the observable: **yes**. Four beads leave the printed figure, and every
 figure with a road that runs off the frame is affected.*
@@ -1717,6 +1718,30 @@ figure with a road that runs off the frame is affected.*
   `src/styles/diagram.css`'s own comment about "the paper-filled endpoint dots"
   floating on a light page, which stops being true of any export; this spec's
   **OQ-10**, which becomes resolved; and the project-memory roadmap.
+- **Shipped 2026-08-11.** As specified: TypeScript and CSS only, 486 vitest (up 2
+  from Phase 6's 484) and `cargo test` unchanged at 69. `NodeShape`'s circle map
+  takes `{interaction && …}`, the four `.node-dot` rules move to `styles.css`, and
+  `export.test.ts:CHROME` gains the token. Four things the spec did not force:
+  - **The `CHROME` token is what makes the CSS move mandatory rather than tidy**,
+    and it was not obvious until it was run: the regex is matched against the
+    **whole** file, embedded stylesheet included, so four rules left behind in
+    `diagram.css` fail all ten assertions. The two halves of this phase police each
+    other, which no one designed.
+  - **The mutations measure what each half is worth.** Dropping the gate fails
+    **13** tests with the token listed and **4** without it — so the four named
+    assertions catch the leak on their own and the token is what widens the net to
+    every export test. Leaving the CSS behind fails exactly the ten. The third
+    mutation, dropping the token alone, is **green**: its value is entirely
+    prospective, which is the honest reading of a chrome-list entry.
+  - **The dev pass could assert the blank sheet after all, in the browser.** The
+    gate moved it out of vitest for want of a DOM (§2.11.1) — but a Playwright pass
+    on the Vite server can `import('/src/editor/export.tsx')` and run the real
+    `measureDiagram`, which returns `null` for two unconnected endpoints and frames
+    the same `viewBox="-26 -26 52 52"` an empty document gets. Worth reusing: the
+    dev pass is a place to run the *real* path, not only to look at it.
+  - **The `.diagram-bg` comment was half true and stayed half true.** It named the
+    endpoint dots *and* the roundabout island as what would float on a light page;
+    only the dots left, so the sheet keeps its reason.
 
 ### Phase 8 — A gore's arms stop bulging over the roads they part  (added 2026-08-11)
 

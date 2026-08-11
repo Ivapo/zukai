@@ -22,9 +22,8 @@ Everything the pointer and the keyboard do to the drawing. Frontend only. The
 rationale is spread across the specs that added each gesture — `zk-006` for
 markings, `zk-007` for signs, `zk-011` for dragging paint, `zk-014` for bends.
 
-One boundary: **what a click *means* is here; what the click *draws* is not.**
-`rules/road-rendering.md`, `rules/road-joints.md`, `rules/marking-kinds.md` and
-`rules/signs.md` own the picture. This file owns the surface it is picked up from.
+One boundary: **what a click *means* is here; what it *draws* is not** —
+`road-rendering.md`, `road-joints.md`, `marking-kinds.md` and `signs.md` own that.
 
 ## The five tools
 
@@ -42,11 +41,10 @@ lets the Inspector's five text fields be typed into without switching tools.
 | `sign` | `addSign` at the pointer | on a **sign**: select and drag it |
 
 Two asymmetries are deliberate. The **marking** tool claims the event on a road
-(`stopPropagation`), because letting it reach the background would lose the click
-and pan instead; every other tool lets a road's event fall through. And the **sign**
-tool on a sign selects rather than dropping a second one — the node tool's rule,
-because a sign minted beneath the first would be invisible, whereas a road has room
-for two markings.
+(`stopPropagation`), or the click would reach the background and pan instead; every
+other tool lets a road's event fall through. And the **sign** tool on a sign selects
+rather than dropping a second one — the node tool's rule, since a sign minted
+beneath the first would be invisible, where a road has room for two markings.
 
 ## Selection: five arms, and the fifth has no id
 
@@ -112,9 +110,8 @@ the case that matters after an import — a marking whose metres run past the dr
 end of its road is clamped into the pad, and only this brings it back.
 
 **A node is several circles now, and the drag did not notice.** `nodeDots` marks a
-node once per drawn road end, so a divided road's endpoint carries two
-(`rules/road-joints.md`); they share **one** `<g>`, and the offset comes off
-`nodePos` rather than the dot pressed — so either one grabs the node.
+node once per drawn road end (`rules/road-joints.md`); they share **one** `<g>`,
+and the offset comes off `nodePos` rather than the dot pressed — either one grabs.
 
 **Only the bend gesture has a threshold**, and it is the only one that *creates*
 what it drags. A press on a road selects it immediately and records a `linkPress`;
@@ -179,15 +176,18 @@ renders `<Diagram doc={doc} />` with no such prop, so there is no filter anyone 
 forget (`rules/diagram-export.md`). What hangs off it: the five `…PointerDown`
 callbacks, the fat invisible hit paths (`.road-hit`, `.marking-hit`, `.jn-hit`,
 `.sign-hit`, `.bend-hit`), the selection halos, `.link-preview`, the bend handles,
-and `vector-effect="non-scaling-stroke"` on every hairline.
+**`.node-dot`**, and `vector-effect="non-scaling-stroke"` on every hairline.
 
-Two rules that keep it honest. Chrome paint lives in `src/styles.css`, **never** in
-`styles/diagram.css`, which travels inside every exported file — so a node's halo
-is chrome by construction while its dot is not. And every chrome class must be in
-`export.test.ts`'s `CHROME` regex — nine assertions reuse it, and an unlisted class
-makes all nine pass for markup that leaks into the figure. Measured, not assumed: a
-bend handle leaked into every export passed that file unchanged before
-`bend-handle`/`bend-hit` were added.
+Two rules keep it honest. Chrome paint lives in `src/styles.css`, **never** in
+`styles/diagram.css`, which travels inside every exported file — and the dot's four
+rules are there too, the one piece that *paints* and is chrome anyway, because a
+figure draws a fragment whose roads run off the frame and a bead on a cut end says
+one stops there (ramps §2.11.1). And every chrome class must be in
+`export.test.ts`'s `CHROME` regex — **ten** assertions reuse it, and an unlisted
+class makes all ten pass for markup that leaks into the figure. Measured: a bend
+handle leaked into every export passed that file unchanged before
+`bend-handle`/`bend-hit` were added, and with `node-dot` unlisted an ungated dot
+fails 4 tests rather than 13.
 
 A marking and a sign each carry an unconditional `stopPropagation`, making them
 small **dead zones for the node tool** — nudging the click is the whole remedy.
