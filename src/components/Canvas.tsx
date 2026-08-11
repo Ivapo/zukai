@@ -23,7 +23,6 @@ import {
   Vec2,
 } from "../model/types";
 import {
-  LANE_PX,
   UNITS_PER_METRE,
   anchoredAlong,
   bandAt,
@@ -31,10 +30,12 @@ import {
   boundaryAt,
   carriageways,
   drawnPolyline,
+  gridPattern,
   laneBands,
   nearestOnPolyline,
   polylineLength,
   screenToWorld,
+  snap,
   zoomAbout,
 } from "../editor/geometry";
 import { Action, EditorState } from "../editor/state";
@@ -87,6 +88,24 @@ type Drag =
  */
 const BEND_THRESHOLD = 4;
 
+/**
+ * Where a placement lands: on the grid, unless the modifier is held.
+ *
+ * **Alt is the bypass**, so an exact position is always reachable and the grid
+ * never becomes a cage (link bends spec §2.7). Every free position on the
+ * canvas goes through here — `addNode`, `moveNode`, `addSign`, `moveSign`,
+ * `addBend`, `moveBend` — and **nothing in the reducer does**, which is what
+ * keeps `moveNode(pos)` meaning "put it exactly here" for an import, an undo
+ * and a test.
+ *
+ * **A marking is deliberately not among them.** It rides on its road at an arc
+ * length in metres, so a world-space grid means nothing to it, and `zk-011`
+ * chose absolute re-projection for that drag on purpose.
+ */
+function place(p: Vec2, e: { altKey: boolean }): Vec2 {
+  return e.altKey ? p : snap(p);
+}
+
 export function Canvas({ state, dispatch }: CanvasProps) {
   const { doc, view, tool, selection, linkFrom } = state;
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -112,14 +131,14 @@ export function Canvas({ state, dispatch }: CanvasProps) {
       return;
     }
     if (tool === "node") {
-      dispatch({ type: "addNode", pos: worldPoint(e) });
+      dispatch({ type: "addNode", pos: place(worldPoint(e), e) });
       return;
     }
     // A sign carries its own position, so it lands wherever the pointer is — and
     // that includes *over a road*, which costs nothing: `onLinkPointerDown` lets
     // every tool but its own fall through to here (signs spec §2.5).
     if (tool === "sign") {
-      dispatch({ type: "addSign", pos: worldPoint(e) });
+      dispatch({ type: "addSign", pos: place(worldPoint(e), e) });
       return;
     }
     if (tool === "link") {
@@ -255,8 +274,15 @@ export function Canvas({ state, dispatch }: CanvasProps) {
    * the vertex lands where the road was taken hold of. The grab offset is then
    * measured from the current pointer, so there is no jump at the insert and
    * none at the start of the drag either.
+   *
+   * **{@link place} narrows "does not move at all" by up to half a cell**, and
+   * that is the trade §2.7 takes: the insert is immediately followed by the drag
+   * in the same gesture, so nothing is ever seen at the unsnapped position. The
+   * grab offset is still measured against the **unsnapped** vertex, exactly as
+   * every other drag measures against the object's true position — which is
+   * what makes the first pointer-move come back to the dot the insert wrote.
    */
-  function beginBend(press: Drag & { kind: "linkPress" }, now: Vec2) {
+  function beginBend(press: Drag & { kind: "linkPress" }, e: React.PointerEvent) {
     const link = findLink(doc, press.link);
     if (!link) return;
     const layout = linkPolyline(doc, link);
@@ -269,7 +295,13 @@ export function Canvas({ state, dispatch }: CanvasProps) {
     );
     if (!at) return;
 
-    dispatch({ type: "addBend", link: link.id, index: at.index, pos: at.pos });
+    const now = worldPoint(e);
+    dispatch({
+      type: "addBend",
+      link: link.id,
+      index: at.index,
+      pos: place(at.pos, e),
+    });
     drag.current = {
       kind: "bend",
       link: link.id,
@@ -419,7 +451,7 @@ export function Canvas({ state, dispatch }: CanvasProps) {
       // Below the threshold there is no gesture yet — and crucially no dispatch,
       // so a click that wanders a pixel still leaves the document untouched.
       if (Math.hypot(s.x - d.startX, s.y - d.startY) < BEND_THRESHOLD) return;
-      beginBend(d, screenToWorld(view, s.x, s.y));
+      beginBend(d, e);
       return;
     }
     if (d.kind === "pan") {
@@ -450,7 +482,7 @@ export function Canvas({ state, dispatch }: CanvasProps) {
       if (at) dispatch({ type: "moveMarking", id: d.id, ...at });
     } else {
       const w = screenToWorld(view, s.x, s.y);
-      const pos = { x: w.x - d.offX, y: w.y - d.offY };
+      const pos = place({ x: w.x - d.offX, y: w.y - d.offY }, e);
       // Three drags share one piece of offset arithmetic and differ only in what
       // they move. Left as an unconditional `moveNode` this would fail
       // **silently** for a sign: that reducer's guard is a layout lookup, and
@@ -479,6 +511,9 @@ export function Canvas({ state, dispatch }: CanvasProps) {
   }
 
   const transform = `translate(${view.tx} ${view.ty}) scale(${view.k})`;
+  // The dots and the pointer honour one lattice: the tile is pulled back half a
+  // cell so its centred circle lands where `snap` rounds to (§2.7).
+  const grid = gridPattern(view);
 
   return (
     <svg
@@ -492,12 +527,17 @@ export function Canvas({ state, dispatch }: CanvasProps) {
       <defs>
         <pattern
           id="grid"
-          width={LANE_PX * 4 * view.k}
-          height={LANE_PX * 4 * view.k}
+          width={grid.cell}
+          height={grid.cell}
           patternUnits="userSpaceOnUse"
-          patternTransform={`translate(${view.tx} ${view.ty})`}
+          patternTransform={`translate(${grid.origin.x} ${grid.origin.y})`}
         >
-          <circle cx={0.5} cy={0.5} r={0.9} className="grid-dot" />
+          <circle
+            cx={grid.cell / 2}
+            cy={grid.cell / 2}
+            r={0.9}
+            className="grid-dot"
+          />
         </pattern>
       </defs>
 

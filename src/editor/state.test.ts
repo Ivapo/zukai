@@ -2248,3 +2248,54 @@ describe("bends", () => {
     });
   });
 });
+
+/**
+ * **The grid is a UI-layer rule and stops at the reducer** (link bends §2.7).
+ * `Canvas.tsx` rounds the pointer to the nearest dot before it dispatches;
+ * `moveNode(pos)` keeps meaning "put it exactly here", which is what lets an
+ * imported document, an undo and a test place a node off-grid without fighting
+ * anything.
+ *
+ * **Every placement action, not just one.** Covering `moveNode` alone lets a
+ * snap in any of the other five pass, which is precisely the layer violation
+ * these assertions exist to forbid. The positions below are nowhere near a
+ * multiple of `GRID_PITCH`, so a reducer that snapped would fail on the value.
+ */
+describe("the grid stops at the reducer", () => {
+  const off = { x: 17, y: -43 };
+  const off2 = { x: -5, y: 94 };
+
+  it("addNode and moveNode write the exact position they are given", () => {
+    const added = reducer(initialState(), { type: "addNode", pos: off });
+    expect(nodePos(added.doc, "N1")).toEqual(off);
+
+    const moved = reducer(added, { type: "moveNode", id: "N1", pos: off2 });
+    expect(nodePos(moved.doc, "N1")).toEqual(off2);
+  });
+
+  it("addSign and moveSign write the exact position they are given", () => {
+    const added = run(twoNodesLinked(), { type: "addSign", pos: off });
+    expect(added.doc.layout.signs.S1).toEqual(off);
+
+    const moved = reducer(added, { type: "moveSign", id: "S1", pos: off2 });
+    expect(moved.doc.layout.signs.S1).toEqual(off2);
+  });
+
+  it("addBend and moveBend write the exact position they are given", () => {
+    const bent = run(twoNodesLinked(), {
+      type: "addBend",
+      link: "L1",
+      index: 0,
+      pos: off,
+    });
+    expect(bent.doc.layout.links.L1?.bends).toEqual([off]);
+
+    const moved = reducer(bent, {
+      type: "moveBend",
+      link: "L1",
+      index: 0,
+      pos: off2,
+    });
+    expect(moved.doc.layout.links.L1?.bends).toEqual([off2]);
+  });
+});
