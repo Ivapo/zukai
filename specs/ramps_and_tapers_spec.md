@@ -39,7 +39,7 @@ phases:
     cut: null
     by: null
   - name: "Phase 7 — A figure carries no node dots"
-    reviewed: null
+    reviewed: 2026-08-11
     shipped: null
     cut: null
     by: null
@@ -911,6 +911,10 @@ through `measureDiagram`/`diagramSvg`, and printed. Three things in that file ar
 wrong. A fourth looked wrong and was not, which is recorded here because the
 mistake is instructive and reachable by any user.
 
+**Phase 7 is reviewed and cleared (three rounds, 2026-08-11). Phases 8 and 9 are
+not**: each is its own episode under §7.0 and takes its own scoped round before it
+can be planned.
+
 **The one that was not a defect, recorded first so nobody re-opens it.** In the
 first print the offramp was drawn **straight across the mainline**, and the gore
 sat on paper below the road. That is not a rendering fault: the mainline was
@@ -925,7 +929,7 @@ belongs to OQ-5, and §2.11.3 takes it.
 #### 2.11.1 A node's dot is an editing mark, not figure content (Phase 7 — answers OQ-10)
 
 Every free road end in the printed figure carries a filled bead: `.node-endpoint
-.node-dot`, paper-filled with a dark stroke, 6 units across. A schematic shows a
+.node-dot`, paper-filled with a dark stroke, radius 6 and so 12 units across. A schematic shows a
 *fragment* of a network, so its roads run off the edge of the frame — and a bead
 on the cut end states the opposite, that the road stops there. There were four in
 one figure.
@@ -951,20 +955,55 @@ a figure.
 - **The junction glyph is untouched.** A pad, a ring, a gore and a diamond are what
   the roads *do* at that node, so they are figure content. A dot is where the human
   clicks.
-- **A document of nothing but unconnected nodes then exports as a blank sheet**,
-  since `measureDiagram` frames from `getBBox` and there is no geometry left to
-  frame. Named rather than discovered: it is the honest answer (a figure of no
-  roads is a figure of nothing), and `diagramSvg` already renders a `null` bounds
-  as a small blank page rather than failing.
+- **A document of nothing but unconnected endpoint or waypoint nodes then exports
+  as a blank sheet**, since `measureDiagram` frames from `getBBox` and there is no
+  geometry left to frame — after the change `NodeShape`'s only two children, the
+  halo and the dot, are both interaction-gated, so such a node emits an empty
+  `<g>` and nothing else. **Scoped to those two types deliberately**: an
+  unconnected *junction* still draws, because `geometry.ts:armWidth` answers
+  `MIN_ROAD_WIDTH` (12) for a node with no arms — the case its doc comment exists
+  for — so `geometry.ts:padRadius` gives `(12 * 0.62 + 3) * scale`, a **10.44-unit
+  pad at the default Size**, and the sheet is not blank. Named rather than
+  discovered: a figure of no roads is a figure of nothing, and `diagramSvg`
+  already renders a `null` bounds as a small blank page rather than failing.
+- **Every export's frame also tightens, and that is a second visible change.**
+  `getBBox` excludes stroke width but includes fill, so at a free end the dot's own
+  fill was the extremum — up to 6 units of it, the radius, since the same exclusion
+  drops its 2-unit stroke. Removing it shrinks the
+  measured box and the paper with it wherever a free end was extreme. No clipping
+  follows: `export.tsx:frame` uses `EXPORT_PAD + strokeAllowance`, and
+  `strokeAllowance` **equals** the widest link's round-cap overhang (`roadWidth /
+  2`) rather than exceeding it, so the 24-unit `EXPORT_PAD` is the whole of the
+  slack — with more to spare for every narrower link. No test pins a `viewBox` for
+  a document with endpoints.
 
-**Three shipped assertions invert, and two of them are Phase 6's own** — named here
-so they are edited rather than met at implementation time. `export.test.ts`'s "a
-figure contains `node-dot`" and `Diagram.test.tsx`'s root-markup case both assert
-the dot is **present** in export mode. Phase 6's identity case and its
-two-dots-in-one-group case render with no `interaction` at all, so both must pass
-one to keep asserting what they were written for. **The identity claim survives the
-move and must**: with an `interaction`, a centred undivided node still emits its
-group character for character, `vector-effect` aside.
+**Five shipped assertions are affected, not three, and only two of them invert** —
+named here so they are edited rather than met at implementation time. Cited by test
+name rather than by line, because the whole point of the paragraph is that these
+tests are about to be edited:
+
+| Test | What Phase 7 does to it |
+|---|---|
+| `export.test.ts` "contains the drawing and none of the canvas chrome" | **inverts** — asserts the dot is present in a figure |
+| `Diagram.test.tsx` "emits its own `<g class="diagram">` root around the drawing" | **inverts** — same claim, canvas-free render |
+| `Diagram.test.tsx` "emits a centred undivided node exactly as it did before the dots moved" | **passes an `interaction`** — Phase 6's identity case, a canvas fact |
+| `Diagram.test.tsx` "marks a divided road's endpoint on both carriageways, from one group" | **passes an `interaction`** — Phase 6's, likewise |
+| `Diagram.test.tsx` "draws above the roads, the paint and the junction glyphs alike" | **passes an `interaction`**, or goes vacuously green — below |
+
+**The identity claim survives that and must**: with an `interaction`, a centred
+undivided node still emits its group character for character apart from the
+`vector-effect` that `hairline` already adds.
+
+**The fifth is the one worth the phase's attention, because it does not fail — it
+goes quiet.** That sign paint-order test pins its layer with
+`expect(plate).toBeGreaterThan(svg.indexOf("node-dot"))`, in export mode. With no
+dot in the markup `indexOf` returns `-1`, every plate index beats it, and a shipped
+ordering assertion dies **green**. It renders with an `interaction`, so it goes on
+asserting what it was written for. The general rule it teaches is the phase's, not
+this test's: **an `indexOf`-keyed ordering assertion must first assert its needle is
+present**, or the day the needle leaves the markup the assertion starts passing for
+nothing. That is `export.test.ts:CHROME`'s own vacuity lesson arriving from the
+opposite direction.
 
 #### 2.11.2 A gore's arms keep their round caps (Phase 8)
 
@@ -1635,14 +1674,20 @@ figure with a road that runs off the frame is affected.*
     class stops travelling inside every exported file. `.node-halo` is already
     there and shows the shape of the move.
   - `export.test.ts`'s `CHROME` regex gains `node-dot`, which is what makes the
-    nine assertions that reuse it police the new class rather than pass around it.
+    **ten** assertions that reuse it police the new class rather than pass around
+    it. (Ten, measured: `grep -c "not.toMatch(CHROME)"`. `rules/canvas-interaction.md`
+    says nine and is stale; this phase edits that file anyway.)
 - **Exit gate:** `bun run build` + `bun run test` + `cargo test` green, `cargo
   test` **unchanged at 69**. Report vitest against the 484 Phase 6 left.
-  - **Four shipped assertions are edited rather than met by surprise** (§2.11.1):
-    `export.test.ts`'s `toContain("node-dot")` and `Diagram.test.tsx`'s root-markup
-    case **invert**; Phase 6's identity case and its two-dots-in-one-group case
-    must pass an `interaction`, since they were written in export mode and are
-    about the canvas.
+  - **Five shipped assertions are edited rather than met by surprise** (§2.11.1),
+    and the count is the gate item — §2.11.1's table names all five. The two
+    "contains the drawing…"/"emits its own `<g>` root…" cases **invert**; Phase 6's
+    identity and two-dots cases **pass an `interaction`**, since they assert canvas
+    facts; and the sign paint-order case passes one too, or it goes **vacuously
+    green** on `indexOf` returning `-1`.
+  - **That paint-order assertion is also made non-vacuous**, by asserting its
+    needle is present before comparing indices. Without that, the same failure
+    returns the next time a class leaves the figure.
   - **The identity claim survives the move**: with an `interaction`, a centred
     undivided node still emits its group character for character apart from
     `vector-effect`. Asserted, because the collapse Phase 6 proved is what this
@@ -1650,16 +1695,28 @@ figure with a road that runs off the frame is affected.*
   - **An exported figure matches `CHROME` nowhere**, with `node-dot` now in it —
     and the assertion is checked for vacuity by confirming the canvas markup *does*
     match it. A regex that catches nothing passes every file.
-  - A document of nodes and no links exports as a blank sheet (§2.11.1), asserted
-    rather than left to be found.
+  - **A nodes-only document's `diagramInner` carries no geometry** — only empty
+    `<g class="node …">` groups. Stated in that form because **this suite has no
+    DOM**: `vitest.config.ts` sets `environment: "node"`, so `measureDiagram`'s
+    `getBBox` cannot run here and every existing framing test hand-passes bounds.
+    Asserting the blank sheet by passing `null` bounds by hand would assert
+    `diagramSvg` and pass identically **before** this phase, which is the gate
+    passing for the wrong reason. The blank sheet itself is confirmed in the dev
+    pass, where there is a DOM.
   - A `bun run dev` pass: the canvas still shows every dot, a node is still
-    selectable and draggable, and an export of the same document carries none.
+    selectable and draggable, an export of the same document carries none, and a
+    document of two unconnected endpoints exports as a blank sheet.
 - **Docs touched:** `rules/canvas-interaction.md` (the chrome list gains the dot,
   and the "a node's halo is chrome while its dot is not" clause this phase
-  falsifies — it sits at exactly 190, so trade); `rules/road-joints.md`'s
-  node-dot section; `rules/diagram-export.md` if it enumerates what a figure
-  carries; this spec's **OQ-10**, which becomes resolved; the project-memory
-  roadmap.
+  falsifies — it sits at exactly **190/190**, so trade rather than add);
+  `rules/road-joints.md`'s node-dot section, which sits at exactly **264/264** and
+  takes the same constraint; **`rules/diagram-export.md`**, whose rule "a rule that
+  paints belongs in `diagram.css`; a rule that serves interaction stays in
+  `styles.css`" this phase **bends rather than illustrates** — `.node-dot` paints
+  and is leaving, so the line becomes "paints something a figure carries";
+  `src/styles/diagram.css`'s own comment about "the paper-filled endpoint dots"
+  floating on a light page, which stops being true of any export; this spec's
+  **OQ-10**, which becomes resolved; and the project-memory roadmap.
 
 ### Phase 8 — A gore's arms stop bulging over the roads they part  (added 2026-08-11)
 
