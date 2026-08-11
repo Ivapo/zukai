@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { findJunction, findLink, nodePos, RawDocument } from "../model/document";
+import {
+  findJunction,
+  findLink,
+  linkPolyline,
+  nodePos,
+  RawDocument,
+} from "../model/document";
 import { SCHEMA_VERSION, SignKind } from "../model/types";
 import {
   Action,
@@ -1889,5 +1895,356 @@ describe("junction control and rule", () => {
       rule: "priority",
     });
     expect(next.doc.layout.junctions.N2.glyph).toBe("generic");
+  });
+});
+
+/**
+ * A bend is a vertex in a road's route, and the actions that put one there.
+ *
+ * **The one selection with no id** (link bends §2.2), so most of what is asserted
+ * here is about an *index* staying attached to the vertex a human meant.
+ */
+describe("bends", () => {
+  /** `N1(0,0) → N2(100,0)`, straight, `L1` selected — a road with no bends yet. */
+  function road(): EditorState {
+    return run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "addNode", pos: { x: 100, y: 0 } },
+      { type: "startLink", from: "N1" },
+      { type: "completeLink", to: "N2" },
+    );
+  }
+
+  /** The route as drawn: `[from, ...bends, to]`. */
+  function route(state: EditorState) {
+    return linkPolyline(state.doc, findLink(state.doc, "L1")!);
+  }
+
+  /** A link's stored bends, absent key and all. */
+  function bends(state: EditorState) {
+    return state.doc.layout.links.L1?.bends;
+  }
+
+  it("puts a vertex in the route, at the index it is given", () => {
+    const bent = reducer(road(), {
+      type: "addBend",
+      link: "L1",
+      index: 0,
+      pos: { x: 50, y: 40 },
+    });
+
+    expect(bends(bent)).toEqual([{ x: 50, y: 40 }]);
+    expect(route(bent)).toEqual([
+      { x: 0, y: 0 },
+      { x: 50, y: 40 },
+      { x: 100, y: 0 },
+    ]);
+  });
+
+  /**
+   * Every valid index on a link that already has two bends — the first segment,
+   * the middle one, and the one running into the to-node. The last is why the
+   * guard is `<= length` and not `<`: an insert has one more valid index than a
+   * move does.
+   */
+  it("inserts at the start, the middle and the end of the route", () => {
+    const two = run(
+      road(),
+      { type: "addBend", link: "L1", index: 0, pos: { x: 30, y: 30 } },
+      { type: "addBend", link: "L1", index: 1, pos: { x: 70, y: 30 } },
+    );
+    const mark = { x: -1, y: -1 };
+
+    for (const [index, expected] of [
+      [0, [mark, { x: 30, y: 30 }, { x: 70, y: 30 }]],
+      [1, [{ x: 30, y: 30 }, mark, { x: 70, y: 30 }]],
+      [2, [{ x: 30, y: 30 }, { x: 70, y: 30 }, mark]],
+    ] as const) {
+      const next = reducer(two, { type: "addBend", link: "L1", index, pos: mark });
+      expect(bends(next)).toEqual(expected);
+      // And the route carries them between the two nodes, in that order.
+      expect(route(next)).toEqual([{ x: 0, y: 0 }, ...expected, { x: 100, y: 0 }]);
+    }
+  });
+
+  /**
+   * **The behavioural form of the spike `bendInsertion` exists to prevent**
+   * (link bends §2.6): a second bend spliced at the wrong index makes the road
+   * double back on itself. Asserted as a property of the *route* rather than of
+   * one index, so it holds however the insert is reached — every segment's
+   * direction has a non-negative dot with the one before it.
+   *
+   * On this axis-aligned fixture the correct route's dots are exactly 1 and 0,
+   * so no epsilon is wanted; a non-axis-aligned one would need a small negative
+   * tolerance.
+   */
+  it("leaves no reversal when a bend is inserted before an existing one", () => {
+    const two = run(
+      road(),
+      // The corner: east to (50,0), then south-east to the far node.
+      { type: "addBend", link: "L1", index: 0, pos: { x: 50, y: 0 } },
+      // A second bend on the *first* segment, which renumbers nothing before it.
+      { type: "addBend", link: "L1", index: 0, pos: { x: 25, y: 0 } },
+    );
+
+    const pts = route(two)!;
+    expect(pts).toEqual([
+      { x: 0, y: 0 },
+      { x: 25, y: 0 },
+      { x: 50, y: 0 },
+      { x: 100, y: 0 },
+    ]);
+    for (let i = 1; i < pts.length - 1; i++) {
+      const a = { x: pts[i].x - pts[i - 1].x, y: pts[i].y - pts[i - 1].y };
+      const b = { x: pts[i + 1].x - pts[i].x, y: pts[i + 1].y - pts[i].y };
+      expect(a.x * b.x + a.y * b.y).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  /**
+   * `bends` is optional and so is the `LinkView` itself. `completeLink` and the
+   * importer both always write a view, but a hand-edited or normalized document
+   * need not — and a bend placed on such a link must not silently go nowhere.
+   */
+  it("mints the LinkView a link may not have", () => {
+    const bare = road();
+    const stripped: EditorState = {
+      ...bare,
+      doc: { ...bare.doc, layout: { ...bare.doc.layout, links: {} } },
+    };
+
+    const bent = reducer(stripped, {
+      type: "addBend",
+      link: "L1",
+      index: 0,
+      pos: { x: 50, y: 40 },
+    });
+
+    expect(bent.doc.layout.links.L1).toEqual({
+      style: "arterial",
+      bends: [{ x: 50, y: 40 }],
+    });
+  });
+
+  it("mints the selection for the bend it inserted", () => {
+    const bent = reducer(road(), {
+      type: "addBend",
+      link: "L1",
+      index: 0,
+      pos: { x: 50, y: 40 },
+    });
+    expect(bent.selection).toEqual({ kind: "bend", link: "L1", index: 0 });
+  });
+
+  it("does nothing for an unknown link or an index off the route", () => {
+    const start = road();
+    for (const action of [
+      { type: "addBend", link: "L9", index: 0, pos: { x: 1, y: 1 } },
+      { type: "addBend", link: "L1", index: -1, pos: { x: 1, y: 1 } },
+      // One past the one valid insert index on a bend-less link.
+      { type: "addBend", link: "L1", index: 2, pos: { x: 1, y: 1 } },
+      { type: "moveBend", link: "L1", index: 0, pos: { x: 1, y: 1 } },
+    ] as const) {
+      expect(reducer(start, action)).toBe(start);
+    }
+  });
+
+  it("moves exactly one vertex", () => {
+    const two = run(
+      road(),
+      { type: "addBend", link: "L1", index: 0, pos: { x: 30, y: 30 } },
+      { type: "addBend", link: "L1", index: 1, pos: { x: 70, y: 30 } },
+    );
+
+    const moved = reducer(two, {
+      type: "moveBend",
+      link: "L1",
+      index: 1,
+      pos: { x: 70, y: -60 },
+    });
+
+    expect(bends(moved)).toEqual([{ x: 30, y: 30 }, { x: 70, y: -60 }]);
+  });
+
+  describe("deleting one", () => {
+    /** Two bends, with the first of them selected. */
+    function selected(): EditorState {
+      return run(
+        road(),
+        { type: "addBend", link: "L1", index: 0, pos: { x: 30, y: 30 } },
+        { type: "addBend", link: "L1", index: 1, pos: { x: 70, y: 30 } },
+        { type: "select", selection: { kind: "bend", link: "L1", index: 0 } },
+      );
+    }
+
+    it("removes that vertex and clears the selection", () => {
+      const gone = reducer(selected(), { type: "deleteSelection" });
+      expect(bends(gone)).toEqual([{ x: 70, y: 30 }]);
+      expect(gone.selection).toBeNull();
+    });
+
+    /**
+     * **The assertion no behavioural test can see**, and the one `clearSignLinks`
+     * taught this repo to write: a bend is presentation, so the semantic graph
+     * has no idea the road turned.
+     */
+    it("leaves doc.links identical by reference", () => {
+      const start = selected();
+      const gone = reducer(start, { type: "deleteSelection" });
+      expect(gone.doc.links).toBe(start.doc.links);
+    });
+
+    /**
+     * Absent is the one representation, as ever: Rust elides an empty `Vec`, so
+     * a stored `[]` would be a second in-memory encoding of a straight chord.
+     */
+    it("drops the bends key when the last one goes", () => {
+      const one = run(
+        road(),
+        { type: "addBend", link: "L1", index: 0, pos: { x: 50, y: 40 } },
+      );
+      const gone = reducer(one, { type: "deleteSelection" });
+
+      expect(gone.doc.layout.links.L1).toEqual({ style: "arterial" });
+      expect("bends" in gone.doc.layout.links.L1).toBe(false);
+      expect(route(gone)).toEqual([{ x: 0, y: 0 }, { x: 100, y: 0 }]);
+    });
+
+    /** {@link keepMarkings}' identity trick: deleting nothing must not dirty. */
+    it("is a no-op, by document identity, on an index that is already gone", () => {
+      const start = run(
+        road(),
+        { type: "select", selection: { kind: "bend", link: "L1", index: 4 } },
+      );
+      const gone = reducer(start, { type: "deleteSelection" });
+
+      expect(gone.doc).toBe(start.doc);
+      expect(gone.selection).toBeNull();
+    });
+
+    /** A road's own deletion takes its bends with it, since they live in the
+     *  `LinkView` the link arm already drops. */
+    it("goes with the road", () => {
+      const bent = run(
+        road(),
+        { type: "addBend", link: "L1", index: 0, pos: { x: 50, y: 40 } },
+        { type: "select", selection: { kind: "link", id: "L1" } },
+      );
+      const gone = reducer(bent, { type: "deleteSelection" });
+      expect(gone.doc.layout.links).toEqual({});
+    });
+  });
+
+  describe("the drag's undo run", () => {
+    /**
+     * **The insert opens the run, which is why both actions share one key.**
+     * Keyed on `moveBend` alone, `addBend` would push its own snapshot and one
+     * undo would land on a bend-inserted-but-unmoved document.
+     */
+    it("collapses a press-drag-release into one undo step", () => {
+      const start = run(
+        road(),
+        { type: "select", selection: { kind: "link", id: "L1" } },
+      );
+
+      const dragged = run(
+        start,
+        { type: "addBend", link: "L1", index: 0, pos: { x: 50, y: 0 } },
+        { type: "moveBend", link: "L1", index: 0, pos: { x: 50, y: 20 } },
+        { type: "moveBend", link: "L1", index: 0, pos: { x: 50, y: 40 } },
+      );
+
+      expect(bends(dragged)).toEqual([{ x: 50, y: 40 }]);
+      expect(dragged.past).toHaveLength(start.past.length + 1);
+
+      // And that one undo gets back the route as it was before the press.
+      const undone = reducer(dragged, { type: "undo" });
+      expect(route(undone)).toEqual([{ x: 0, y: 0 }, { x: 100, y: 0 }]);
+    });
+
+    /** Grabbing an existing bend is the same run with the insert skipped: the
+     *  leading `select` leaves `doc` alone and so opens it. */
+    it("collapses a re-grab of an existing bend into one undo step", () => {
+      const start = run(
+        road(),
+        { type: "addBend", link: "L1", index: 0, pos: { x: 50, y: 0 } },
+      );
+
+      const dragged = run(
+        start,
+        { type: "select", selection: { kind: "bend", link: "L1", index: 0 } },
+        { type: "moveBend", link: "L1", index: 0, pos: { x: 50, y: 20 } },
+        { type: "moveBend", link: "L1", index: 0, pos: { x: 50, y: 40 } },
+      );
+
+      expect(dragged.past).toHaveLength(start.past.length + 1);
+      expect(bends(reducer(dragged, { type: "undo" }))).toEqual([{ x: 50, y: 0 }]);
+    });
+
+    /** Two bends dragged in one breath are two runs: the keys differ by index. */
+    it("keeps two bends' drags apart", () => {
+      const start = run(
+        road(),
+        { type: "addBend", link: "L1", index: 0, pos: { x: 30, y: 0 } },
+        { type: "addBend", link: "L1", index: 1, pos: { x: 70, y: 0 } },
+      );
+
+      const dragged = run(
+        start,
+        { type: "moveBend", link: "L1", index: 0, pos: { x: 30, y: 20 } },
+        { type: "moveBend", link: "L1", index: 1, pos: { x: 70, y: 20 } },
+      );
+      expect(dragged.past).toHaveLength(start.past.length + 2);
+    });
+  });
+
+  /**
+   * **The narrow fix OQ-2 settled on**, and the one arm that needs it. The four
+   * id-bearing arms survive a stale id because `selectionValid` finds nothing and
+   * clears; a stale bend *index* can still be in range, and then it names a
+   * different bend — the panel would report one vertex while Delete removed
+   * another.
+   */
+  describe("undo and a held bend selection", () => {
+    it("clears it, even where the index is still in range", () => {
+      const two = run(
+        road(),
+        { type: "addBend", link: "L1", index: 0, pos: { x: 30, y: 30 } },
+        { type: "addBend", link: "L1", index: 1, pos: { x: 70, y: 30 } },
+        { type: "select", selection: { kind: "bend", link: "L1", index: 0 } },
+      );
+      // Index 0 exists in the undone document too, and names a different route.
+      const undone = reducer(two, { type: "undo" });
+
+      expect(bends(undone)).toEqual([{ x: 30, y: 30 }]);
+      expect(undone.selection).toBeNull();
+    });
+
+    it("clears it on redo as well", () => {
+      const bent = run(
+        road(),
+        { type: "addBend", link: "L1", index: 0, pos: { x: 50, y: 40 } },
+      );
+      const undone = reducer(bent, { type: "undo" });
+      const redone = reducer(
+        { ...undone, selection: { kind: "bend", link: "L1", index: 0 } },
+        { type: "redo" },
+      );
+      expect(redone.selection).toBeNull();
+    });
+
+    /** The four arms above it are untouched: only `bend` is dropped outright. */
+    it("still keeps a link selection an undo leaves valid", () => {
+      const bent = run(
+        road(),
+        { type: "addBend", link: "L1", index: 0, pos: { x: 50, y: 40 } },
+        { type: "select", selection: { kind: "link", id: "L1" } },
+      );
+      expect(reducer(bent, { type: "undo" }).selection).toEqual({
+        kind: "link",
+        id: "L1",
+      });
+    });
   });
 });

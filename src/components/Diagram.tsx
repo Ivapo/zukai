@@ -510,6 +510,13 @@ function TaperShape({
 }
 
 /**
+ * The `Selection` arms that name their target by id — every one but `bend`,
+ * which is named by its link and its position in that link's route because a
+ * `Vec2[]` entry has no identity to give it (link bends §2.2).
+ */
+type IdSelection = Extract<Selection, { id: string }>;
+
+/**
  * Whether `sel` names this element.
  *
  * **The one `Selection` site the compiler only half polices** (signs spec §2.6).
@@ -517,13 +524,17 @@ function TaperShape({
  * never lag the type — but nothing makes a new shape *call* this at all, and an
  * element that simply never lights up is no build error. `Diagram.test.tsx`
  * asserting that a selected sign carries its halo is the whole of the net here.
+ *
+ * The `"id" in sel` narrowing is the half the compiler *does* police, and it is
+ * what the fifth arm bought: a selection shaped unlike the four before it is a
+ * type error here rather than a bend that silently never highlights.
  */
 function isSelected(
   sel: Selection | null,
-  kind: Selection["kind"],
+  kind: IdSelection["kind"],
   id: string,
 ) {
-  return sel?.kind === kind && sel.id === id;
+  return sel !== null && "id" in sel && sel.kind === kind && sel.id === id;
 }
 
 /**

@@ -445,6 +445,52 @@ export function Inspector({ state, dispatch }: InspectorProps) {
     );
   }
 
+  // The **fifth** arm, and the first the compiler genuinely forced. The four
+  // above it are explicit because every id is a bare `type X = string`, so a
+  // missing arm falls silently through to the link tail; this one is a build
+  // error, because a bend is named by `{ link, index }` and `.id` on the
+  // narrowed union does not exist (link bends §2.2).
+  //
+  // A **readout, not an editor**: a bend has no property to set. Where it sits
+  // is what a bend *is*, and the canvas is where that is edited. What the panel
+  // owes it is the Delete control every other selection has — the keyboard's
+  // twin, and the route a user who has forgotten the key still finds.
+  if (selection.kind === "bend") {
+    const bends = doc.layout.links[selection.link]?.bends ?? [];
+    if (selection.index >= bends.length) return <aside className="inspector" />;
+    const at = bends[selection.index];
+    return (
+      <aside className="inspector">
+        <div className="inspector-head">
+          <span className="inspector-kind">Bend</span>
+          {/* A bend has no id to show, so this is the closest true thing: which
+              of the road's vertices it is, counted the way a reader counts. */}
+          <span className="inspector-id">
+            {`${selection.index + 1} of ${bends.length}`}
+          </span>
+        </div>
+
+        <Field label="Road">
+          <div className="readout">{selection.link}</div>
+        </Field>
+
+        {/* Canvas units, and named as such: this is a position in the drawing,
+            which is the one quantity in this panel that is not a claim about
+            the world. A link's Length is the claim; this is the picture. */}
+        <Field label="Position">
+          <div className="readout">{`${at.x.toFixed(0)}, ${at.y.toFixed(0)}`}</div>
+        </Field>
+
+        <button
+          className="danger"
+          onClick={() => dispatch({ type: "deleteSelection" })}
+        >
+          Delete bend
+        </button>
+      </aside>
+    );
+  }
+
   const link = findLink(doc, selection.id);
   if (!link) return <aside className="inspector" />;
   const laneCount = link.lanes.length;

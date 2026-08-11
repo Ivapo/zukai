@@ -41,12 +41,33 @@ import { IDENTITY_VIEW, ViewTransform } from "./geometry";
 /** The active drawing tool. */
 export type Tool = "select" | "node" | "link" | "marking" | "sign";
 
-/** What is currently selected on the canvas. */
+/**
+ * What is currently selected on the canvas.
+ *
+ * **The fifth arm is shaped differently from the four before it, and that is the
+ * whole modelling question** (link bends §2.2). `LinkView.bends` is a `Vec2[]`: a
+ * bend has no id and cannot cheaply be given one, since an id would be a new
+ * model field in both mirrors, serialized into every document, to name something
+ * whose only identity is *where it sits in the route*. So a bend is named by its
+ * link and its index.
+ *
+ * **An index is not a stable handle**, and the rule that makes it safe is stated
+ * rather than assumed: a `bend` selection is only ever minted by the gesture that
+ * just placed or grabbed that bend, and **any action that changes a link's bend
+ * count clears the selection**. {@link deleteSelection} already clears;
+ * {@link addBend} replaces it with the bend it inserted. Dragging does not change
+ * the count, so a drag holds.
+ *
+ * Undo is the case that rule does not reach, and {@link restore} is where it is
+ * answered: a stale-but-in-range index is still *valid*, and names a different
+ * bend — the one failure {@link selectionValid} cannot see.
+ */
 export type Selection =
   | { kind: "node"; id: NodeId }
   | { kind: "link"; id: LinkId }
   | { kind: "marking"; id: MarkingId }
-  | { kind: "sign"; id: SignId };
+  | { kind: "sign"; id: SignId }
+  | { kind: "bend"; link: LinkId; index: number };
 
 /** The complete editor state. */
 export interface EditorState {
@@ -120,6 +141,12 @@ export type EditAction =
   // and here it is also the whole meaning — a road that states no length. The
   // rule `setMarkingLane`'s `lane?` already follows.
   | { type: "setLinkLength"; id: LinkId; length?: number }
+  // `index` is the **layout** polyline's segment index, which is also the new
+  // vertex's index in `bends` — a polyline is `[from, ...bends, to]`. It comes
+  // out of `geometry.ts:bendInsertion`, together with `pos`, and taking either
+  // from anywhere else puts a spike in the road (link bends §2.6).
+  | { type: "addBend"; link: LinkId; index: number; pos: Vec2 }
+  | { type: "moveBend"; link: LinkId; index: number; pos: Vec2 }
   | { type: "addMarking"; link: LinkId; position: number; lane?: LaneIdx }
   | { type: "setMarkingKind"; id: MarkingId; kind: MarkingKind }
   | { type: "setMarkingLane"; id: MarkingId; lane?: LaneIdx }
@@ -264,10 +291,19 @@ function sameList(a: string[], b: string[]): boolean {
  * per pointer-move, so those collapse per node; deliberate clicks (a ±1 lane
  * stepper, say) are separate edits and each get their own undo step.
  *
- * **Three drags**, since lane arrows Phase 1 gave a marking a position of its own
- * to move: `moveNode`, `moveSign` and `moveMarking`. The third is keyed
+ * **Four drags**, since link bends Phase 2 gave a road a vertex to move:
+ * `moveNode`, `moveSign`, `moveMarking` and the bend drag. The third is keyed
  * `markingDrag:<id>` rather than `moveMarking:<id>` only because it is the drag
  * and not the action a reader looks for — a marking has no other gesture.
+ *
+ * **The fourth is the one drag whose key covers two actions**, and the obvious
+ * reading does not work: keyed on `moveBend` alone, {@link addBend} would carry
+ * `null` and push its own snapshot, so the first `moveBend` would push a second
+ * and one undo would land on a bend-inserted-but-unmoved document — a road with a
+ * vertex nobody asked for. The insert opens the run instead, which is why both
+ * actions answer `bendDrag:<link>:<index>`. They agree by construction: `addBend`
+ * mints the selection for the index it inserted at, and the drag that follows
+ * carries that same index.
  *
  * **Typing is the second gesture, and the only one that is not a drag.** The
  * Inspector's four text fields — a marking's Words, a sign's Label, a warning
@@ -303,6 +339,8 @@ function coalesceKeyFor(action: EditAction): string | null {
   if (action.type === "moveNode") return `moveNode:${action.id}`;
   if (action.type === "moveSign") return `moveSign:${action.id}`;
   if (action.type === "moveMarking") return `markingDrag:${action.id}`;
+  if (action.type === "addBend" || action.type === "moveBend")
+    return `bendDrag:${action.link}:${action.index}`;
   if (action.type === "setMarkingKind" && action.kind.type === "text")
     return action.kind.content === "" ? null : `markingText:${action.id}`;
   if (action.type === "setSignKind" && action.kind.type === "custom")
@@ -362,6 +400,13 @@ function pushPast(past: Document[], doc: Document): Document[] {
  * which survives an undo that only changed the selected element's properties.
  * Dirty is set unconditionally: undoing back to the last-saved document still
  * reads as dirty, which over-reports safely (OQ-1).
+ *
+ * **A `bend` selection is dropped outright, and it is the only arm that needs
+ * saying** (link bends §2.2, OQ-2). The four id-bearing arms survive a stale id
+ * because {@link selectionValid} simply finds nothing and clears — silent and
+ * correct. A stale bend *index* can still be **in range**, and then it names a
+ * different bend: the panel would report one vertex while Delete removed
+ * another, which is the one outcome no existing arm can produce.
  */
 function restore(
   state: EditorState,
@@ -369,6 +414,7 @@ function restore(
   past: Document[],
   future: Document[],
 ): EditorState {
+  const held = state.selection?.kind === "bend" ? null : state.selection;
   return {
     ...state,
     doc,
@@ -377,7 +423,7 @@ function restore(
     coalesceKey: null,
     linkFrom: null,
     dirty: true,
-    selection: selectionValid(doc, state.selection) ? state.selection : null,
+    selection: selectionValid(doc, held) ? held : null,
   };
 }
 
@@ -389,6 +435,11 @@ function restore(
  * the same type and a new `Selection` arm falls silently through a binary test.
  * That miss cost a marking selection its survival across every undo and redo
  * (markings spec §2.6).
+ *
+ * **The `bend` arm answers a narrower question than the four above it**, and
+ * {@link restore} is where the difference is paid for: this can tell an index
+ * that no longer exists from one that does, and cannot tell one that now names a
+ * *different* bend from one that still names the same.
  */
 function selectionValid(doc: Document, sel: Selection | null): boolean {
   if (!sel) return false;
@@ -401,9 +452,23 @@ function selectionValid(doc: Document, sel: Selection | null): boolean {
       return findMarking(doc, sel.id) !== undefined;
     case "sign":
       return findSign(doc, sel.id) !== undefined;
+    case "bend":
+      return sel.index >= 0 && sel.index < bendsOf(doc, sel.link).length;
     default:
       return unreachable(sel);
   }
+}
+
+/**
+ * A link's bends, or an empty array — the read every bend action shares.
+ *
+ * `bends` is optional and a link may have no `LinkView` at all: `completeLink`
+ * and the importer both always write one, but a hand-edited or normalized
+ * document need not carry one. A caller never has to tell "no bends" from
+ * "no view".
+ */
+function bendsOf(doc: Document, id: LinkId): Vec2[] {
+  return doc.layout.links[id]?.bends ?? [];
 }
 
 /**
@@ -476,6 +541,12 @@ function editReducer(state: EditorState, action: EditAction): EditorState {
 
     case "setLinkLength":
       return setLinkLength(state, action.id, action.length);
+
+    case "addBend":
+      return addBend(state, action.link, action.index, action.pos);
+
+    case "moveBend":
+      return moveBend(state, action.link, action.index, action.pos);
 
     case "addMarking":
       return addMarking(state, action.link, action.position, action.lane);
@@ -1361,6 +1432,109 @@ function setLinkLength(
 }
 
 /**
+ * Write a link's bends back, **dropping the key when there are none left**.
+ *
+ * Absent is the one representation, as ever ({@link setMarkingLane}) — Rust
+ * elides an empty `Vec` (`layout.rs`), so a stored `[]` would be a second
+ * in-memory encoding of a document that saves as a straight chord.
+ *
+ * It also **mints the `LinkView` a link may not have**. `bends` is optional and
+ * so is the view itself: `completeLink` and the importer both always write one,
+ * but a hand-edited or normalized document need not, and a bend placed on such a
+ * link must not silently go nowhere. {@link setLinkStyle}'s fallback shape.
+ */
+function withBends(state: EditorState, id: LinkId, bends: Vec2[]): EditorState {
+  const { doc } = state;
+  const { bends: _dropped, ...view } = doc.layout.links[id] ?? {
+    style: DEFAULT_LINK_STYLE,
+  };
+  return {
+    ...state,
+    doc: {
+      ...doc,
+      layout: {
+        ...doc.layout,
+        links: {
+          ...doc.layout.links,
+          [id]: bends.length ? { ...view, bends } : view,
+        },
+      },
+    },
+  };
+}
+
+/**
+ * Put a vertex in a road's route, at `index` — the missing verb the whole spec
+ * exists for (link bends §1). `LinkView.bends` has been in both mirrors since the
+ * first commit, read by `linkPolyline` and drawn through by the renderer, and
+ * until now **nothing wrote it**.
+ *
+ * `index` is the layout polyline's segment index, which is also the new vertex's
+ * index in `bends`, since a polyline is `[from, ...bends, to]`. Both it and `pos`
+ * come from one walk in `geometry.ts:bendInsertion`; this action stores what it
+ * is handed, exactly as {@link moveMarking} does with a projected position, and
+ * the arithmetic stays in the UI layer where the two polyline frames live.
+ *
+ * **It mints the selection for the bend it inserted**, which is §2.2's
+ * count-changing rule in the one place an insert can honour it: an index held
+ * across this action would name the vertex *after* the new one. Replacing it
+ * outright is cheaper and more honest than renumbering.
+ *
+ * An unknown link or an out-of-range index returns `state` itself, so
+ * {@link recordHistory} records nothing and `dirty` stays put.
+ */
+function addBend(
+  state: EditorState,
+  id: LinkId,
+  index: number,
+  pos: Vec2,
+): EditorState {
+  const { doc } = state;
+  if (!findLink(doc, id)) return state;
+  const bends = bendsOf(doc, id);
+  // `<= length`, not `<`: an insert may land past the last bend, on the segment
+  // running into the to-node. That is one more valid index than a move has.
+  if (index < 0 || index > bends.length) return state;
+
+  return {
+    ...withBends(state, id, [
+      ...bends.slice(0, index),
+      pos,
+      ...bends.slice(index),
+    ]),
+    selection: { kind: "bend", link: id, index },
+  };
+}
+
+/**
+ * Slide one vertex of a road's route — {@link moveNode}'s shape, guard included.
+ *
+ * Guarded on the *bend* rather than on `findLink` for the reason `moveNode` is
+ * guarded on the layout entry: the position is what this action writes, and the
+ * layout is what holds it.
+ *
+ * **No same-position identity return**, unlike {@link moveMarking}. That one
+ * needs it because a drag re-projects onto a road and lands on the same
+ * `(position, lane)` repeatedly; a bend takes a raw world point, which is what
+ * {@link moveNode} and {@link moveSign} take, and the whole run is one undo step
+ * either way.
+ */
+function moveBend(
+  state: EditorState,
+  id: LinkId,
+  index: number,
+  pos: Vec2,
+): EditorState {
+  const bends = bendsOf(state.doc, id);
+  if (index < 0 || index >= bends.length) return state;
+  return withBends(
+    state,
+    id,
+    bends.map((b, i) => (i === index ? pos : b)),
+  );
+}
+
+/**
  * Remove whatever is selected, and everything that only existed because of it.
  *
  * A `switch` with a `never`-checked default rather than the `kind === "link"`
@@ -1433,6 +1607,31 @@ function deleteSelection(state: EditorState): EditorState {
       return {
         ...state,
         doc: { ...doc, signs, layout: { ...doc.layout, signs: signViews } },
+        selection: null,
+      };
+    }
+
+    // The third arm that can leave `doc` alone, and the only one that touches
+    // nothing but the layout: a bend is presentation, so **`doc.links` comes out
+    // identical by reference** — the semantic graph has no idea the road turned.
+    // That is the `clearSignLinks` identity assertion from the other side, and
+    // the one thing no behavioural test can see.
+    //
+    // A stale index is the case §2.2's rule is meant to rule out and `restore`
+    // is what actually rules out; it is guarded here anyway, on
+    // {@link keepMarkings}'s terms — rebuilding for a bend that is already gone
+    // would dirty the document and push an undo snapshot while deleting nothing.
+    case "bend": {
+      const bends = bendsOf(doc, selection.link);
+      if (selection.index < 0 || selection.index >= bends.length) {
+        return { ...state, selection: null };
+      }
+      return {
+        ...withBends(
+          state,
+          selection.link,
+          bends.filter((_, i) => i !== selection.index),
+        ),
         selection: null,
       };
     }
