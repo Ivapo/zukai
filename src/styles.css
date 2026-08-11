@@ -331,6 +331,31 @@ body {
   stroke-width: 2.5;
 }
 
+/* The dot is the exception that proves the rule above it: it *paints*, and it
+   still lives here rather than in `styles/diagram.css`, because a figure must
+   not carry it. A schematic draws a fragment of a network, so its roads run off
+   the edge of the frame — and a bead on a cut end says the road stops there
+   (ramps §2.11.1). `Diagram.tsx` gates the circle on `interaction` to match. */
+
+.node-dot {
+  stroke-width: 2;
+}
+
+.node-endpoint .node-dot {
+  fill: var(--paper);
+  stroke: var(--asphalt);
+}
+
+.node-junction .node-dot {
+  fill: var(--asphalt);
+  stroke: var(--paint-white);
+}
+
+.node-waypoint .node-dot {
+  fill: var(--asphalt);
+  stroke: none;
+}
+
 /* ----- junction glyphs ----- */
 
 .junction {

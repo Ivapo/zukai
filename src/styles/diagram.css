@@ -1,5 +1,5 @@
 /* The drawing itself: the road palette, and every rule that paints a road, a
-   node, or a junction glyph.
+   junction glyph, or the paint on either.
 
    One definition site, two importers — `styles.css` for the live canvas, and
    `editor/export.tsx`, which embeds this file verbatim in the style element of
@@ -9,9 +9,11 @@
 
    Two rules about what may live here, both asserted in `editor/export.test.ts`:
 
-   - Rules that serve interaction rather than paint — click targets, selection
-     outlines, pointer styling, the in-progress link, the canvas backdrop —
-     belong in `styles.css`. Added here, they would ship inside every export.
+   - A rule belongs here if it paints something a FIGURE carries. Click targets,
+     selection outlines, pointer styling, the in-progress link and the canvas
+     backdrop belong in `styles.css`; so does the node dot, which paints and is
+     still an editing mark rather than figure content (ramps 2.11.1). Added
+     here, any of them would ship inside every export.
    - No angle brackets or ampersands anywhere in this file, not even in a
      comment: it is embedded raw inside an XML document, where either would end
      the style element or open an entity. */
@@ -52,8 +54,8 @@
   --ink: #12161b;
 }
 
-/* The opaque sheet an export is drawn on: without it the paper-filled endpoint
-   dots and the island would float invisibly on a light page. */
+/* The opaque sheet an export is drawn on: without it the roundabout's island
+   would float invisibly on a light page. */
 .diagram-bg {
   fill: var(--paper);
 }
@@ -314,26 +316,9 @@
   stroke-width: 1.5;
 }
 
-/* ----- nodes ----- */
-
-.node-dot {
-  stroke-width: 2;
-}
-
-.node-endpoint .node-dot {
-  fill: var(--paper);
-  stroke: var(--asphalt);
-}
-
-.node-junction .node-dot {
-  fill: var(--asphalt);
-  stroke: var(--paint-white);
-}
-
-.node-waypoint .node-dot {
-  fill: var(--asphalt);
-  stroke: none;
-}
+/* The node's own dot is NOT here, though it paints: it is an editing mark rather
+   than something the road does, so it is chrome and lives in `styles.css`
+   (ramps 2.11.1). */
 
 /* ----- junction glyphs ----- */
 

@@ -103,8 +103,10 @@ describe("Diagram in export mode", () => {
     expect(svg.startsWith('<g class="diagram">')).toBe(true);
     expect(svg.endsWith("</g>")).toBe(true);
     expect(svg).toContain("road-casing");
-    expect(svg).toContain("node-dot");
     expect(svg).toContain("jn-ring");
+    // A node's dot is where a human clicks, not something the road does, so a
+    // figure carries none of them (ramps §2.11.1).
+    expect(svg).not.toContain("node-dot");
   });
 
   it("draws an empty document as an empty group", () => {
@@ -512,17 +514,24 @@ describe("node dots", () => {
    * arm, so it emits one circle however the dots are collapsed; the waypoint has
    * two arms at one point, so it is the row that stops being byte-identical the
    * moment the rule draws per arm instead of per place.
+   *
+   * **Rendered on the canvas since Phase 7**, which moved the dot behind the
+   * `interaction` gate (§2.11.1). The claim is unchanged and had to survive the
+   * move: the only difference in the markup is the `vector-effect` every
+   * hairline takes on the canvas.
    */
   it("emits a centred undivided node exactly as it did before the dots moved", () => {
-    const svg = renderToStaticMarkup(<Diagram doc={chain()} />);
+    const svg = renderToStaticMarkup(
+      <Diagram doc={chain()} interaction={interaction()} />,
+    );
 
     expect(svg).toContain(
       '<g class="node node-endpoint" transform="translate(0 0)">' +
-        '<circle class="node-dot" r="6"></circle></g>',
+        '<circle class="node-dot" r="6" vector-effect="non-scaling-stroke"></circle></g>',
     );
     expect(svg).toContain(
       '<g class="node node-waypoint" transform="translate(120 0)">' +
-        '<circle class="node-dot" r="4"></circle></g>',
+        '<circle class="node-dot" r="4" vector-effect="non-scaling-stroke"></circle></g>',
     );
   });
 
@@ -530,9 +539,13 @@ describe("node dots", () => {
    * The picture the phase exists for — and **one group**, which is what keeps the
    * gesture: `onNodePointerDown` stays on a single element, so either dot drags
    * the node and `Canvas.tsx` needs no change at all.
+   *
+   * A canvas fact since Phase 7, which is where a dot exists at all (§2.11.1).
    */
   it("marks a divided road's endpoint on both carriageways, from one group", () => {
-    const svg = renderToStaticMarkup(<Diagram doc={twoWay()} />);
+    const svg = renderToStaticMarkup(
+      <Diagram doc={twoWay()} interaction={interaction()} />,
+    );
     const group = svg.slice(
       svg.indexOf('<g class="node node-endpoint" transform="translate(0 0)">'),
     );
@@ -2089,15 +2102,24 @@ describe("signs", () => {
    * — the opposite of a marking, which sits *below* the junction glyphs because a
    * pad is the intersection's own surface. Asserted by source order, which is
    * paint order in SVG and the only thing a string can see.
+   *
+   * **Every needle is asserted present before its index is compared, and that is
+   * a rule rather than a belt-and-braces.** `indexOf` answers `-1` for a needle
+   * that is absent, which *every* index beats — so the day a class leaves the
+   * markup, an ordering assertion written the obvious way starts passing for
+   * nothing. Phase 7 is the day: the dot went behind the `interaction` gate
+   * (ramps §2.11.1), which is also why this renders on the canvas.
    */
   it("draws above the roads, the paint and the junction glyphs alike", () => {
-    const svg = renderToStaticMarkup(<Diagram doc={signed()} />);
+    const svg = renderToStaticMarkup(
+      <Diagram doc={signed()} interaction={interaction()} />,
+    );
     const plate = svg.indexOf("sign-plate");
 
-    expect(plate).toBeGreaterThan(svg.indexOf("road-casing"));
-    expect(plate).toBeGreaterThan(svg.indexOf("marking-bar"));
-    expect(plate).toBeGreaterThan(svg.indexOf("jn-ring"));
-    expect(plate).toBeGreaterThan(svg.indexOf("node-dot"));
+    for (const under of ["road-casing", "marking-bar", "jn-ring", "node-dot"]) {
+      expect(svg).toContain(under);
+      expect(plate).toBeGreaterThan(svg.indexOf(under));
+    }
   });
 
   /**
@@ -2481,6 +2503,25 @@ describe("Diagram on the live canvas", () => {
     expect(svg).toContain("jn-hit");
     expect(svg).toContain("is-selected");
     expect(svg).toContain('vector-effect="non-scaling-stroke"');
+  });
+
+  /**
+   * **The vacuity check for `export.test.ts`'s `CHROME` token.** That file
+   * asserts an exported figure matches the regex nowhere, and a regex that
+   * catches nothing passes every file — so the canvas render is asserted to
+   * carry the very token the export must not (ramps §2.11.1, link bends §2.3's
+   * lesson turned into an assertion rather than a measurement).
+   */
+  it("carries a node's dot on the canvas, and none in an export", () => {
+    const doc = sample();
+
+    const live = renderToStaticMarkup(<Diagram doc={doc} interaction={interaction()} />);
+    expect(live).toContain('class="node-dot"');
+
+    const exported = renderToStaticMarkup(<Diagram doc={doc} />);
+    expect(exported).not.toContain("node-dot");
+    // The node is still there, and still where it was — only its mark is gone.
+    expect(exported).toContain('<g class="node node-endpoint" transform="translate(0 0)"></g>');
   });
 
   it("previews the in-progress link only while one is being drawn", () => {

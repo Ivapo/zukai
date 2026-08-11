@@ -964,6 +964,12 @@ function arrowTriangle(tip: Vec2, dir: Vec2, size: number, back: number): string
  * The halos come first as a block, not paired with their dots: where two dots
  * overlap — a divided waypoint at a lane drop puts them `4.5` apart — a halo
  * emitted after the first dot would paint over it.
+ *
+ * **A dot is an editing mark, so it is gated on `interaction` like every other
+ * affordance** (ramps §2.11.1): a schematic draws a fragment of a network, whose
+ * roads run off the edge of the frame, and a bead on a cut end states that the
+ * road stops there. So a figure carries none, and the group — its `transform`,
+ * its `onPointerDown` — is left exactly as it is either way.
  */
 function NodeShape({
   node,
@@ -1000,16 +1006,17 @@ function NodeShape({
             vectorEffect={nse}
           />
         ))}
-      {at.map((d, i) => (
-        <circle
-          key={i}
-          className="node-dot"
-          r={r}
-          cx={d.cx}
-          cy={d.cy}
-          vectorEffect={nse}
-        />
-      ))}
+      {interaction &&
+        at.map((d, i) => (
+          <circle
+            key={i}
+            className="node-dot"
+            r={r}
+            cx={d.cx}
+            cy={d.cy}
+            vectorEffect={nse}
+          />
+        ))}
     </g>
   );
 }

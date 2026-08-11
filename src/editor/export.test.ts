@@ -92,12 +92,19 @@ function vocabulary(): Document {
  * the palette.
  *
  * **Every new piece of chrome has to be listed here, or the gate goes vacuous.**
- * `bend-handle`/`bend-hit` are the case that made the rule explicit: nine
- * assertions below reuse this regex unchanged, and every one of them would have
- * passed for a handle leaking straight into the figure (link bends §2.3).
+ * `bend-handle`/`bend-hit` are the case that made the rule explicit: **ten**
+ * assertions below reuse this regex unchanged (`grep -c "not.toMatch(CHROME)"`),
+ * and every one of them would have passed for a handle leaking straight into the
+ * figure (link bends §2.3).
+ *
+ * `node-dot` is the newest token and it polices two things at once (ramps
+ * §2.11.1): the circle, which is gated on `interaction`, and the **rules that
+ * paint it**, which had to leave `styles/diagram.css` — this regex is matched
+ * against the whole file, embedded stylesheet included, so a rule left behind
+ * fails all ten.
  */
 const CHROME =
-  /road-hit|jn-hit|marking-hit|sign-hit|bend-hit|bend-handle|-halo|is-selected|link-preview|grid|cursor/;
+  /road-hit|jn-hit|marking-hit|sign-hit|bend-hit|bend-handle|node-dot|-halo|is-selected|link-preview|grid|cursor/;
 
 /**
  * The text between the **first** `<style>` and the first `</style>` — the
@@ -355,8 +362,12 @@ describe("diagramSvg", () => {
 
     expect(svg).toContain('<g class="diagram">');
     expect(svg).toContain("road-casing");
-    expect(svg).toContain("node-dot");
     expect(svg).toContain("jn-ring");
+    // The endpoint's bead is an editing mark, not figure content: a schematic's
+    // roads run off the frame, and a bead on a cut end says one stops there
+    // (ramps §2.11.1). Named as well as caught by CHROME, since this test's job
+    // is to say what a file does and does not carry.
+    expect(svg).not.toContain("node-dot");
     expect(svg).not.toMatch(CHROME);
     // Hairlines must scale with the drawing in a file (spec §2.5).
     expect(svg).not.toMatch(/vector-effect/);
@@ -399,6 +410,38 @@ describe("diagramSvg", () => {
     expect([...svg.matchAll(/class="road-edge" d="M [^"]* L [^"]* L /g)]).toHaveLength(2);
     expect(svg).not.toMatch(CHROME);
     expect(svg).not.toMatch(/vector-effect/);
+  });
+
+  /**
+   * With the dot gone (ramps §2.11.1) a node of no roads draws **nothing**, so a
+   * document of nothing but unconnected endpoints has no geometry to frame and
+   * exports as a blank sheet.
+   *
+   * **Asserted on `diagramInner` rather than on the sheet, deliberately.** The
+   * blank sheet is `measureDiagram`'s answer, and that needs a DOM
+   * `vitest.config.ts` does not give this suite (`environment: "node"`) — so the
+   * literal test would hand-pass `null` bounds, which asserts `diagramSvg` and
+   * would have passed identically *before* the phase. What decides it is that
+   * the groups come out empty, and that is a string. The sheet itself is a dev-
+   * pass check.
+   *
+   * Scoped to endpoints and waypoints: an unconnected **junction** still draws,
+   * since `armWidth` answers `MIN_ROAD_WIDTH` for a node with no arms and
+   * `padRadius` turns that into a 10.44-unit pad at the default Size.
+   */
+  it("draws nothing at all for nodes no road touches", () => {
+    const doc = run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "addNode", pos: { x: 120, y: 40 } },
+    ).doc;
+
+    expect(diagramInner(doc)).toBe(
+      '<g class="diagram">' +
+        '<g class="node node-endpoint" transform="translate(0 0)"></g>' +
+        '<g class="node node-endpoint" transform="translate(120 40)"></g>' +
+        "</g>",
+    );
   });
 
   it("frames an empty document as a small square of paper", () => {
