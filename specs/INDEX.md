@@ -28,3 +28,5 @@
   A link states its real length as a label on the drawing — an annotation the human owns, decoupled from the drawn length, and filled on import from the one thing import throws away.
 - **[junction-glyphs](junction_glyphs_spec.md)** — `zk-013` · accepted · done
   The junction pad follows the roads that meet at it, instead of being a disc — which is what makes a three-arm node read as a T, and what retires the glyph that promised to.
+- **[link-bends](link_bends_spec.md)** — `zk-014` · draft · pending
+  A link is drawn as a straight chord between its two nodes and nothing can bend it — so this makes a bend an object a human places, after fixing the offset that would cut its corner, and puts placement on the grid that is already drawn.
