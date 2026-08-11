@@ -102,6 +102,20 @@ export interface Interaction {
    * on `onMarkingPointerDown`'s precedent (signs spec §2.7).
    */
   onSignPointerDown: (e: React.PointerEvent, sign: Sign) => void;
+  /**
+   * A bend's handle — the **chrome** layer, drawn above the whole picture and
+   * present only here, so an export cannot carry one (link bends §2.3).
+   *
+   * A callback rather than a rendered dot alone, and that is not tidiness: a
+   * bend released from its drag would otherwise be unselectable, and so
+   * undeletable from inside the app (§2.6). It carries the link and the index
+   * because a bend has no id to carry.
+   */
+  onBendPointerDown: (
+    e: React.PointerEvent,
+    link: Link,
+    index: number,
+  ) => void;
 }
 
 /** The whole drawing under one group; `interaction` absent means export mode. */
@@ -265,6 +279,69 @@ export function Diagram({
           />
         );
       })}
+
+      {/* The bend handles, and they are **above the signs** where every other
+          layer's order was argued from the drawing: these are not in the
+          drawing. They are chrome, gated on `interaction` and so absent from an
+          export by construction rather than by a filter someone must remember
+          (§2.3) — `export.tsx:diagramInner` renders `<Diagram doc={doc} />` with
+          no `interaction` prop at all. Being last is what keeps the one thing a
+          human has to be able to grab from sitting under a sign.
+
+          Drawn at the **drawn** polyline's vertex, so what you grab is what you
+          see; the drag writes the **layout** one, and `Canvas.tsx` is where the
+          two frames meet. */}
+      {interaction &&
+        doc.links.flatMap((link) => {
+          const bends = doc.layout.links[link.id]?.bends;
+          if (!bends?.length) return [];
+          const pts = drawnPolyline(doc, link, offsets);
+          // Phase 1's preserved vertex count, stated where it is relied on:
+          // `offsetPolyline` emits one vertex per vertex, so bend `i` is drawn
+          // vertex `i + 1`. A polyline of any other length means a node with no
+          // position, which the road layer skipped too.
+          if (!pts || pts.length !== bends.length + 2) return [];
+          return bends.map((_, i) => (
+            <BendHandle
+              key={`${link.id}:${i}`}
+              at={pts[i + 1]}
+              selected={isBendSelected(interaction.selection, link.id, i)}
+              onPointerDown={(e) => interaction.onBendPointerDown(e, link, i)}
+            />
+          ));
+        })}
+    </g>
+  );
+}
+
+/**
+ * The grab target for one vertex of a road's route.
+ *
+ * **`non-scaling-stroke` and a `transform`, on `NodeShape`'s model**: a handle is
+ * a control rather than paint, so it holds its size as the canvas zooms — a dot
+ * that shrank away at low zoom would leave the bend visible and ungrabbable.
+ *
+ * The hit circle is wider than the dot for the reason every hit target here is:
+ * a 4-unit dot is a small thing to catch, and the road's own fat hit path is
+ * underneath it waiting to mint a *second* bend on a near miss.
+ */
+function BendHandle({
+  at,
+  selected,
+  onPointerDown,
+}: {
+  at: Vec2;
+  selected: boolean;
+  onPointerDown: (e: React.PointerEvent) => void;
+}) {
+  return (
+    <g
+      className={`bend${selected ? " is-selected" : ""}`}
+      transform={`translate(${at.x} ${at.y})`}
+      onPointerDown={onPointerDown}
+    >
+      <circle className="bend-hit" r={9} />
+      <circle className="bend-handle" r={4} vectorEffect="non-scaling-stroke" />
     </g>
   );
 }
@@ -535,6 +612,11 @@ function isSelected(
   id: string,
 ) {
   return sel !== null && "id" in sel && sel.kind === kind && sel.id === id;
+}
+
+/** {@link isSelected} for the arm with no id: a bend is its link and its index. */
+function isBendSelected(sel: Selection | null, link: LinkId, index: number) {
+  return sel?.kind === "bend" && sel.link === link && sel.index === index;
 }
 
 /**

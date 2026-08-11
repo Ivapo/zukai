@@ -90,9 +90,14 @@ function vocabulary(): Document {
  * Chrome is matched by class token, not by bare word: `--paint-white` contains
  * the substring "hit", so a `/hit/` test can never pass on a file that carries
  * the palette.
+ *
+ * **Every new piece of chrome has to be listed here, or the gate goes vacuous.**
+ * `bend-handle`/`bend-hit` are the case that made the rule explicit: nine
+ * assertions below reuse this regex unchanged, and every one of them would have
+ * passed for a handle leaking straight into the figure (link bends §2.3).
  */
 const CHROME =
-  /road-hit|jn-hit|marking-hit|sign-hit|-halo|is-selected|link-preview|grid|cursor/;
+  /road-hit|jn-hit|marking-hit|sign-hit|bend-hit|bend-handle|-halo|is-selected|link-preview|grid|cursor/;
 
 /**
  * The text between the **first** `<style>` and the first `</style>` — the
@@ -185,6 +190,29 @@ describe("strokeAllowance", () => {
     };
 
     expect(strokeAllowance(painted)).toBe(strokeAllowance(plain));
+  });
+
+  /**
+   * **A bend needs no widening either**, and this confirms it rather than
+   * pre-empting it (link bends §2.5). A bend adds no stroke width — it moves a
+   * road's vertices — and `measureDiagram` frames from `getBBox`, which follows
+   * the geometry wherever it goes. The mitred corner reaches further than the
+   * vertex does, but only by the same half-width the allowance already carries.
+   */
+  it("is unchanged by the bends a road turns through", () => {
+    const plain = road(3);
+    const bent: Document = {
+      ...plain,
+      layout: {
+        ...plain.layout,
+        links: {
+          ...plain.layout.links,
+          L1: { ...plain.layout.links.L1, bends: [{ x: 40, y: -60 }] },
+        },
+      },
+    };
+
+    expect(strokeAllowance(bent)).toBe(strokeAllowance(plain));
   });
 });
 
@@ -331,6 +359,45 @@ describe("diagramSvg", () => {
     expect(svg).toContain("jn-ring");
     expect(svg).not.toMatch(CHROME);
     // Hairlines must scale with the drawing in a file (spec §2.5).
+    expect(svg).not.toMatch(/vector-effect/);
+  });
+
+  /**
+   * A road that turns a corner carries its corner into the file, and carries
+   * **no handle** — which is the half that can silently fail. Every handle is
+   * gated on `interaction`, and `diagramInner` renders `<Diagram doc={doc} />`
+   * with no such prop, so the exclusion is by construction rather than by a
+   * filter someone must remember (link bends §2.3).
+   *
+   * **The selection is cleared here on purpose, and that is what makes the
+   * assertion mean anything.** `addBend` mints a bend selection, and a leaked
+   * handle would then carry `is-selected` — a token `CHROME` already listed — so
+   * the gate would pass for the *wrong reason* and the two new tokens would be
+   * decoration. Deselected, only `bend-handle`/`bend-hit` can catch the leak.
+   *
+   * Measured, not asserted: a handle leaked into every export **passes this file
+   * unchanged** under the pre-phase `CHROME`, once its `vector-effect` is also
+   * dropped so the rule below cannot co-catch. That is the vacuous gate the
+   * widening removes.
+   */
+  it("carries a bent road's corner and none of its handles", () => {
+    const bent = run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "addNode", pos: { x: 120, y: 40 } },
+      { type: "startLink", from: "N1" },
+      { type: "completeLink", to: "N2" },
+      { type: "setLinkLanes", id: "L1", count: 3 },
+      { type: "addBend", link: "L1", index: 0, pos: { x: 60, y: -40 } },
+      { type: "select", selection: null },
+    );
+    expect(bent.selection).toBeNull();
+    const svg = diagramSvg(bent.doc, { x: 0, y: -40, width: 120, height: 80 });
+
+    // The road walks through the vertex, casing and painted lines alike.
+    expect(svg).toContain('class="road-casing" d="M 0 0 L 60 -40 L 120 40"');
+    expect([...svg.matchAll(/class="road-edge" d="M [^"]* L [^"]* L /g)]).toHaveLength(2);
+    expect(svg).not.toMatch(CHROME);
     expect(svg).not.toMatch(/vector-effect/);
   });
 

@@ -2,11 +2,18 @@
 
 import type React from "react";
 import { useRef, useState } from "react";
-import { findLink, findMarking, linkStyle, nodePos } from "../model/document";
+import {
+  findLink,
+  findMarking,
+  linkPolyline,
+  linkStyle,
+  nodePos,
+} from "../model/document";
 import {
   LaneIdx,
   Link,
   LinkEnd,
+  LinkId,
   Marking,
   MarkingId,
   Node,
@@ -20,6 +27,7 @@ import {
   UNITS_PER_METRE,
   anchoredAlong,
   bandAt,
+  bendInsertion,
   boundaryAt,
   carriageways,
   drawnPolyline,
@@ -54,7 +62,30 @@ type Drag =
   | { kind: "node"; id: NodeId; offX: number; offY: number }
   | { kind: "sign"; id: SignId; offX: number; offY: number }
   | { kind: "marking"; id: MarkingId }
+  // A bend takes the grab offset a node and a sign take, and for their reason:
+  // it is dragged *by the point you took hold of*. Measured against the
+  // **layout** bend, which is what `moveBend` writes, while the handle is drawn
+  // at the offset vertex — so on a divided road the offset absorbs the lateral
+  // shift and the road stays put under the pointer (link bends §2.6).
+  | { kind: "bend"; link: LinkId; index: number; offX: number; offY: number }
+  // The press that has not yet become a drag, and **the first gesture in this
+  // file with a threshold**: every other drag begins on pointer-down. A press on
+  // a road creates something rather than grabbing something, so a few pixels of
+  // movement have to separate "bend this road" from "select it" — otherwise an
+  // ordinary selecting click litters the document with zero-length bends
+  // (link bends OQ-4).
+  | { kind: "linkPress"; link: LinkId; startX: number; startY: number }
   | { kind: "pan"; startTx: number; startTy: number; startX: number; startY: number };
+
+/**
+ * How far the pointer must travel before a press on a road bends it, in **screen
+ * pixels** — not world units, or the gesture would change meaning with zoom.
+ *
+ * Small enough that pulling a road bends it without a deliberate wind-up, large
+ * enough that the hand-tremor in a click does not. Settled in the app, as every
+ * constant in this project has been.
+ */
+const BEND_THRESHOLD = 4;
 
 export function Canvas({ state, dispatch }: CanvasProps) {
   const { doc, view, tool, selection, linkFrom } = state;
@@ -134,6 +165,15 @@ export function Canvas({ state, dispatch }: CanvasProps) {
     }
   }
 
+  /**
+   * A road's own clicks.
+   *
+   * Under the select tool this is **a press that may become a bend** (link bends
+   * §2.6): the road is selected immediately, as it always was, and the press is
+   * remembered. Only once the pointer has travelled {@link BEND_THRESHOLD} does
+   * {@link onPointerMove} mint a vertex and start dragging it, so a click that
+   * does not move still just selects.
+   */
   function onLinkPointerDown(e: React.PointerEvent, link: Link) {
     // The marking tool acts on the *road*, so unlike the others it must claim
     // the event: letting it reach `onBackgroundPointerDown` would lose the click
@@ -145,7 +185,98 @@ export function Canvas({ state, dispatch }: CanvasProps) {
     }
     if (tool !== "select") return; // let other tools act on the background
     e.stopPropagation();
+    // The guard the node, marking and sign handlers have always had, and this
+    // one needed only once a road became draggable: without it a middle-drag on
+    // a road would mint bends instead of panning, and the `stopPropagation`
+    // above means the `<svg>` never gets its chance.
+    if (e.button === 1) {
+      beginPan(e);
+      return;
+    }
     dispatch({ type: "select", selection: { kind: "link", id: link.id } });
+    const s = screenPoint(e);
+    drag.current = {
+      kind: "linkPress",
+      link: link.id,
+      startX: s.x,
+      startY: s.y,
+    };
+    svgRef.current?.setPointerCapture(e.pointerId);
+  }
+
+  /**
+   * A bend's own handle. Handles are the topmost layer of all — above even the
+   * signs, being chrome rather than drawing — so this event can reach nothing
+   * already here, and *not* stopping propagation would send it to the `<svg>`,
+   * whose select tail clears the selection and starts a pan. The trap
+   * {@link onMarkingPointerDown} and {@link onSignPointerDown} both guard.
+   *
+   * **The offset is measured against the layout bend, not the handle**, because
+   * `moveBend` writes the layout polyline while the handle is drawn on the
+   * offset one. On a divided road the two are `lateralShift` apart, and taking
+   * the offset from the handle would step the road sideways on the first
+   * pointer-move.
+   */
+  function onBendPointerDown(e: React.PointerEvent, link: Link, index: number) {
+    e.stopPropagation();
+    if (e.button === 1) {
+      beginPan(e);
+      return;
+    }
+    if (tool !== "select") return;
+    // The leading `select` is load-bearing beyond the selection, as it is for a
+    // marking: it leaves `doc` alone and so resets `coalesceKey`, opening the
+    // drag's undo run.
+    dispatch({ type: "select", selection: { kind: "bend", link: link.id, index } });
+    const at = doc.layout.links[link.id]?.bends?.[index];
+    if (!at) return;
+    const w = worldPoint(e);
+    drag.current = {
+      kind: "bend",
+      link: link.id,
+      index,
+      offX: w.x - at.x,
+      offY: w.y - at.y,
+    };
+    svgRef.current?.setPointerCapture(e.pointerId);
+  }
+
+  /**
+   * Turn a press on a road into a bend under the pointer — the moment the
+   * gesture crosses {@link BEND_THRESHOLD}.
+   *
+   * **The bend goes on the road, not under the pointer**, which is what makes
+   * the insert feel right: pressing a road and pulling it should bend it, not
+   * shift it sideways. `bendInsertion` is where that lives — it takes the
+   * pointer's arc length along the polyline the road is *drawn* along and
+   * answers in the one it is *routed* along, index included, from a single walk.
+   *
+   * The **press** point is what is projected, not the pointer's position now, so
+   * the vertex lands where the road was taken hold of. The grab offset is then
+   * measured from the current pointer, so there is no jump at the insert and
+   * none at the start of the drag either.
+   */
+  function beginBend(press: Drag & { kind: "linkPress" }, now: Vec2) {
+    const link = findLink(doc, press.link);
+    if (!link) return;
+    const layout = linkPolyline(doc, link);
+    const drawn = drawnPolyline(doc, link, carriageways(doc));
+    if (!layout || !drawn) return;
+    const at = bendInsertion(
+      layout,
+      drawn,
+      screenToWorld(view, press.startX, press.startY),
+    );
+    if (!at) return;
+
+    dispatch({ type: "addBend", link: link.id, index: at.index, pos: at.pos });
+    drag.current = {
+      kind: "bend",
+      link: link.id,
+      index: at.index,
+      offX: now.x - at.pos.x,
+      offY: now.y - at.pos.y,
+    };
   }
 
   /**
@@ -284,6 +415,13 @@ export function Canvas({ state, dispatch }: CanvasProps) {
     const d = drag.current;
     if (!d) return;
     const s = screenPoint(e);
+    if (d.kind === "linkPress") {
+      // Below the threshold there is no gesture yet — and crucially no dispatch,
+      // so a click that wanders a pixel still leaves the document untouched.
+      if (Math.hypot(s.x - d.startX, s.y - d.startY) < BEND_THRESHOLD) return;
+      beginBend(d, screenToWorld(view, s.x, s.y));
+      return;
+    }
     if (d.kind === "pan") {
       dispatch({
         type: "setView",
@@ -313,15 +451,18 @@ export function Canvas({ state, dispatch }: CanvasProps) {
     } else {
       const w = screenToWorld(view, s.x, s.y);
       const pos = { x: w.x - d.offX, y: w.y - d.offY };
-      // Two drags share one piece of offset arithmetic and differ only in what
+      // Three drags share one piece of offset arithmetic and differ only in what
       // they move. Left as an unconditional `moveNode` this would fail
       // **silently** for a sign: that reducer's guard is a layout lookup, and
       // `layout.nodes["S1"]` is simply absent, so the sign would refuse to move
-      // with nothing thrown and nothing logged.
+      // with nothing thrown and nothing logged. A bend is the third, and it is
+      // the one that cannot be named by an id at all.
       dispatch(
         d.kind === "sign"
           ? { type: "moveSign", id: d.id, pos }
-          : { type: "moveNode", id: d.id, pos },
+          : d.kind === "bend"
+            ? { type: "moveBend", link: d.link, index: d.index, pos }
+            : { type: "moveNode", id: d.id, pos },
       );
     }
   }
@@ -373,6 +514,7 @@ export function Canvas({ state, dispatch }: CanvasProps) {
             onLinkPointerDown,
             onMarkingPointerDown,
             onSignPointerDown,
+            onBendPointerDown,
           }}
         />
       </g>

@@ -27,6 +27,7 @@ import {
   LinkStyle,
   Marking,
   SignKind,
+  Vec2,
 } from "../model/types";
 import { Diagram, Interaction } from "./Diagram";
 
@@ -83,6 +84,7 @@ function interaction(): Interaction {
     onLinkPointerDown: () => {},
     onMarkingPointerDown: () => {},
     onSignPointerDown: () => {},
+    onBendPointerDown: () => {},
   };
 }
 
@@ -2408,5 +2410,124 @@ describe("Diagram on the live canvas", () => {
         <Diagram doc={sample()} interaction={interaction()} />,
       ),
     ).not.toContain("link-preview");
+  });
+});
+
+
+/**
+ * A road that turns a corner, and the handle a human grabs to make it — the
+ * whole of what link bends Phase 2 adds to the drawing.
+ */
+describe("link bends", () => {
+  /**
+   * `N1(0,0) → N2(120,40)`, 3 lanes, with `bends` in between. Undivided and
+   * centred, so the drawn polyline **is** the layout one and every number below
+   * is read straight off the route.
+   */
+  function road(...bends: Vec2[]): Document {
+    return run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "addNode", pos: { x: 120, y: 40 } },
+      { type: "startLink", from: "N1" },
+      { type: "completeLink", to: "N2" },
+      { type: "setLinkLanes", id: "L1", count: 3 },
+      ...bends.map((pos, i) => ({ type: "addBend" as const, link: "L1", index: i, pos })),
+    ).doc;
+  }
+
+  /** Every `d` attribute in the markup, in source order. */
+  function paths(svg: string): string[] {
+    return [...svg.matchAll(/ d="([^"]*)"/g)].map((m) => m[1]);
+  }
+
+  it("walks the road's own path through the bend", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={road({ x: 60, y: -40 })} />);
+    expect(paths(svg)[0]).toBe("M 0 0 L 60 -40 L 120 40");
+  });
+
+  /**
+   * **Phase 1's preserved vertex count, seen from the drawing.** Every stroked
+   * element of a road is its own `offsetPolyline` — the two edge lines and, on a
+   * 3-lane road, two dividers — so all of them gain a vertex with the casing
+   * rather than cutting the corner. A bevel inserted at the clamp would show
+   * here as one path with four points, and it is the same invariant a bend's
+   * insertion index rests on.
+   */
+  it("gives every stroked element of the road three points, not two", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={road({ x: 60, y: -40 })} />);
+    const road_ = paths(svg).filter((d) => d.startsWith("M 0 0") || d.includes(" L "));
+    expect(road_.length).toBeGreaterThanOrEqual(5); // casing, 2 edges, 2 dividers
+    for (const d of road_) expect(d.split(" L ")).toHaveLength(3);
+  });
+
+  it("draws a handle per bend, on the canvas and nowhere else", () => {
+    const doc = road({ x: 40, y: -40 }, { x: 90, y: -10 });
+
+    const canvas = renderToStaticMarkup(
+      <Diagram doc={doc} interaction={interaction()} />,
+    );
+    expect([...canvas.matchAll(/bend-handle/g)]).toHaveLength(2);
+    expect(canvas).toContain("bend-hit");
+
+    // **The gate the whole `interaction` split exists for**: an export renders
+    // the drawing and no handle at all. `not.toMatch` rather than a byte
+    // comparison, since this repo has no snapshot testing.
+    const file = renderToStaticMarkup(<Diagram doc={doc} />);
+    expect(file).not.toMatch(/bend-handle|bend-hit/);
+    expect(file).toContain("M 0 0 L 40 -40 L 90 -10 L 120 40");
+  });
+
+  /**
+   * **The handle sits on the *drawn* vertex, not the layout one**, so what you
+   * grab is what you see. On an undivided road the two coincide and the
+   * assertion is vacuous — so this one is a **carriageway of a divided pair**,
+   * where they are `lateralShift` apart and the mitre moves the vertex along the
+   * road as well as across it.
+   */
+  it("puts the handle on the drawn polyline's vertex, not the layout one", () => {
+    const doc = run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "addNode", pos: { x: 50, y: 150 } },
+      { type: "startLink", from: "N1" },
+      { type: "completeLink", to: "N2" },
+      { type: "startLink", from: "N2" },
+      { type: "completeLink", to: "N1" },
+      { type: "setLinkLanes", id: "L1", count: 2 },
+      { type: "setLinkLanes", id: "L2", count: 2 },
+      // The corner the spec's worked example turns: east to (50,0), then south.
+      { type: "addBend", link: "L1", index: 0, pos: { x: 50, y: 0 } },
+    ).doc;
+
+    const svg = renderToStaticMarkup(
+      <Diagram doc={doc} interaction={interaction()} />,
+    );
+    // `d` is 13.5 for a 2-lane arterial pair, and the mitre puts the drawn
+    // vertex at (36.5, 13.5) — 13.5 off the layout bend in *both* axes.
+    expect(svg).toContain("translate(36.5 13.5)");
+    expect(svg).not.toContain("translate(50 0)");
+  });
+
+  it("lights the selected bend and no other", () => {
+    const svg = renderToStaticMarkup(
+      <Diagram
+        doc={road({ x: 40, y: -40 }, { x: 90, y: -10 })}
+        interaction={{
+          ...interaction(),
+          selection: { kind: "bend", link: "L1", index: 1 },
+        }}
+      />,
+    );
+    expect([...svg.matchAll(/class="bend is-selected"/g)]).toHaveLength(1);
+    expect([...svg.matchAll(/class="bend"/g)]).toHaveLength(1);
+  });
+
+  /** A link with no bends emits no handle at all, so a straight document renders
+   *  exactly as it did before this phase. */
+  it("emits nothing for a road with no bends", () => {
+    expect(
+      renderToStaticMarkup(<Diagram doc={road()} interaction={interaction()} />),
+    ).not.toMatch(/bend-handle|bend-hit/);
   });
 });

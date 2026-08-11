@@ -271,6 +271,33 @@ body {
   opacity: 0.6;
 }
 
+/* ----- link bends ----- */
+/* Wholly here, with no counterpart in `styles/diagram.css`: a handle is the one
+   thing in the tree that is *only* chrome. Every other class in this section
+   decorates something the drawing also paints; a bend's own paint is the corner
+   the road turns, which the road draws for itself. */
+
+.bend {
+  cursor: pointer;
+}
+
+.bend-hit {
+  fill: transparent;
+}
+
+/* A ring rather than a disc, so the corner it marks stays readable through it —
+   a handle sits *on* the road, unlike a node dot, which sits at the road's end.
+   Yellow when selected, the colour every halo in this file already means by. */
+.bend-handle {
+  fill: var(--desk-2);
+  stroke: var(--paint-yellow);
+  stroke-width: 2;
+}
+
+.bend.is-selected .bend-handle {
+  fill: var(--paint-yellow);
+}
+
 /* ----- road markings ----- */
 /* The painted bar itself is in `styles/diagram.css`. */
 
