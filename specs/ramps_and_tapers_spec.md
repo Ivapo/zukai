@@ -2,7 +2,7 @@
 id: zk-005
 title: ramps-and-tapers
 status: accepted
-last_updated: 2026-08-11
+last_updated: 2026-08-14
 note: >
   Draw the transitions between roads — lane-count tapers, ramp gores, and
   junction interiors that follow a divided road's carriageways.
@@ -44,7 +44,7 @@ phases:
     cut: null
     by: null
   - name: "Phase 8 — A gore's arms stop bulging over the roads they part"
-    reviewed: null
+    reviewed: 2026-08-14
     shipped: null
     cut: null
     by: null
@@ -911,9 +911,9 @@ through `measureDiagram`/`diagramSvg`, and printed. Three things in that file ar
 wrong. A fourth looked wrong and was not, which is recorded here because the
 mistake is instructive and reachable by any user.
 
-**Phase 7 shipped 2026-08-11 (reviewed in three rounds the same day). Phases 8 and
-9 are not reviewed**: each is its own episode under §7.0 and takes its own scoped
-round before it can be planned.
+**Phase 7 shipped 2026-08-11 (reviewed in three rounds the same day). Phase 8 is
+reviewed and cleared (two rounds, 2026-08-14). Phase 9 is not**: it is its own
+episode under §7.0 and takes its own scoped round before it can be planned.
 
 **The one that was not a defect, recorded first so nobody re-opens it.** In the
 first print the offramp was drawn **straight across the mainline**, and the gore
@@ -1005,7 +1005,7 @@ present**, or the day the needle leaves the markup the assertion starts passing 
 nothing. That is `export.test.ts:CHROME`'s own vacuity lesson arriving from the
 opposite direction.
 
-#### 2.11.2 A gore's arms keep their round caps (Phase 8)
+#### 2.11.2 A gore's arms give up their round caps (Phase 8)
 
 At the diverge the ramp's casing ends in a **round cap**, so a half-disc of asphalt
 of its own half-width bulges back over the mainline and breaks the mainline's edge
@@ -1018,6 +1018,53 @@ are *literal continuations of the two roads' own edge lines* (Phase 4's as-built
 note), so a cap that crosses a leg crosses an edge line that is drawn to be
 continuous. The fix is the modifier class that exists — `.road-casing--butt`, on
 the arms of a `gore` glyph — not a new mechanism.
+
+**Every arm of the glyph, not the two the gore chose** (decided in review round 1,
+2026-08-14, on a measurement). The tempting reading is that this is about the pair
+`gorePair` picks, since they are the two the triangle is built from. It is not, and
+§1's own exit is the counter-example: the unchosen arm there is the **approach**,
+which is the *widest* road at the node and so carries the largest cap of the three.
+
+Measured on the shipped `exit()` fixture, whose node is at `(120, 0)`:
+
+| Arm | Role | Origin | Half-width | Chosen? |
+|---|---|---|---|---|
+| L1, 4-lane motorway | approach (inbound) | `(120, 18)` | **19.5** | **no** |
+| L2, 3-lane motorway | mainline on (outbound) | `(120, 13.5)` | 15 | yes |
+| L3, 1-lane ramp | ramp off (outbound) | `(120, 0)` | 5.1 | yes |
+
+L1's round cap is a half-disc of radius 19.5 about `(120, 18)`, so at the node it
+reaches `y = 37.5`. L2's nearside casing edge is at `28.5` and its **edge line** at
+`27`. The cap therefore paints up to 9 units past the mainline's own asphalt and
+10.5 past the line that bounds it, over a run of `sqrt(19.5² − 10.5²) ≈ 16.4` units
+in `x`. **Almost none of it is covered**, and the qualifier is measured rather than
+hedged (review round 2): at its shallowest the ramp's casing does reach back to
+`x ≈ 132.9`, taking about 3.6 of those units, but by `y ≈ 30` the lune has ended at
+`132.5` while the ramp has not yet started at `135.9` — and the **gore triangle
+begins at its nose, `x ≈ 142.3`, downstream of the whole lune**. So most of it is
+asphalt on bare paper, outside the mainline's edge line, at exactly the place this
+phase exists to clean up — and the chosen-pair reading leaves it there.
+
+The rule is therefore **the glyph, not the pair, and not the arm count**: every
+link incident to a node whose `JunctionView.glyph` is `gore` takes the cap. Three
+dividends fall out, and they are why this reading is also the smaller one:
+
+- **It needs no `gorePair` call.** The `butt` set is built in `Diagram.tsx:tapers`,
+  which runs *before* the node layer, while `gorePair` is called inside
+  `GoreShape`, which runs after. A chosen-pair rule would have to recompute the
+  pair at the top of `Diagram`; a glyph rule is a lookup in `doc.layout.junctions`.
+- **It has no degenerate cases.** `gorePair` returns `undefined` below two arms,
+  and a gore with two, four or more arms picks a pair whose membership is not
+  obvious; "every arm" answers all of those the same way.
+- **It matches the taper precedent exactly.** §2.4 gives the cap to **both** links
+  of a wedge joint — every link there, not a selected subset.
+
+**A one-arm gore flattens that road's caps and draws no gore**, which is the rule
+working rather than a case to special-case: `gorePair` answers `undefined` below two
+arms so `GoreShape` renders nothing, while the glyph-keyed rule still caps the one
+link at both ends. §2.4 already calls a flat free end the better schematic reading,
+and the shipped `draws from two arms and nothing at all from one` asserts only the
+*absence* of `jn-gore`/`jn-pad`, so it stays green. Named here rather than met.
 
 **What this does not claim.** It does not move where the ramp starts. A ramp still
 leaves from its shared node, so with the alignment chosen correctly (§2.11.3) its
@@ -1746,26 +1793,58 @@ figure with a road that runs off the frame is affected.*
 ### Phase 8 — A gore's arms stop bulging over the roads they part  (added 2026-08-11)
 
 Added by the third reopening (§2.11.2). Depends on Phase 4, which drew the gore.
-**Not yet reviewed (§7).**
+It passed its own scoped review (§7's phase-level gate) in two rounds on
+2026-08-14 and **is cleared to implement**.
 
 *Produces the observable: **yes** — the mainline's edge line runs unbroken past
 the point where the ramp leaves it.*
 
-- **Scope:** §2.11.2 — the arms of a `gore` glyph take the butt cap `.road-casing--butt`
-  that a tapered joint already applies, so no round cap paints back over the road
-  it just left. **TypeScript and CSS only**, and no new class: Phase 3 built the
-  modifier.
-- **Exit gate:** `bun run build` + `bun run test` + `cargo test` green and
-  unchanged at 69.
-  - A gore's two chosen arms carry the butt-cap class; a document with no gore
-    emits markup **unchanged**, which is the assertion that keeps the change local.
-  - **The third arm is decided rather than assumed**: state whether a gore's
-    *unchosen* arm takes the cap too, and assert it. A three-arm diverge has one,
-    and it is the arm whose cap sits under the pad-less glyph.
+- **Scope:** §2.11.2 — **every** link incident to a node whose glyph is `gore`
+  takes `.road-casing--butt`, the modifier a tapered joint already applies, so no
+  round cap paints back over the road it just left. **TypeScript only**: Phase 3
+  built the class, `export.test.ts` already pins it in the embedded stylesheet, and
+  nothing in `diagram.css` changes.
+  - `Diagram.tsx:tapers` is the one site. It already returns
+    `{ wedges, butt: Set<LinkId> }`, and `Diagram` already spends it as
+    `butt={butt.has(link.id)}` on `RoadShape` — so the phase adds gore links to
+    that set and touches no other plumbing.
+  - The predicate is the node layer's own, **and it is two tests, not one**:
+    `node.type === "junction" && doc.layout.junctions[id]?.glyph === "gore"`. The
+    glyph alone is weaker than the render path, since a node can keep a stale
+    junction view — only through a hand-edited `.zkai`, because `state.ts`'s
+    `setNodeKind` deletes it when a node stops being a junction, but the drawing
+    tests both and so does this.
+  - **The gore check goes before `tapers`' `if (incident.length !== 2) continue`**,
+    which is the first statement of the loop this phase extends. A gore node has
+    three incident links, so a check placed after that early return would fire only
+    on two-link gores. The exit gate's count catches it on the first run.
+  - `tapers` runs **before** the node layer, which is why §2.11.2's rule is keyed to
+    the glyph rather than to `gorePair` — that function is called inside
+    `GoreShape`, downstream of here.
+- **Exit gate:** `bun run build` + `bun run test` + `cargo test` green, **486
+  vitest** and **`cargo test` 69** as Phase 7 left them, moving only by the tests
+  this phase adds.
+  - **All three arms of §1's exit carry the class**, asserted on the shipped
+    `Diagram.test.tsx:exit()` fixture — three matches, not two. That count is the
+    phase: two is the chosen-pair implementation §2.11.2 rejects, and it is the one
+    wrong answer that looks right.
+  - **The predicate is the glyph, not the arm count**, and one shipped test already
+    proves it: `draws no wedge where three links meet` puts three links on a
+    **waypoint** and asserts no `road-casing--butt`. It must stay green untouched.
+    An implementation keyed to "three incident links" fails it.
+  - A document with no gore emits markup **unchanged**, which keeps the change
+    local; the four existing `not.toContain("road-casing--butt")` cases cover it
+    and none of them inverts (verified in review round 1).
+  - **The other end of each arm goes flat too, and that is named rather than
+    discovered**: `stroke-linecap` is a whole-path property, so a gore arm running
+    to a free endpoint stops being domed there as well — §2.4 recorded the same
+    consequence for a taper, and calls the flat end the better schematic reading.
+    Assert it on `export.test.ts:gored()`, whose `N1` is exactly that free end.
   - A `bun run dev` pass on §1's exit: the mainline's edge line is continuous
     where the ramp leaves, at both a shallow and a steep splay.
 - **Docs touched:** `rules/road-joints.md` (the cap rule now has two owners, the
-  taper and the gore); the project-memory roadmap.
+  taper and the gore) — it sits at exactly **268/268**, so trade prose rather than
+  add; and the project-memory roadmap.
 
 ### Phase 9 — The panel says which side the lanes hang on  (added 2026-08-11)
 
