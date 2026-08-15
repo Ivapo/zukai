@@ -45,7 +45,7 @@ phases:
     by: null
   - name: "Phase 8 — A gore's arms stop bulging over the roads they part"
     reviewed: 2026-08-14
-    shipped: null
+    shipped: 2026-08-14
     cut: null
     by: null
   - name: "Phase 9 — The panel says which side the lanes hang on"
@@ -911,9 +911,10 @@ through `measureDiagram`/`diagramSvg`, and printed. Three things in that file ar
 wrong. A fourth looked wrong and was not, which is recorded here because the
 mistake is instructive and reachable by any user.
 
-**Phase 7 shipped 2026-08-11 (reviewed in three rounds the same day). Phase 8 is
-reviewed and cleared (two rounds, 2026-08-14). Phase 9 is not**: it is its own
-episode under §7.0 and takes its own scoped round before it can be planned.
+**Phase 7 shipped 2026-08-11 (reviewed in three rounds the same day). Phase 8
+shipped 2026-08-14 (reviewed in two rounds the same day). Phase 9 is neither**: it
+is its own episode under §7.0 and takes its own scoped round before it can be
+planned.
 
 **The one that was not a defect, recorded first so nobody re-opens it.** In the
 first print the offramp was drawn **straight across the mainline**, and the gore
@@ -1845,6 +1846,35 @@ the point where the ramp leaves it.*
 - **Docs touched:** `rules/road-joints.md` (the cap rule now has two owners, the
   taper and the gore) — it sits at exactly **268/268**, so trade prose rather than
   add; and the project-memory roadmap.
+- **Shipped 2026-08-14.** As specified: TypeScript only, one predicate in
+  `Diagram.tsx:tapers`, 488 vitest (up 2 from Phase 7's 486) and `cargo test`
+  unchanged at 69. The gate's count landed as written — `0 → 3` on `exit()`. Four
+  things worth carrying forward:
+  - **The three mutations separate cleanly, one assertion each.** Capping
+    `incident.slice(0, 2)` — the chosen-pair implementation in its cheapest form —
+    fails the new count test **and only it**, at 2. Removing the block fails both
+    new tests. Keying to `incident.length === 3` fails the shipped `draws no wedge
+    where three links meet` and nothing else, which is precisely the load the review
+    predicted that test would carry.
+  - **The `node.type === "junction"` half of the predicate has no test behind it,
+    and that is honest rather than a gap.** Dropping it is **green** across all 488,
+    because `setNodeKind` deletes the junction view and only a hand-edited `.zkai`
+    can strand one. It is kept for the reason review gave — the render path tests
+    both — and recorded here as unpinned rather than left to look covered.
+  - **The dev pass is a before/after pair, and the before is what made the case.**
+    Rendered through the real `diagramSvg` at tight bounds on the diverge, with the
+    mainline aligned `nearside` (§2.11's "the one that was not a defect"). Before:
+    the approach's cap swallows the mainline's lower edge line at the joint and the
+    ramp's own cap paints a dark bead on the node. After: the edge line runs
+    unbroken through, at both a shallow and a steep splay. Rendering the *mutation*
+    is worth the extra minute — a lone "after" shows a correct picture without
+    showing that this phase caused it.
+  - **`rules/road-joints.md` held at 268 by trading**, and the criterion held: the
+    file already had the mechanism (the taper's cap) and gained a second owner, so
+    an extension pays its own way. What paid for it was genuinely spendable — a
+    duplicated `HatchPattern` sentence and a standalone `<defs>`-gate paragraph
+    folded into the sentence that already named the borrowing. Reflowing recovered
+    nothing at all, as Phase 1 of `zk-014` recorded; only cutting words moved it.
 
 ### Phase 9 — The panel says which side the lanes hang on  (added 2026-08-11)
 

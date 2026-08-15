@@ -13,9 +13,10 @@ covers: >
   three things measure to, the pad that follows the arms inside it, taper
   wedges at a through joint, the gore between two separating arms — its
   triangle, its chevrons, and the one derivation that faces them at the driver —
-  and the dots that mark a node once per drawn road end, on the canvas only
+  the butt cap its two owners share, and the dots that mark a node once per
+  drawn road end, on the canvas only
 max_lines: 268
-generated: 2026-08-11
+generated: 2026-08-14
 ---
 
 # Road joints
@@ -187,11 +188,9 @@ addition and either alignment fall out of that alone. Four things it pins:
 - **It is bounded by the *casing* edges**, because a wedge is asphalt. Its own edge
   line is inset 1.5 from the hypotenuse (`taperEdge`), mirroring `RoadShape`'s
   `edgeInset`; the lane-region edge is a silent 1.5-unit error at every joint.
-- **A wedge forces butt caps** on **both** links, or the outset link's round cap
-  paints a half-disc of asphalt past the node that no added polygon can remove.
-  `stroke-linecap` is a property of the whole path, so a link tapered at one end is
-  butt-capped at its **other** end too — covered by the pad at a junction, and a
-  flat rather than domed free end elsewhere, the better schematic reading anyway.
+- **A wedge forces butt caps** on **both** links; the gore below is the other owner.
+  `stroke-linecap` is a whole-path property, so a capped link is flat at its
+  **other** end too — under the pad at a junction, better schematic reading at a free one.
 - **8° is derived, not picked.** Butt caps notch the outside of a bend by
   `(roadWidth/2)·tan(θ/2)` — 1.36 units at 8° on a 4-lane road, no deeper than the
   1.33-unit overhang they remove. 15° would invert the trade at ≈2.6.
@@ -210,32 +209,40 @@ between two arms, nosed where their painted edges meet. One variant covers both 
 diverge and a merge: the geometry is identical, and the pair rule ignores traffic.
 
 - **The pair is the one with the smallest angle between their directions**
-  (`gorePair`), and it is **not** read off the traffic: `junctionArms` orients
-  every arm away from the node whichever way traffic runs, so `dir` carries no
-  incoming/outgoing information. Directions are unit, so smallest angle is largest
-  dot; an exact tie breaks on the **link ids**, never `doc.links` order, or the
-  same roads would draw differently in a differently-ordered document.
+  (`gorePair`), and it is **not** read off the traffic: `junctionArms` orients every
+  arm away from the node whichever way traffic runs, so `dir` carries no in/out
+  information. Directions are unit, so smallest angle is largest dot; an exact tie
+  breaks on the **link ids**, never `doc.links` order, or the same roads would draw
+  differently in a differently-ordered document.
 - **It is bounded by the roads' *painted* edges, not their casing rims** — the
   opposite of a wedge. So `GoreArm.halfSpan` is `(roadWidth - ROAD_MARGIN) / 2`,
   exactly `RoadShape`'s `edgeInset`: the legs are literal continuations of the two
   edge lines, and `jn-gore-edge` therefore takes **no inset of its own**.
-- **The nose is a ray intersection with two degenerate cases**, both falling back
-  to the node: parallel arms, and arms whose edges meet only *behind* both origins.
-  "Behind **both**" is the rule — "behind either" would drop a good nose whenever a
-  divided carriageway steps one arm past it. The fallback prevents an
-  `Infinity`/`NaN` that renders as nothing and no `points=` assertion catches.
-- **Two layers, not one.** A shoulder band takes its asphalt from the casing under
-  it; a gore widens onto bare paper, so `.jn-gore` paints the surface and the paint
-  rides on it. The base is open and unlined: that blunt end is the physical nose.
+- **The nose is a ray intersection with two degenerate cases**, both falling back to
+  the node: parallel arms, and edges meeting only *behind* **both** origins — "behind
+  either" would drop a good nose whenever a divided carriageway steps one arm past it.
+  The fallback prevents an `Infinity`/`NaN` that renders as nothing and no `points=`
+  assertion catches.
+- **Two layers, not one.** A shoulder band takes asphalt from the casing under it; a
+  gore widens onto bare paper, so `.jn-gore` paints a surface for the paint to ride on.
+  Its base is open and unlined: that blunt end is the physical nose.
 - **`GORE_LENGTH` (36) is scaled by the glyph's Size**, unlike `TAPER_LENGTH`, or
-  the control would be inert on a pad-less glyph. Lengthening cannot misalign
-  anything: the legs stay on the edge lines and only the base slides.
+  the control would be inert on a pad-less glyph. Lengthening only slides the base.
+- **Every arm of the glyph takes `.road-casing--butt`**, the wedge's own modifier
+  out of the one set `tapers` builds — uncapped, a round cap paints a half-disc
+  straight across those edge lines. Keyed to the **glyph** (with `node.type`, a
+  stale view being hand-reachable): not to `gorePair`, which runs downstream in
+  `GoreShape`, and not to an arm count, which would cap a plain three-link
+  waypoint. The largest cap is often on the arm the pair does *not* pick — §1's
+  4-lane approach. Placed **before** the through-joint return, a gore having three.
 
 ### The chevrons, and the one place a gore reads the traffic
 
-The paint inside is a fan of chevrons (`goreChevrons`, a `.jn-gore-chevrons`
-path), not the shoulder hatch it briefly borrowed: a hatch says "not a running
-lane", a gore says "go round this, on this side" — a direction, and it needs one.
+The paint inside is a fan of chevrons (`goreChevrons`, a `.jn-gore-chevrons` path),
+not the shoulder hatch it briefly borrowed: a hatch says "not a running lane", a
+gore says "go round this, on this side" — a direction, and it needs one. The `<defs>`
+gate narrowed back with it: `hasShoulder(doc)` fires for a hard shoulder alone, having
+been widened and renamed `needsHatch` only while a gore reached the same pattern.
 
 - **`goreFlow(a, b)` is the only place direction is read, and only after the pair
   is chosen.** Both arms `outbound` → a diverge, chevrons at the **nose**; both
@@ -259,10 +266,6 @@ lane", a gore says "go round this, on this side" — a direction, and it needs o
   *parallel* arms leave an axis with no width, collapsing each chevron to a point
   — which a round cap paints as a **dot**. The last was found in the dev pass.
 
-**The `<defs>` gate narrowed back with the borrowing**: `hasShoulder(doc)` fires
-for a hard shoulder and nothing else. It was widened, and renamed `needsHatch`,
-only while a gore reached the same pattern.
-
 **The gore is the one glyph that needed a `SCHEMA_VERSION` bump** — a new enum
 *variant*, not a new field (`rules/document-model.md`).
 
@@ -278,8 +281,6 @@ constants — under `geometry.test.ts`. `Diagram.tsx` turns those into markup:
 loop in `JunctionGlyphShape`, tested through `renderToStaticMarkup`. The gate on
 the outline is `geometry.test.ts`'s own `inside(rings, p)` and **not**
 `rayPadExit`, or a bug in the helper could mask a bug in the rings it measures.
-Nothing here reaches
-`rules/road-rendering.md`'s `HatchPattern` any more — that borrowing is over.
 Paint is `diagram.css`; `gore` is mirrored in `types.ts` and `layout.rs`.
 Nothing here reaches `state.ts` — a joint is derived from the links meeting at a
 node, so there is no action and nothing to undo. `strokeAllowance` (`export.tsx`)
