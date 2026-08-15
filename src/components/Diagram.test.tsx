@@ -11,6 +11,7 @@ import {
   ROAD_MARGIN,
   SCHEMATIC_MEDIAN,
   SIGN_SIZE,
+  alignmentReading,
   carriageways,
   classWidthFactor,
   junctionArms,
@@ -18,7 +19,7 @@ import {
   signPlate,
 } from "../editor/geometry";
 import { Action, EditorState, initialState, reducer } from "../editor/state";
-import { nodePos } from "../model/document";
+import { findLink, linkStyle, nodePos } from "../model/document";
 import {
   Document,
   LaneKind,
@@ -680,6 +681,39 @@ describe("link alignment", () => {
     )!;
     expect((Number(bar[1]) + Number(bar[2])) / 2).toBeCloseTo(9);
     expect(padR(doc)).toBeCloseTo(19.5);
+  });
+
+  /**
+   * Phase 9's one load-bearing assertion, and the reason it lives here rather
+   * than in `geometry.test.ts`: the panel's reading is checked against the road
+   * **as drawn**, which needs a rendered `<Diagram>` and this block's fixture.
+   *
+   * Keyed to the sign of the drawn `y`, never to the word `offside` — a test
+   * keyed to the words passes under an inversion, which is the trap this spec
+   * hit repeatedly (§2.3).
+   *
+   * **The equivalence is fixture-scoped**, not a rule: it holds because
+   * `aligned` runs due east, where right of travel is `+y`. It cannot reach
+   * `alignmentReading`, which takes its side from `alignmentShift` and never
+   * sees a polyline — a road drawn west has the same reading and the opposite
+   * `y`. That case is the `bun run dev` pass's, not this file's.
+   */
+  it("reads a road the way the road is drawn, not the way the enum is spelled", () => {
+    for (const align of ["offside", "nearside"] as LinkAlign[]) {
+      const doc = aligned(align);
+      const svg = renderToStaticMarkup(<Diagram doc={doc} />);
+      const casing = svg.match(/class="road-casing" d="M 0 (\S+) L/)!;
+      const drawnY = Number(casing[1]);
+      const reading = alignmentReading(
+        findLink(doc, "L1")!.lanes,
+        linkStyle(doc, "L1"),
+        align,
+      );
+
+      expect(drawnY).not.toBe(0);
+      expect(reading.side).toBe(drawnY > 0 ? "right" : "left");
+      expect(reading.offset).toBe(Math.abs(drawnY));
+    }
   });
 });
 

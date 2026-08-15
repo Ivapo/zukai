@@ -314,6 +314,57 @@ export function alignmentShift(
   return align === "offside" ? half : -half;
 }
 
+/** What {@link alignmentShift} does to a road, said in the drawing's own terms. */
+export interface AlignmentReading {
+  /**
+   * Which side of its own polyline the lane region sits on, **in the road's own
+   * travel frame** — `on` when it straddles the line. Never a side of the
+   * screen: `+18` moves an eastbound road down and a westbound one up.
+   */
+  side: "left" | "right" | "on";
+  /** How far off the line, in canvas units. Always `>= 0`. */
+  offset: number;
+}
+
+/**
+ * The Inspector's reading of a link's alignment: which way its lanes hang, and
+ * how far (ramps spec §2.11.3).
+ *
+ * **Its whole reason for existing away from the panel is that the panel cannot
+ * be tested** — this repo has no `Inspector.test.tsx`, a standing property
+ * recorded in three rules, so a reading computed inline is a reading no test can
+ * read. Same argument that lifted `turnArrowKind` out of it. The panel renders
+ * this and decides nothing.
+ *
+ * **The frame is travel, not the screen, and it has to be.** This function is
+ * as direction-blind as {@link alignmentShift} — it never sees a polyline, so it
+ * could not answer a screen-frame question — and since a link carries `bends` a
+ * bent road has no single "below" anyway, while `right of travel` is one answer
+ * for the whole road. The drawing states which way that is, with the arrow head
+ * `RoadShape` paints at the link's far end.
+ *
+ * `side` is nothing but the **sign** of the shift, which §2.3 already pins:
+ * under `DRIVE_SIDE = 1` a positive offset draws to the visual right of travel,
+ * so `offside` reads `right` and `nearside` `left` with no second derivation.
+ *
+ * Branching on the shift rather than on `align === "centre"` costs nothing and
+ * is honest about a road that is centred without saying so: a lane region of no
+ * width does not move, whichever edge it claims to hold. (An *empty* `lanes` is
+ * not that road — it stands for one default lane, as it does everywhere else in
+ * this file. It takes a lane of literally zero width, which no control can
+ * author and only a hand-written document holds.)
+ */
+export function alignmentReading(
+  lanes: Lane[],
+  style: LinkStyle,
+  align: LinkAlign,
+): AlignmentReading {
+  const shift = alignmentShift(lanes, style, align);
+  // `-0 === 0`, so a negated zero lands here rather than reading `left`.
+  if (shift === 0) return { side: "on", offset: 0 };
+  return { side: shift > 0 ? "right" : "left", offset: Math.abs(shift) };
+}
+
 /**
  * How far a taper wedge runs along the inset link, in world units.
  *

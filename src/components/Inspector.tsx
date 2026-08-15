@@ -33,6 +33,7 @@ import {
   TurnDirection,
   UnsignalizedRule,
 } from "../model/types";
+import { alignmentReading } from "../editor/geometry";
 import { Action, EditorState, TurnArrowKind, turnArrowKind } from "../editor/state";
 
 interface InspectorProps {
@@ -496,6 +497,7 @@ export function Inspector({ state, dispatch }: InspectorProps) {
   const laneCount = link.lanes.length;
   const style = linkStyle(doc, link.id);
   const align = linkAlign(doc, link.id);
+  const reading = alignmentReading(link.lanes, style, align);
   return (
     <aside className="inspector">
       <div className="inspector-head">
@@ -560,6 +562,31 @@ export function Inspector({ state, dispatch }: InspectorProps) {
               {a}
             </button>
           ))}
+        </div>
+      </Field>
+
+      {/* What that setting *does*, which the enum's own words do not say — set
+          `offside` and the lanes hang nearside, a mirror a reader would have to
+          untangle. The wrong pick does not draw a slightly worse road; it draws
+          a ramp through a motorway while every assertion passes, because each
+          road is individually correct (ramps §2.11.3).
+
+          The frame is the road's own travel direction: `alignmentReading` never
+          sees a polyline, and since `zk-014` a bent road has no single "below".
+          The reader converts to a side of the screen by looking at the arrow
+          head. Canvas units, on the bend `Position` precedent above — this is
+          the picture, not a claim about the world.
+
+          Two decimals with the trailing zeros trimmed, which is where that
+          precedent stops: a bend position is snapped to the grid, while a lane
+          region's half-span is fractional by construction (a 4-lane ramp is
+          14.4, a 3-lane local 12.15). `centre` gets its own sentence — the
+          template would read "on of travel, 0 off the line". */}
+      <Field label="Lane region">
+        <div className="readout">
+          {reading.side === "on"
+            ? "on the line"
+            : `${reading.side} of travel, ${Number(reading.offset.toFixed(2))} off the line`}
         </div>
       </Field>
 

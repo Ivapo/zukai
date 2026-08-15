@@ -59,6 +59,7 @@ import {
   ArrowBranch,
   TurnArrow,
   UNITS_PER_METRE,
+  alignmentReading,
   alignmentShift,
   anchoredAlong,
   bandAt,
@@ -489,6 +490,95 @@ describe("alignmentShift", () => {
         classWidthFactor("ramp") * Math.abs(arterial),
       );
     }
+  });
+});
+
+/**
+ * Every claim here is about `alignmentReading`, **not** about the shift under
+ * it. The block above has pinned `centre → 0` and `nearside === -offside` on
+ * `alignmentShift` since Phase 2, so a test phrased on the shift is green before
+ * this function exists and covers none of it (ramps Phase 9's gate).
+ *
+ * The reading's side against the road **as drawn** is the load-bearing
+ * assertion, and it cannot live here: it needs a rendered `<Diagram>`, so it
+ * sits beside the `aligned` fixture in `Diagram.test.tsx`.
+ */
+describe("alignmentReading", () => {
+  const STYLES: LinkStyle[] = ["motorway", "arterial", "local", "ramp"];
+  const ALIGNMENTS: LinkAlign[] = ["centre", "nearside", "offside"];
+
+  it("reads a centred link as sitting on the line, with nothing to report", () => {
+    for (const style of STYLES) {
+      for (let n = 1; n <= 8; n++) {
+        expect(alignmentReading(defaults(n), style, "centre")).toEqual({
+          side: "on",
+          offset: 0,
+        });
+      }
+    }
+  });
+
+  /**
+   * `offside` shifts positive and a positive offset draws to the visual right
+   * of travel (`DRIVE_SIDE = 1`, spec §2.3), so the reading says `right` — and
+   * `nearside` is its exact mirror in side while **equal** in offset, which is
+   * the half of the mirror a signed test cannot state.
+   */
+  it("sends offside right of travel and nearside left, the same distance", () => {
+    for (const style of STYLES) {
+      for (let n = 1; n <= 8; n++) {
+        const lanes = defaults(n);
+        const off = alignmentReading(lanes, style, "offside");
+        const near = alignmentReading(lanes, style, "nearside");
+
+        expect(off.side).toBe("right");
+        expect(near.side).toBe("left");
+        expect(near.offset).toBe(off.offset);
+      }
+    }
+  });
+
+  /** The magnitude is the shift's, so the panel cannot drift from the drawing. */
+  it("reports the shift's own magnitude, which is the lane region's half-span", () => {
+    for (const style of STYLES) {
+      for (let n = 1; n <= 8; n++) {
+        const lanes = defaults(n);
+        for (const align of ALIGNMENTS) {
+          const { offset } = alignmentReading(lanes, style, align);
+
+          expect(offset).toBe(Math.abs(alignmentShift(lanes, style, align)));
+          expect(offset).toBeGreaterThanOrEqual(0);
+        }
+        expect(alignmentReading(lanes, style, "offside").offset).toBe(
+          (roadWidth(lanes, style) - ROAD_MARGIN) / 2,
+        );
+      }
+    }
+  });
+
+  /**
+   * A road whose lane region has no width has not moved, whichever edge it
+   * claims to hold — so it reads `on`, not a side. Reading the **shift** rather
+   * than the enum is what gets that right, and `nearside` is the case that
+   * needs it: it negates the zero, and `-0` must not fall through to `left`.
+   *
+   * An *empty* lane array is not this case — it is one default lane everywhere
+   * in this file, so it shifts `4.5` like the road it stands for. Only a lane
+   * of literally zero width gets here, which no control can author; the test
+   * exists because the branch does.
+   */
+  it("says a road that has not moved is on the line, whatever it claims", () => {
+    for (const align of ALIGNMENTS) {
+      expect(alignmentReading(widths(0), DEFAULT_LINK_STYLE, align)).toEqual({
+        side: "on",
+        offset: 0,
+      });
+    }
+    expect(
+      Object.is(alignmentShift(widths(0), DEFAULT_LINK_STYLE, "nearside"), -0),
+    ).toBe(true);
+    // And the empty array really is the ordinary road, not this one.
+    expect(alignmentReading([], DEFAULT_LINK_STYLE, "nearside").side).toBe("left");
   });
 });
 
