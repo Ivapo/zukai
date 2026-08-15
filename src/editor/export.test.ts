@@ -617,6 +617,20 @@ describe("gores in an exported file", () => {
   });
 
   /**
+   * `stroke-linecap` is a property of the **whole path**, so a gore arm stops
+   * being domed at its *far* end too — named rather than discovered (§2.4
+   * recorded the same consequence for a taper, and calls a flat free end the
+   * better schematic reading). `gored()`'s `N1` is exactly such an end: L1 is a
+   * default-class 4-lane link aligned `offside`, so its lane region hangs 18
+   * below its polyline and the casing draws `M 0 18 L 120 18`.
+   */
+  it("flattens a gore arm's far end too, a cap being a whole-path property", () => {
+    expect(diagramInner(gored())).toContain(
+      '<path class="road-casing road-casing--butt" d="M 0 18 L 120 18"',
+    );
+  });
+
+  /**
    * Same conclusion as the wedge, and for the same reason: a gore is fill
    * geometry inside the measured `<g>`, so `getBBox` already has it. The one
    * wrinkle is that its points are in the glyph's own translated frame, which is

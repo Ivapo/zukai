@@ -1259,6 +1259,21 @@ describe("gores", () => {
     return m.slice(1, 4).map((p) => p.split(",").map(Number) as [number, number]);
   }
 
+  /**
+   * **Three, not two, and the count is the phase.** A gore's legs are literal
+   * continuations of the two roads' edge lines, so a round cap crossing one
+   * crosses a line drawn to be continuous — the defect §2.4 already removed one
+   * node type along. Keying the rule to `gorePair` instead lands on **two**, and
+   * it is the one wrong answer that looks right: the arm it leaves out here is
+   * the 4-lane approach, the *widest* road at the node and so the largest cap of
+   * the three, painting to `y = 37.5` against a mainline edge line at `27`.
+   */
+  it("butt-caps every arm of a gore, not just the two the triangle uses", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={exit()} />);
+
+    expect(svg.match(/road-casing road-casing--butt/g)).toHaveLength(3);
+  });
+
   /** A gore is the paint *between* two arms, so there is nothing to pad. */
   it("draws no junction pad at all", () => {
     const svg = renderToStaticMarkup(<Diagram doc={exit()} />);

@@ -497,7 +497,8 @@ interface Taper {
 
 /**
  * Every taper wedge in the document, and the links whose casing must be
- * butt-capped because of one.
+ * butt-capped — by a wedge at a through joint, or by a `gore` glyph at the node
+ * they meet. The cap has two owners and one set.
  *
  * A **through joint** is a node with exactly two incident links, one ending
  * there and one starting there — three or more is a junction or a gore, not a
@@ -512,6 +513,13 @@ interface Taper {
  * (`N1→N2`, `N2→N3` with N3 placed back beside N1) is not a twin, yet its frames
  * oppose; and a twin whose bends leave the node the other way passes the bend
  * guard. Both are preconditions (§2.4).
+ *
+ * A **gore** caps for the wedge's own reason and by a different rule: its legs
+ * are literal continuations of the two roads' edge lines, so a round cap
+ * crossing one crosses a line drawn to be continuous. Keyed to the **glyph**,
+ * not to the pair `gorePair` picks — that runs inside `GoreShape`, downstream of
+ * here, and at §1's exit the largest of the three caps is on the arm the pair
+ * does *not* choose, the 4-lane approach (§2.11.2).
  */
 function tapers(
   doc: Document,
@@ -524,6 +532,18 @@ function tapers(
     const incident = doc.links.filter(
       (l) => l.from_node === node.id || l.to_node === node.id,
     );
+    // Before the through-joint test, not after: a gore node has three incident
+    // links, so a check placed below the early return would fire only on
+    // two-link gores. Two tests and not one — the node layer reads
+    // `layout.junctions` only inside its junction branch, and a hand-edited
+    // `.zkai` can leave a stale view behind on a node that is no longer one.
+    if (
+      node.type === "junction" &&
+      doc.layout.junctions[node.id]?.glyph === "gore"
+    ) {
+      for (const l of incident) butt.add(l.id);
+    }
+
     if (incident.length !== 2) continue;
     // A self-loop is excluded by asking for the *other* end to be elsewhere.
     const into = incident.find(
