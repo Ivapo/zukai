@@ -50,7 +50,7 @@ phases:
     by: null
   - name: "Phase 9 — The panel says which side the lanes hang on"
     reviewed: 2026-08-14
-    shipped: null
+    shipped: 2026-08-14
     cut: null
     by: null
 
@@ -1201,15 +1201,19 @@ grow for one case.
   confirms the reading §2.10.2 claimed: the four-dot row reads as one road end per
   carriageway.** What it also exposes is OQ-10's question in a sharper form — see
   there.
-- **OQ-5 — TAKEN 2026-08-11 by §2.11.3 and Phase 9: keep it explicit, and make the
-  state legible.** ~~Could alignment be derived instead of set?~~ The revisit
+- **OQ-5 — RESOLVED 2026-08-14 by Phase 9, as §2.11.3 proposed: kept explicit, with
+  the state made legible.** ~~Could alignment be derived instead of set?~~ The revisit
   condition this question set was *tedium*, and the printed figure produced a
   different and better reason to look again: the wrong pick draws **a ramp through
   a motorway** (§2.11's panel A) while every assertion passes, because each road is
   individually correct. Deriving it was weighed on that evidence and declined — for
   this question's own recorded cost, a side that flips when a node is dragged past
   the mainline. The Inspector states which side the lane region sits on instead.
-  **Open until Phase 9 ships.** The original text follows.
+  ~~Open until Phase 9 ships.~~ **Shipped, and the dev pass confirms the frame
+  decision was the load-bearing one**: an eastbound and a westbound road both set
+  `offside` both read `right of travel, 18 off the line`, with the asphalt below its
+  polyline on the first and above it on the second. A screen-frame readout says the
+  same word twice there and is wrong once. The original text follows.
   At a joint with a
   ramp leaving on one side, the side the lane is dropped on is arguably readable
   from the ramp's own direction. That would remove a control, at the cost of a
@@ -2005,3 +2009,20 @@ picture it prevents is a ramp drawn through a motorway.*
   rule is falsified**, which is the dividend of keeping the derivation out of the
   panel: `rules/canvas-interaction.md`, `rules/signs.md` and `rules/road-markings.md`
   each state there is no Inspector test file, and each stays true.
+- **As built (2026-08-14).** 493 vitest (up 5), `cargo test` unchanged at 69; no
+  model change, no action, no Rust, no CSS. Three departures from the plan, each
+  found by building it:
+  - **The readout's label is `Lane region`, not the mock's `Lanes`** (taken by the
+    user). The panel has carried a `<Field label="Lanes">` for the lane-count stepper
+    since long before this phase, so §2.11.3's mock read literally puts two rows of
+    that name in one panel. `Lane region` is the term this section's own prose and
+    `rules/road-rendering.md` already use for the measured thing.
+  - **An empty `lanes` array is *one default lane*, not a zero-width road**, which
+    `rules/road-rendering.md` has recorded since the road spec and this phase's author
+    still got wrong: it shifts `4.5`, not `0`. So `on the line` is reachable only
+    through `centre` or a lane of literally zero width, which no control can author.
+    The doc comment claiming otherwise was corrected before it shipped.
+  - **The `shift === 0` branch is pinned after all.** The gate expected branching on
+    `align === "centre"` instead to go green — a judgement no test could hold. The
+    zero-width-lane case written *because* of the correction above catches it, so all
+    three mutations fail exactly one assertion each.

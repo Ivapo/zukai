@@ -18,7 +18,7 @@ covers: >
   the route a road turns through, lane kinds and the hatch, the painted
   centreline, and the length a link states
 max_lines: 272
-generated: 2026-08-10
+generated: 2026-08-14
 ---
 
 # Road rendering
@@ -34,21 +34,19 @@ there is who chose it, everything here being derived from the model.
 
 ## The rule the whole subsystem follows
 
-**The model already describes the road; the renderer's job is to stop ignoring
-it.** Almost every quantity below comes from a field the document already carried
-— `Lane.width`, `Lane.kind`, `Link.median_gap`, `LinkView.style`. When something
-looks wrong, the first question is which field is not being read, not which
-constant to tune. `LinkView.align` is the one thing genuinely added *to draw the
-road*: nothing in the model distinguishes "4 lanes becomes 3 by losing the
-nearside lane" from "…the offside lane", since `Link` carries an ordered `lanes`
-array and no statement about how two links' lanes correspond across a shared
-node. Which side a lane goes is a drawing decision, so it is a **presentation**
-field.
+**The model already describes the road; the renderer's job is to stop ignoring it.**
+Almost every quantity below comes from a field the document already carried —
+`Lane.width`, `Lane.kind`, `Link.median_gap`, `LinkView.style`. When something looks
+wrong, the first question is which field is not being read, not which constant to
+tune. `LinkView.align` is the one thing genuinely added *to draw the road*: nothing in
+the model distinguishes "4 lanes becomes 3 by losing the nearside lane" from "…the
+offside lane", since `Link` carries an ordered `lanes` array and no statement about how
+two links' lanes correspond across a shared node. Which side a lane goes is a drawing
+decision, so it is a **presentation** field.
 
-`Link.length` is the instructive contrast and the subsystem's one **semantic**
-addition — a fact about the road rather than a drawing decision, so it lives in
-`graph.rs` and drives nothing about the road's geometry at all (its own section is
-below).
+`Link.length` is the instructive contrast and the subsystem's one **semantic** addition
+— a fact about the road rather than a drawing decision, so it lives in `graph.rs` and
+drives nothing about the road's geometry at all (its own section is below).
 
 ## Lane geometry: one derivation, everything downstream
 
@@ -163,24 +161,27 @@ sum is the whole of what any consumer sees. A link is drawn **centred** unless
 `LinkView.align` says otherwise; aligning to an edge lets two links of different
 widths meet at a node sharing that edge, which is what a lane drop looks like.
 
-- **It is the lane region's half-span, `(roadWidth - ROAD_MARGIN) / 2`.**
-  `ROAD_MARGIN` is the casing lip, so the aligned edge is the outermost painted line.
-  The full width leaves a 1.5-unit casing step at every joint — small enough to read
-  as an antialiasing artefact and never be diagnosed.
+- **It is the lane region's half-span, `(roadWidth - ROAD_MARGIN) / 2`.** `ROAD_MARGIN`
+  is the casing lip, so the aligned edge is the outermost painted line; the full width
+  leaves a 1.5-unit casing step that reads as an antialiasing artefact, never a bug.
 - **The sign follows from lane 0 and is not a choice.** Lane 0 is nearside at the
   most *positive* offset, so an unaligned road's nearside edge is at
   `+(roadWidth - ROAD_MARGIN) / 2`, and holding an edge *on* the polyline means
   shifting by whatever brings it to zero. So `offside` shifts **positive** and an
-  offside-aligned road hangs to the *nearside* of its polyline. A magnitude
-  assertion passes under an inversion — pin the drawn `y`.
-- **Addition, at one site.** The roads and everything at a joint inherit it
-  through `drawnPolyline` (`rules/road-joints.md`), which returns the *same array*
-  when the sum is zero, so a document that set neither emits identical markup.
-- **On a divided road it is per-carriageway.** `carriageways` knows nothing about
-  alignment and the pair's offsets are measured in opposing frames, so aligning one
-  twin moves it relative to the **median** — the halves close up or spread apart,
-  the honest drawing rather than a defect.
-- `centre` is an **absent** `align`, the rule `Lane.kind` follows for `general`.
+  offside-aligned road hangs to the *nearside* of its polyline.
+- **`alignmentReading` states that sign in the panel, in the road's own *travel*
+  frame** — `right`/`left` of travel plus the magnitude in canvas units, never a side
+  of the screen. It is as polyline-blind as the shift and has to be, so `right` is
+  *below* an eastbound road and *above* a westbound one; a bent road has no single
+  "below" at all. Pure, and in `geometry.ts`, because the panel has no test file. A
+  magnitude assertion passes under an inversion — pin the drawn `y`.
+- **Addition, at one site.** The roads and everything at a joint inherit it through
+  `drawnPolyline` (`rules/road-joints.md`), which returns the *same array* when the
+  sum is zero, so a document that set neither emits identical markup — `centre` being
+  an **absent** `align`, the rule `Lane.kind` follows for `general`.
+- **On a divided road it is per-carriageway.** `carriageways` knows nothing of
+  alignment and the pair's offsets are in opposing frames, so aligning one twin moves it
+  relative to the **median** — halves closing up or spreading apart is honest, not a bug.
 
 ## Lane kinds, and what a line means
 
@@ -271,19 +272,18 @@ third arm of `needsText` — `rules/diagram-export.md`.
 ## Where each piece lives
 
 `geometry.ts` owns everything pure — `laneBands`/`laneWidths`, `roadWidth`,
-`classWidthFactor`, `carriageways`, `alignmentShift`,
-`drawnPolyline`/`lateralShift`, `offsetPolyline`/`segmentNormals` and the
-constants (`LANE_PX`, `ROAD_MARGIN`, `UNITS_PER_METRE`, `MIN_ROAD_WIDTH`,
-`DRIVE_SIDE`, `SCHEMATIC_MEDIAN`, `MITER_LIMIT`, `LABEL_GAP`) plus
-`lengthLabel`/`formatLength` and `bendInsertion` — under `geometry.test.ts`;
-`linkPolyline` is `document.ts`'s. `Diagram.tsx` holds `RoadShape`,
-`arrowTriangle`, `HatchPattern`/`hasShoulder`, the derived label layer and the
-`interaction`-gated `BendHandle`, through `renderToStaticMarkup`; the joint shapes
-are `rules/road-joints.md`'s. Paint is `diagram.css`;
-`setLaneKind`/`setLinkLanes`/`setLinkAlign`/`setLinkLength`/`addBend`/`moveBend`
-are `state.ts`; the
-controls are `Inspector.tsx`, chrome CSS in `styles.css` — which is also where
-`user-select: none` sits, so a drag across a text run does not select its glyphs.
+`classWidthFactor`, `carriageways`, `alignmentShift`/`alignmentReading`,
+`drawnPolyline`/`lateralShift`, `offsetPolyline`/`segmentNormals` and the constants
+(`LANE_PX`, `ROAD_MARGIN`, `UNITS_PER_METRE`, `MIN_ROAD_WIDTH`, `DRIVE_SIDE`,
+`SCHEMATIC_MEDIAN`, `MITER_LIMIT`, `LABEL_GAP`) plus `lengthLabel`/`formatLength` and
+`bendInsertion` — under `geometry.test.ts`; `linkPolyline` is `document.ts`'s.
+`Diagram.tsx` holds `RoadShape`, `arrowTriangle`, `HatchPattern`/`hasShoulder`, the
+derived label layer and the `interaction`-gated `BendHandle`, through
+`renderToStaticMarkup`; the joint shapes are `rules/road-joints.md`'s. Paint is
+`diagram.css`; the six link actions (`setLaneKind`, `setLinkLanes`, `setLinkAlign`,
+`setLinkLength`, `addBend`, `moveBend`) are `state.ts`; the controls are
+`Inspector.tsx`, chrome CSS in `styles.css` — which is also where `user-select: none`
+sits, so a drag across a text run does not select its glyphs.
 This rule has **two** model additions, in different layers for different reasons:
 `LinkView.align` in `layout.rs` (presentation) and `Link.length` in `graph.rs`
 (semantic), both mirrored in `types.ts`, the first read through
