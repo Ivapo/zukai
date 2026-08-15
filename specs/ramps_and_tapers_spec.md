@@ -49,7 +49,7 @@ phases:
     cut: null
     by: null
   - name: "Phase 9 — The panel says which side the lanes hang on"
-    reviewed: null
+    reviewed: 2026-08-14
     shipped: null
     cut: null
     by: null
@@ -1088,9 +1088,74 @@ the mainline, so the drawing would change under a gesture that means nothing.
 
 So the Inspector's Alignment control gains a **readout of what the setting does to
 this road**, in the drawing's own terms rather than in the enum's: which side of
-its own polyline the lane region sits on, for this link as drawn. `alignmentShift`
-already returns exactly that number and its sign is pinned (§2.3), so the readout
-is derived from the same function the renderer uses and cannot drift from it.
+its own polyline the lane region sits on, and how far off it.
+`alignmentShift` (`geometry.ts:alignmentShift`) already returns exactly that
+number and its sign is pinned (§2.3), so the readout is derived from the same
+function the renderer uses — via `lateralShift` → `drawnPolyline` — and cannot
+drift from it.
+
+##### The frame is the road's own travel direction, not the screen (decision, recorded)
+
+**Settled by the user, review round 1, 2026-08-14**, because the two are different
+features and the spec had asked for both at once. The readout says:
+
+```
+Alignment    [ centre ][ nearside ][*offside*]
+Lanes        right of travel, 18 off the line
+
+Alignment    [*centre*][ nearside ][ offside ]
+Lanes        on the line
+```
+
+**`centre` is its own sentence rather than the same one with a zero in it** —
+`side: "on"` cannot fill the template ("on of travel, 0 off the line"), so the
+panel branches on it. Both rows are given because the one that reads oddly is the
+one an implementer would otherwise invent.
+
+**The magnitude prints to two decimals with trailing zeros trimmed** — `18`,
+`14.4`, `12.15` — and **not** `toFixed(0)`, which is what the bend `Position`
+readout uses. The precedent is borrowed for the *units*, not for the precision,
+and the two quantities differ: a bend position is a placed coordinate that
+`zk-014` Phase 3 snaps to a 36-unit grid, while a lane region's half-span is
+fractional by construction (a 4-lane ramp is `14.4`, a 3-lane local `12.15`).
+Rounding those to `14` and `12` would print a number the drawing does not use.
+
+`right`/`left` **of travel**, plus the magnitude in canvas units — never `below`/
+`above`, and never the enum's own `nearside`/`offside`, which name the *setting*
+and would appear in the readout attached to the opposite referent ("offside → lanes
+hang nearside") for a reader to untangle. Three things decide it:
+
+- **`alignmentShift` is direction-blind** — its parameters are
+  `(lanes, style, align)` and it never sees a polyline, so it cannot answer a
+  screen-frame question at all. A `below`/`above` readout needs the drawn
+  direction, which is geometry this phase would otherwise not touch, and the "no
+  geometry, no new action" claim below would stop being true.
+- **A bent road has no single `below`.** Since `zk-014` a link carries `bends`, and
+  its segments face different ways; `right of travel` is one answer for the whole
+  road, which is the property a readout needs.
+- **The picture already states the travel direction** — `RoadShape` draws an arrow
+  head at the link's far end — so the reader converts `right of travel` to a side
+  of the screen by looking, which is the step the frame is for.
+
+**The magnitude is canvas units and is named as such**, on the precedent the panel
+already sets for the one other quantity of this kind: the bend `Position` readout
+(`Inspector.tsx`, the `selection.kind === "bend"` arm) carries a comment declaring
+exactly that, because "this is a position in the drawing, which is the one quantity
+in this panel that is not a claim about the world. A link's Length is the claim;
+this is the picture." Alignment is the picture too.
+
+##### The derivation is a pure function, because the panel is the one untested surface
+
+`alignmentReading(lanes, style, align)` goes in `geometry.ts` beside
+`alignmentShift`, returning `{ side: "left" | "right" | "on"; offset: number }`;
+the Inspector renders it and decides nothing. This is not tidiness — **this repo
+has no `Inspector.test.tsx` and that is a standing property, recorded in three
+rules** (`rules/canvas-interaction.md`, `rules/signs.md`, `rules/road-markings.md`,
+each naming the panel as a `bun run dev` check). A readout computed inline is
+therefore a readout no test can read, and this phase's whole point is that the
+mirror it states must not itself be mirrored. Extracting it is the corpus's own
+precedent — `turnArrowKind` was lifted out of the panel for exactly this reason —
+and it keeps all three rules true rather than falsifying them.
 
 **This phase's output is a panel, so it owes the explicit argument `CLAUDE.md`
 demands.** It produces no picture. It exists because the picture it prevents is
@@ -1878,22 +1943,65 @@ the point where the ramp leaves it.*
 
 ### Phase 9 — The panel says which side the lanes hang on  (added 2026-08-11)
 
-Added by the third reopening (§2.11.3), and the phase that **produces no picture**
-— §2.11.3 carries its explicit argument, as `CLAUDE.md` requires. Depends on
-Phase 2, which shipped `LinkAlign`. **Not yet reviewed (§7).**
+Added by the third reopening (§2.11.3). Depends on Phase 2, which shipped
+`LinkAlign`.
+
+*Produces the observable: **no** — and §2.11.3 carries the explicit argument
+`CLAUDE.md` requires for a phase whose output is a panel. It exists because the
+picture it prevents is a ramp drawn through a motorway.*
 
 - **Scope:** the Inspector's Alignment control gains a readout of what the current
-  setting does to *this* road: which side of its own polyline the lane region sits
-  on, and by how much. Derived from `alignmentShift` — the same function the
-  renderer uses, so the readout cannot drift from the drawing. **No model change,
-  no new action, no geometry, no Rust.**
-- **Exit gate:** `bun run build` + `bun run test` + `cargo test` green.
-  - The readout's **sign is asserted against the drawing**, not against the enum:
-    for a 4-lane eastbound link the `offside` reading must agree with the `y` the
-    road is actually drawn at (§2.3's pinned direction, the trap this spec hit
-    repeatedly). A test that only checks the words passes under an inversion.
-  - `centre` reads as no offset, and the two others are exact negations.
+  setting does to *this* road — `right`/`left` **of travel** plus the magnitude in
+  canvas units, per §2.11.3's frame decision. Two sites:
+  - a new `alignmentReading` in `src/editor/geometry.ts`, beside
+    `geometry.ts:alignmentShift`:
+    `(lanes, style, align) → { side: "left" | "right" | "on"; offset: number }`,
+    where `side` is the sign of `alignmentShift` and `offset` its magnitude.
+    Direction-blind, exactly as `alignmentShift` is.
+  - `src/components/Inspector.tsx`, the `<Field label="Alignment">` block in the
+    link arm: one added `<Field>` rendering that value through the existing
+    `.readout` class. The panel imports `linkAlign`/`linkStyle` already and
+    computes nothing.
+  - **No model change, no new action, no geometry beyond the new pure function,
+    and no Rust.** `LinkAlign` and `LinkView.align` shipped in Phase 2.
+- **Exit gate:** `bun run build` + `bun run test` + `cargo test` green, **488
+  vitest** and **`cargo test` 69** as Phase 8 left them, moving only by the tests
+  this phase adds.
+  - The reading's **side is asserted against the drawing**, not against the enum,
+    and this is the phase's one load-bearing assertion. For the shipped 4-lane
+    eastbound fixture (`Diagram.test.tsx:aligned`, "a 4-lane arterial drawn due
+    east from the origin") the `offside` reading is `{ side: "right", offset: 18 }`
+    and that document's casing is drawn at `d="M 0 18 L 120 18"`, with `nearside`
+    mirroring to `-18` — so the test asserts the reading's
+    side against the **sign of that `y`** and its offset against the **magnitude**,
+    rather than against the word `offside`. A test keyed to the words passes under
+    an inversion, which is the trap this spec hit repeatedly (§2.3). **That
+    side-equals-sign-of-`y` equivalence is fixture-scoped**, true because `aligned`
+    runs due east; it is a cross-check, never a rule, and it cannot reach the
+    implementation, which takes `side` from `alignmentShift` and never sees a
+    polyline. The dev pass's westbound leg is what covers the general case.
+  - **That one assertion lives in `Diagram.test.tsx`, beside the fixture**, while
+    `alignmentReading`'s own tests go in `geometry.test.ts`. The split is forced
+    rather than chosen: `aligned` is module-private to `describe("link alignment")`,
+    and `geometry.test.ts` is a `.ts` file that cannot render `<Diagram>`.
+  - **`centre` reads `{ side: "on", offset: 0 }`, and `nearside` is `right`'s exact
+    mirror in side and equal in offset.** Stated as a claim about
+    `alignmentReading` and **not** about `alignmentShift`: `geometry.test.ts`
+    already pins `centre → 0` and `nearside === -offside` on the *shift* and has
+    since Phase 2, so an item phrased on the shift is green before this phase
+    starts and tests nothing it builds.
+  - **`alignmentReading` is tested in `geometry.test.ts`; no `Inspector.test.tsx`
+    is created.** The panel stays the one surface with no test file — a standing
+    property of this repo, recorded in three rules — which is why §2.11.3 puts the
+    derivation in a pure function rather than inline in the panel.
   - A `bun run dev` pass: set each alignment on a real road and confirm the
-    readout matches which way the asphalt moved.
-- **Docs touched:** `rules/road-rendering.md` if it documents the control; this
-  spec's **OQ-5**, which becomes resolved; the project-memory roadmap.
+    readout matches which way the asphalt moved, on a road drawn **westbound** as
+    well as eastbound — the case that tells a travel-frame readout from a
+    screen-frame one, and the only one the pure test cannot see.
+- **Docs touched:** `rules/road-rendering.md`, whose Alignment section documents
+  the **field and its sign** rather than the control — it gains the reading and its
+  frame, and sits at exactly **272/272**, so trade prose rather than add; this
+  spec's **OQ-5**, which becomes resolved; and the project-memory roadmap. **No
+  rule is falsified**, which is the dividend of keeping the derivation out of the
+  panel: `rules/canvas-interaction.md`, `rules/signs.md` and `rules/road-markings.md`
+  each state there is no Inspector test file, and each stays true.
