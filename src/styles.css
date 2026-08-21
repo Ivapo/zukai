@@ -19,6 +19,7 @@
 
   --chrome-text: #e2e7eb;
   --chrome-dim: #8b96a1;
+  --alert: #e8837a;
 
   --radius: 7px;
 
@@ -664,7 +665,7 @@ body {
   padding: 9px;
   border: 1px solid var(--line);
   background: transparent;
-  color: #e8837a;
+  color: var(--alert);
   border-radius: var(--radius);
   font-family: inherit;
   font-size: 13px;
@@ -675,7 +676,56 @@ body {
 
 .danger:hover {
   background: rgba(232, 131, 122, 0.12);
-  border-color: #e8837a;
+  border-color: var(--alert);
+}
+
+
+/* ----- error banner -----
+   The browser build's only way to say something went wrong: the desktop has a
+   native dialog and a browser tab has nothing, so a console line would be the
+   whole of it (`specs/web_demo_spec.md` §2.7). Chrome, so it lives here and
+   never in `styles/diagram.css` — anything in that file travels inside every
+   exported picture. */
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 14px;
+  background: var(--desk-2);
+  border-bottom: 1px solid var(--line);
+  border-left: 3px solid var(--alert);
+  color: var(--chrome-text);
+  font-size: 13px;
+}
+
+.banner-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.banner-text strong {
+  color: var(--alert);
+  font-weight: 600;
+}
+
+.banner-dismiss {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--chrome-dim);
+  border-radius: var(--radius);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.banner-dismiss:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--chrome-text);
 }
 
 /* ----- empty state ----- */

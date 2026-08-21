@@ -1,4 +1,6 @@
+import { isTauri } from "@tauri-apps/api/core";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { Banner } from "./components/Banner";
 import { Canvas } from "./components/Canvas";
 import { Inspector } from "./components/Inspector";
 import { FileActions, Toolbar } from "./components/Toolbar";
@@ -45,8 +47,10 @@ function App() {
       onSaveAs: () => void saveDocumentAs(stateRef.current, dispatch),
       // No `dispatch`: writing a picture changes nothing about the document.
       onExport: () => void exportDiagram(stateRef.current),
-      // Menu-only, so no case in the keydown handler below.
       onImport: () => void importNetwork(stateRef.current, dispatch),
+      // The browser's two: a download has no dialog to pick a format in.
+      onExportSvg: () => void exportDiagram(stateRef.current, "svg"),
+      onExportPng: () => void exportDiagram(stateRef.current, "png"),
     }),
     [],
   );
@@ -114,7 +118,11 @@ function App() {
             break;
           case "e":
             e.preventDefault();
-            files.onExport();
+            // The desktop's one command asks a dialog; the browser has no
+            // dialog, so Shift is what picks the raster.
+            if (isTauri()) files.onExport();
+            else if (e.shiftKey) files.onExportPng();
+            else files.onExportSvg();
             break;
           case "z":
             e.preventDefault();
@@ -150,6 +158,7 @@ function App() {
   return (
     <div className="app">
       <Toolbar state={state} dispatch={dispatch} files={files} />
+      <Banner />
       <div className="workspace">
         <Canvas state={state} dispatch={dispatch} />
         <Inspector state={state} dispatch={dispatch} />

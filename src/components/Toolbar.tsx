@@ -1,25 +1,29 @@
 /** Top control bar: wordmark, file commands, tool selection, and zoom readout. */
 
+import { isTauri } from "@tauri-apps/api/core";
 import type { ReactNode } from "react";
 import { clampZoom } from "../editor/geometry";
 import { Action, EditorState, Tool } from "../editor/state";
 import { fileLabel } from "../model/document";
 
 /**
- * The file commands, wired to the dialog/IPC glue by `App`.
+ * The file commands, wired to the host glue by `App`.
  *
- * The shared command surface, of which {@link FILE_COMMANDS} — the toolbar row —
- * is deliberately a *subset*: `onImport` reads a foreign format and lives in the
- * File menu only, so the five everyday commands keep the toolbar to themselves.
+ * The shared command surface, of which each toolbar row is deliberately a
+ * *subset* — see {@link fileCommands}.
  */
 export interface FileActions {
   onNew: () => void;
   onOpen: () => void;
   onSave: () => void;
   onSaveAs: () => void;
+  /** The desktop's one dialog-driven Export…; the name chooses the format. */
   onExport: () => void;
-  /** Import an Assimilator `network.yaml`; menu-only, no toolbar button. */
+  /** Import an Assimilator `network.yaml`. */
   onImport: () => void;
+  /** The browser's two explicit Export commands: a download has no dialog. */
+  onExportSvg: () => void;
+  onExportPng: () => void;
 }
 
 interface ToolbarProps {
@@ -42,15 +46,48 @@ const MAC =
 const MOD = MAC ? "⌘" : "Ctrl+";
 const SHIFT_MOD = MAC ? "⇧⌘" : "Ctrl+Shift+";
 
-/** The toolbar's file buttons: the everyday five, each with an accelerator. */
-const FILE_COMMANDS: { label: string; hint: string; key: keyof FileActions }[] =
-  [
-    { label: "New", hint: `${MOD}N`, key: "onNew" },
-    { label: "Open…", hint: `${MOD}O`, key: "onOpen" },
-    { label: "Save", hint: `${MOD}S`, key: "onSave" },
-    { label: "Save As…", hint: `${SHIFT_MOD}S`, key: "onSaveAs" },
-    { label: "Export…", hint: `${MOD}E`, key: "onExport" },
-  ];
+interface FileCommand {
+  label: string;
+  /** The accelerator, for the tooltip. Absent where the command has none. */
+  hint?: string;
+  key: keyof FileActions;
+}
+
+/** The desktop's row: the everyday five, each with an accelerator. */
+const DESKTOP_COMMANDS: FileCommand[] = [
+  { label: "New", hint: `${MOD}N`, key: "onNew" },
+  { label: "Open…", hint: `${MOD}O`, key: "onOpen" },
+  { label: "Save", hint: `${MOD}S`, key: "onSave" },
+  { label: "Save As…", hint: `${SHIFT_MOD}S`, key: "onSaveAs" },
+  { label: "Export…", hint: `${MOD}E`, key: "onExport" },
+];
+
+/**
+ * The browser's row. It differs in two ways, both forced rather than chosen.
+ * Export splits, because a download has no dialog to read a format off a name
+ * (`specs/web_demo_spec.md` §2.7). And Import earns a button, because there is
+ * no native menu to reach it from — the toolbar is the whole command surface
+ * here.
+ */
+const BROWSER_COMMANDS: FileCommand[] = [
+  { label: "New", hint: `${MOD}N`, key: "onNew" },
+  { label: "Open…", hint: `${MOD}O`, key: "onOpen" },
+  { label: "Save", hint: `${MOD}S`, key: "onSave" },
+  { label: "Save As…", hint: `${SHIFT_MOD}S`, key: "onSaveAs" },
+  { label: "Import…", key: "onImport" },
+  { label: "Export SVG", hint: `${MOD}E`, key: "onExportSvg" },
+  { label: "Export PNG", hint: `${SHIFT_MOD}E`, key: "onExportPng" },
+];
+
+/**
+ * Which row this host shows. Read synchronously at render: `App`'s
+ * `menuInstalled` only turns true once `installMenu` resolves over IPC, so a row
+ * gated on that would show the browser's shape for the first frames of a desktop
+ * launch.
+ */
+function fileCommands(): FileCommand[] {
+  return isTauri() ? DESKTOP_COMMANDS : BROWSER_COMMANDS;
+}
 
 export function Toolbar({ state, dispatch, files }: ToolbarProps) {
   const { tool, view } = state;
@@ -68,11 +105,15 @@ export function Toolbar({ state, dispatch, files }: ToolbarProps) {
         </span>
 
         <div className="file-actions">
-          {FILE_COMMANDS.map((c) => (
+          {fileCommands().map((c) => (
             <button
               key={c.label}
               className="file-btn"
-              title={`${c.label.replace("…", "")} (${c.hint})`}
+              title={
+                c.hint
+                  ? `${c.label.replace("…", "")} (${c.hint})`
+                  : c.label.replace("…", "")
+              }
               onClick={files[c.key]}
             >
               {c.label}
