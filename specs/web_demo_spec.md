@@ -5,12 +5,12 @@ note: >
   Publish Zukai on the web — the editor running in a browser tab with no Rust
   toolchain, and a landing page made of the diagrams it draws.
 status: accepted
-last_updated: 2026-08-20
+last_updated: 2026-08-21
 
 phases:
   - name: "Phase 1 — The host seam, and the file commands working in a browser"
     reviewed: 2026-08-20
-    shipped: null
+    shipped: 2026-08-21
     cut: null
     by: null
   - name: "Phase 2 — The wasm core: import and `.zkai` inside the tab"
@@ -130,7 +130,7 @@ commands the seam is marked in two and open in seven.
 Three things behave differently in a browser:
 
 - **The command buttons already exist — they just fail.**
-  `Toolbar.tsx:FILE_COMMANDS` renders New, Open…, Save, Save As… and Export…
+  `Toolbar.tsx:fileCommands` renders New, Open…, Save, Save As… and Export…
   unconditionally, and `rules/persistence.md` names that row as one of the
   three trigger surfaces. The native menu is *not* the only way to reach the
   file commands; it is the only way to reach `onImport` (whose own comment

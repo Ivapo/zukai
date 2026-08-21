@@ -4,6 +4,9 @@ sources:
   - src/App.tsx
   - src/components/Toolbar.tsx
   - src/editor/files.ts
+  - src/editor/host.ts
+  - src/editor/host-browser.ts
+  - src/editor/host-tauri.ts
   - src/editor/menu.ts
   - src/editor/state.ts
   - src/model/document.ts
@@ -14,10 +17,10 @@ sources:
 covers: >
   the .zkai save/open path end to end — trigger, dialog and IPC, Rust commands,
   the version probe and the one migration arm, reducer, the
-  normalize-at-one-boundary rule, the close guard — plus the JS-built native menu
-  and how recents are stored and pruned
-max_lines: 122
-generated: 2026-08-08
+  normalize-at-one-boundary rule, the close guard — plus the JS-built native
+  menu, how recents are stored and pruned, and which of it survives in a browser
+max_lines: 132
+generated: 2026-08-21
 ---
 
 # Persistence (save / open)
@@ -30,7 +33,7 @@ design rationale lives in `specs/save_load_spec.md`.
 | Step | Where |
 |------|-------|
 | Trigger | Toolbar `.file-actions` buttons (`src/components/Toolbar.tsx`), the native File menu (`src/editor/menu.ts`), and Cmd/Ctrl+N/O/S, Shift for Save As (`src/App.tsx` keydown) — the same three surfaces undo/redo use (`rules/history.md`) |
-| Dialog + IPC | `src/editor/files.ts` — with `menu.ts`, one of only two modules that touch the Tauri runtime |
+| Dialog + IPC | `src/editor/host-tauri.ts`, reached through the `Host` interface — `files.ts` itself names no Tauri (`rules/host-seam.md`) |
 | Commands | `save_document` / `load_document` (`src-tauri/src/persist.rs`), `recent_files` / `push_recent_file` (`src-tauri/src/recent.rs`), all registered in `src-tauri/src/lib.rs` — whose handler list also still carries the Tauri template's unused `greet` |
 | Apply | `loadDocument` / `importDocument` / `newDocument` / `markSaved` / `setRecents` reducer cases (`src/editor/state.ts`) |
 | Normalize | `normalizeDocument` (`src/model/document.ts`), applied only in the reducer's document-install cases (`loadDocument`, `importDocument`) |
@@ -122,12 +125,11 @@ one.
   Removing the pair takes two `removeAt(0)`; it is the only place the menu code
   removes anything, and it runs before `setAsAppMenu()` so a throw leaves nothing
   half-installed.
-- **The menu carries one command the toolbar does not.** `FileActions`
-  (`Toolbar.tsx`) is the shared surface; `FILE_COMMANDS`, the toolbar row, is a
-  deliberate subset of it. Import network… sits below a separator, has no
-  accelerator, and so needs no case in `App.tsx`'s keydown handler — under plain
-  `bun run dev` there is no way to reach it, which is fine, since its dialog needs
-  the Tauri runtime anyway.
+- **The menu carries one command the desktop toolbar does not.** `FileActions`
+  (`Toolbar.tsx`) is the shared surface; each host's row, from `fileCommands()`,
+  is a deliberate subset of it. Import network… sits below a separator and has no
+  accelerator, so it needs no case in `App.tsx`'s keydown handler. The *browser*
+  row gives it a button instead, because there is no menu there to reach it from.
 - Zukai's commands go into Tauri's own File submenu (found by title) with
   **`insert` at position 0, never `prepend`**: the plugin's prepend puts *each*
   item of a batch at 0, reversing it, while insert advances the position. The
@@ -140,3 +142,13 @@ one.
   prunes paths that no longer exist and writes the pruned list back. The list is
   best-effort: a missing or malformed store reads as empty and `rememberRecent`
   swallows its errors, because a failed write must not fail a successful save.
+
+## None of this exists on a browser host
+
+Save and open both need the serde codec that defines the on-disk shape, and a
+second JavaScript encoder would drift from it — so on the browser host `open`,
+`read` and `save` throw "not available yet" and surface as an in-page banner
+(`rules/host-seam.md`). **Recents are absent by decision**, not by omission:
+`recents()` answers `[]`, `state.recents` stays empty, and no Open Recent surface
+appears. Dirty tracking, the close guard and `newDocument` all work — the guard
+through `beforeunload` rather than `onCloseRequested`.

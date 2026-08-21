@@ -7,17 +7,21 @@ sources:
   - src/components/Toolbar.tsx
   - src/editor/export.tsx
   - src/editor/export.test.ts
+  - src/editor/export-target.ts
   - src/editor/files.ts
   - src/editor/fonts.ts
+  - src/editor/host.ts
+  - src/editor/host-browser.ts
+  - src/editor/host-tauri.ts
   - src/editor/menu.ts
   - src/styles/diagram.css
   - src-tauri/src/export.rs
 covers: >
   the SVG/PNG export path: the one render tree and its two consumers, which
-  paint travels inside the file, the pure/DOM/Tauri layers, how bounds and the
+  paint travels inside the file, the pure/DOM/host layers, how bounds and the
   margin are derived, and the self-contained-file constraints that fail silently
-max_lines: 275
-generated: 2026-08-09
+max_lines: 292
+generated: 2026-08-21
 ---
 
 # Diagram export (SVG, PNG)
@@ -83,13 +87,15 @@ one. That rule governs **paint**, which must match between canvas and file; an
 from `@fontsource` (`main.tsx`). What must not drift is the **family name**, and
 that is one constant in `src/editor/fonts.ts`.
 
-## Pure, DOM, Tauri — the three layers
+## Pure, DOM, host — the four layers
 
 | Piece | Where | Needs |
 |---|---|---|
 | `diagramInner`, `diagramSvg`, `strokeAllowance`, `exportFormat` | `export.tsx` | nothing — unit-tested under vitest's node environment |
+| `browserExportTarget`, `exportMime` | `export-target.ts` | nothing — likewise |
 | `measureDiagram`, `rasterizePng` | `export.tsx` | a DOM; both `async` |
-| `exportDiagram` (dialog + `invoke`) | `files.ts` | the Tauri runtime |
+| `exportDiagram` (orchestration) | `files.ts` | a `Host`; names no Tauri |
+| `exportTarget`, `deliverExport` | `host-tauri.ts` / `host-browser.ts` | the Tauri runtime / a `Blob` |
 | `write_text_file`, `write_binary_file` | `src-tauri/src/export.rs`, registered in `lib.rs` | — |
 
 `export.tsx` is **`.tsx`, not `.ts`**: it renders `<Diagram/>`, and `tsc` rejects
@@ -205,6 +211,15 @@ only appends when the basename has no dot. So `drawing` → `drawing.svg`, while
 given**, since `exportFormat` only says `"png"` for a name already ending in it.
 Honour the name the user typed; never write bytes of one format into a file named
 for another. The dialog offers both filters and still proposes `.svg`.
+
+**None of that mechanism exists in a browser**, which has neither dialog nor
+path, so there the format is carried by the *command* — Export SVG and Export PNG
+are two buttons — and `export-target.ts:browserExportTarget` derives the download
+name from `currentPath ?? metadata.name`, reduced to its basename. Both hosts
+still build the picture exactly once and hand the same string to `rasterizePng`,
+so the raster stays that file rendered rather than a second drawing of it. See
+`rules/host-seam.md` for the `ExportTarget` contract, and why `destination` must
+never be re-derived by the other host.
 
 ## Triggers
 

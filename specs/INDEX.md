@@ -30,5 +30,5 @@
   The junction pad follows the roads that meet at it, instead of being a disc — which is what makes a three-arm node read as a T, and what retires the glyph that promised to.
 - **[link-bends](link_bends_spec.md)** — `zk-014` · accepted · done
   A link is drawn as a straight chord between its two nodes and nothing can bend it — so this makes a bend an object a human places, after fixing the offset that would cut its corner, and puts placement on the grid that is already drawn.
-- **[web-demo](web_demo_spec.md)** — `zk-015` · accepted · pending
+- **[web-demo](web_demo_spec.md)** — `zk-015` · accepted · partial
   Publish Zukai on the web — the editor running in a browser tab with no Rust toolchain, and a landing page made of the diagrams it draws.

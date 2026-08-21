@@ -4,20 +4,22 @@
 
 - **[canvas-interaction](canvas-interaction.md)** — generated 2026-08-10 · 6 sources · 190/190 lines
   what the pointer and the keyboard do on the drawing surface: the five tools and what each claims, the five Selection arms and the one with no id, the four drags and the one threshold, how a click becomes a document coordinate, the grid it lands on, and the chrome that exists only here
-- **[diagram-export](diagram-export.md)** — generated 2026-08-09 · 11 sources · 275/275 lines
-  the SVG/PNG export path: the one render tree and its two consumers, which paint travels inside the file, the pure/DOM/Tauri layers, how bounds and the margin are derived, and the self-contained-file constraints that fail silently
+- **[diagram-export](diagram-export.md)** — generated 2026-08-21 · 15 sources · 286/292 lines
+  the SVG/PNG export path: the one render tree and its two consumers, which paint travels inside the file, the pure/DOM/host layers, how bounds and the margin are derived, and the self-contained-file constraints that fail silently
 - **[document-model](document-model.md)** — generated 2026-08-09 · 7 sources · 135/135 lines
   the three parts of a Document and what separates them, the invariants, the Rust-TypeScript mirror discipline and its one instructive exception, and what does and does not move SCHEMA_VERSION
 - **[history](history.md)** — generated 2026-08-10 · 5 sources · 160/160 lines
   the undo/redo snapshot stack in the reducer: the document-identity signal, drag coalescing, the trap where an action deleting nothing must return the same doc, what resets history, and the three trigger surfaces
+- **[host-seam](host-seam.md)** — generated 2026-08-21 · 10 sources · 122/150 lines
+  how the file commands reach the outside world on two hosts — the Host interface and its cancel/throw contract, which capabilities the browser has and which wait for wasm, how a host is chosen and which surfaces vary by it, where an export's filename and MIME are decided, and the in-page error banner
 - **[junctions](junctions.md)** — generated 2026-08-08 · 8 sources · 215/215 lines
   what a junction means rather than what it looks like — control and rule, which layer owns each part, the glyph-versus-control split and its nudge, the two actions, and the one turn vocabulary left in the model
 - **[marking-kinds](marking-kinds.md)** — generated 2026-08-10 · 7 sources · 246/250 lines
   what each of the seven marking kinds paints: the marking layer and its order, the per-kind shapes and their chrome, the turn arrow with its staggered forks and its second head, the lane line and the boundary it replaces, and text and the font it cost
 - **[network-yaml](network-yaml.md)** — generated 2026-08-10 · 6 sources · 313/315 lines
   reading Assimilator's network.yaml: the serde mirror and what earns a place in it, the header and version probe, the scale and the fitted factor that places nodes, the two lane-numbering conventions, what import throws away, the one number it keeps off the polyline, and the turn arrows it mints, and why there is no writer
-- **[persistence](persistence.md)** — generated 2026-08-08 · 10 sources · 121/122 lines
-  the .zkai save/open path end to end — trigger, dialog and IPC, Rust commands, the version probe and the one migration arm, reducer, the normalize-at-one-boundary rule, the close guard — plus the JS-built native menu and how recents are stored and pruned
+- **[persistence](persistence.md)** — generated 2026-08-21 · 13 sources · 130/132 lines
+  the .zkai save/open path end to end — trigger, dialog and IPC, Rust commands, the version probe and the one migration arm, reducer, the normalize-at-one-boundary rule, the close guard — plus the JS-built native menu, how recents are stored and pruned, and which of it survives in a browser
 - **[road-joints](road-joints.md)** — generated 2026-08-14 · 7 sources · 268/268 lines
   what is drawn where links meet a node: the arms and the two radii, the rim three things measure to, the pad that follows the arms inside it, taper wedges at a through joint, the gore between two separating arms — its triangle, its chevrons, and the one derivation that faces them at the driver — the butt cap its two owners share, and the dots that mark a node once per drawn road end, on the canvas only
 - **[road-markings](road-markings.md)** — generated 2026-08-09 · 9 sources · 277/280 lines
