@@ -78,9 +78,18 @@ export function normalizeDocument(raw: RawDocument): Document {
   };
 }
 
+/**
+ * The last segment of a path, under either separator. Windows paths reach the
+ * frontend as readily as POSIX ones — the dialog hands back whatever the host
+ * uses — so the split covers both.
+ */
+export function basename(path: string): string {
+  return path.split(/[\\/]/).pop()!;
+}
+
 /** Display name for the document's backing file: its basename, or "Untitled". */
 export function fileLabel(currentPath: string | null): string {
-  return currentPath ? currentPath.split(/[\\/]/).pop()! : "Untitled";
+  return currentPath ? basename(currentPath) : "Untitled";
 }
 
 /** The extension Zukai documents are saved under. */
@@ -93,8 +102,7 @@ export const ZKAI_EXTENSION = "zkai";
  * asked for it — an export named `drawing.jpg` is written as `drawing.jpg`).
  */
 export function ensureExtension(path: string, ext: string): string {
-  const base = path.split(/[\\/]/).pop() ?? "";
-  return base.includes(".") ? path : `${path}.${ext}`;
+  return basename(path).includes(".") ? path : `${path}.${ext}`;
 }
 
 /** {@link ensureExtension} for the `.zkai` document format. */
@@ -111,7 +119,7 @@ export function ensureZkaiExtension(path: string): string {
  * extension rather than losing its name.
  */
 export function withExtension(path: string, ext: string): string {
-  const start = path.length - (path.split(/[\\/]/).pop() ?? "").length;
+  const start = path.length - basename(path).length;
   const dot = path.lastIndexOf(".");
   // `dot > start` keeps a dotted *directory* and a leading-dot basename alone.
   return `${dot > start ? path.slice(0, dot) : path}.${ext}`;

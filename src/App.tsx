@@ -1,4 +1,3 @@
-import type { UnlistenFn } from "@tauri-apps/api/event";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Canvas } from "./components/Canvas";
 import { Inspector } from "./components/Inspector";
@@ -14,6 +13,7 @@ import {
   saveDocument,
   saveDocumentAs,
 } from "./editor/files";
+import type { Unsubscribe } from "./editor/host";
 import { installMenu } from "./editor/menu";
 import { initialState, reducer, Tool } from "./editor/state";
 import { fileLabel } from "./model/document";
@@ -55,7 +55,7 @@ function App() {
   // stops the window's close button from discarding unsaved work.
   useEffect(() => {
     void refreshRecents(dispatch);
-    let unlisten: UnlistenFn | null = null;
+    let unlisten: Unsubscribe | null = null;
     let unmounted = false;
     void installCloseGuard(() => stateRef.current).then((fn) => {
       if (unmounted) fn?.();

@@ -4,9 +4,9 @@
  * Built from JS rather than Rust so its items call the very same
  * {@link FileActions} the toolbar buttons do — one command surface, no menu-id
  * and event plumbing to keep in sync across the language boundary. With
- * `files.ts` this is one of only two modules that touch the Tauri runtime: under
- * the plain Vite dev server there is no menu at all, `installMenu` reports that
- * it installed nothing, and the webview's keyboard shortcuts stay in charge.
+ * `host-tauri.ts` this is one of only two modules that touch the Tauri runtime:
+ * under the plain Vite dev server there is no menu at all, `installMenu` reports
+ * that it installed nothing, and the webview's keyboard shortcuts stay in charge.
  */
 
 import { isTauri } from "@tauri-apps/api/core";

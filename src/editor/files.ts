@@ -1,56 +1,32 @@
 /**
- * The New / Open / Save / Save As / Export commands: native file dialogs plus
- * the IPC calls to the Rust persistence commands, the recent-files list, and the
- * window's unsaved-changes guard.
+ * The New / Open / Save / Save As / Import / Export commands.
  *
- * With `menu.ts` this is one of only two modules that touch the Tauri runtime,
- * deliberately kept out of the reducer so the *apply* logic
- * (`loadDocument`/`newDocument`/`markSaved`, `normalizeDocument`) stays pure and
- * unit-testable. Dialogs and `invoke` only work under `tauri dev`/a built app —
- * in the plain Vite dev server every command below fails and is reported, rather
- * than throwing into the void.
+ * Every one of them is the same shape: decide what the user wants, ask the
+ * *host* to touch the outside world, then dispatch. The host
+ * (`host.ts`) is what makes them work in a browser tab as well as in the desktop
+ * app — this module names no dialog, no `invoke` and no window, and that is the
+ * property to preserve. It is deliberately kept out of the reducer so the
+ * *apply* logic (`loadDocument`/`newDocument`/`markSaved`, `normalizeDocument`)
+ * stays pure and unit-testable.
+ *
+ * Two conventions the hosts share: a `null` return means the user **cancelled**
+ * and nothing is wrong, while a **throw** is a failure and lands in `report`.
  */
 
-import { invoke, isTauri } from "@tauri-apps/api/core";
-import type { UnlistenFn } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { ask, message, open, save } from "@tauri-apps/plugin-dialog";
-import {
-  ensureExtension,
-  ensureZkaiExtension,
-  RawDocument,
-  withExtension,
-  ZKAI_EXTENSION,
-} from "../model/document";
+import { RawDocument } from "../model/document";
 import {
   diagramSvg,
-  exportFormat,
+  ExportFormat,
   measureDiagram,
   PNG_SCALE,
   rasterizePng,
 } from "./export";
+import { host, Unsubscribe } from "./host";
 import { Action, EditorState } from "./state";
 
 type Dispatch = (action: Action) => void;
 
-const FILTERS = [{ name: "Zukai schematic", extensions: [ZKAI_EXTENSION] }];
-
-/**
- * Assimilator's format, and the reason Open and Import can share a dialog
- * without sharing a filter: pointing one at the other's file is the obvious user
- * error, and the extension is what heads it off — neither reader sniffs content.
- */
-const NETWORK_FILTERS = [
-  { name: "Assimilator network", extensions: ["yaml", "yml"] },
-];
-
-/** Image formats the export dialog offers; the chosen extension picks between them. */
-const EXPORT_FILTERS = [
-  { name: "SVG image", extensions: ["svg"] },
-  { name: "PNG image", extensions: ["png"] },
-];
-
-/** Discard the current document for a fresh one, guarding unsaved changes. */
+/** Start again, after checking there is nothing to lose. */
 export async function newDocument(
   state: EditorState,
   dispatch: Dispatch,
@@ -62,59 +38,55 @@ export async function newDocument(
   }
 }
 
-/** Pick a `.zkai` file and load it, guarding unsaved changes. */
+/** Pick a `.zkai` and load it, after checking there is nothing to lose. */
 export async function openDocument(
   state: EditorState,
   dispatch: Dispatch,
 ): Promise<void> {
   try {
+    // Before the prompt, not after: a host that cannot open anything must not
+    // make the user answer a discard question first. The call throws, and the
+    // catch below turns that into the banner.
+    if (!host().canOpenDocuments) {
+      await host().open();
+      return;
+    }
     if (!(await confirmDiscard(state))) return;
-    const path = await open({
-      title: "Open schematic",
-      multiple: false,
-      directory: false,
-      filters: FILTERS,
-    });
-    if (path === null) return;
-    await load(path, dispatch);
+    const opened = await host().open();
+    if (opened === null) return;
+    await install(opened.doc, opened.path, dispatch);
   } catch (err) {
     await report("Couldn't open the file", err);
   }
 }
 
 /**
- * Pick an Assimilator `network.yaml` and import it as the current document,
- * guarding unsaved changes exactly as Open does.
+ * Import an Assimilator `network.yaml` as a new document.
  *
- * Two things differ from {@link openDocument}, and both follow from the file
- * belonging to another program. The document arrives **dirty and pathless** (the
- * `importDocument` action), so Save asks for a `.zkai` rather than writing a
- * schematic back over Assimilator's network. And the path is **not remembered**:
- * "Open Recent" opens through `load_document`, which reads `.zkai`, so a
- * `network.yaml` in that list would be an entry that can only ever fail.
+ * The result arrives **dirty and pathless** (`importDocument`, not
+ * `loadDocument`): it is a fresh schematic derived from someone else's file, not
+ * a Zukai document that lives at that path, so Save must ask where to put it.
+ * The network's path is deliberately not pushed to recents for the same reason.
  */
 export async function importNetwork(
   state: EditorState,
   dispatch: Dispatch,
 ): Promise<void> {
   try {
+    if (!host().canOpenDocuments) {
+      await host().importNetwork();
+      return;
+    }
     if (!(await confirmDiscard(state))) return;
-    const path = await open({
-      title: "Import network",
-      multiple: false,
-      directory: false,
-      filters: NETWORK_FILTERS,
-    });
-    if (path === null) return;
-    // Raw, like `load`: the reducer is the one place that normalizes.
-    const doc = await invoke<RawDocument>("import_network", { path });
+    const doc = await host().importNetwork();
+    if (doc === null) return;
     dispatch({ type: "importDocument", doc });
   } catch (err) {
     await report("Couldn't import the network", err);
   }
 }
 
-/** Open a remembered path from the menu's recent list, skipping the picker. */
+/** Open a remembered file, after checking there is nothing to lose. */
 export async function openRecentDocument(
   state: EditorState,
   dispatch: Dispatch,
@@ -122,7 +94,7 @@ export async function openRecentDocument(
 ): Promise<void> {
   try {
     if (!(await confirmDiscard(state))) return;
-    await load(path, dispatch);
+    await install(await host().read(path), path, dispatch);
   } catch (err) {
     await report("Couldn't open the file", err);
     // The file may have been moved or deleted since it was remembered; a re-read
@@ -131,161 +103,149 @@ export async function openRecentDocument(
   }
 }
 
-/** Save to the backing file, falling back to Save As when there isn't one. */
+/** Save to the document's own path, asking for one if it has none. */
 export async function saveDocument(
   state: EditorState,
   dispatch: Dispatch,
 ): Promise<void> {
   try {
-    const path = state.currentPath ?? (await pickSavePath(state));
+    const path = await host().save(
+      state.doc,
+      state.currentPath,
+      state.currentPath ?? state.doc.metadata.name,
+    );
     if (path === null) return;
-    await write(path, state, dispatch);
+    await adopt(path, dispatch);
   } catch (err) {
     await report("Couldn't save the file", err);
   }
 }
 
-/** Always ask for a path, then save to it (and adopt it as the backing file). */
+/** Always ask where, whatever the document's path is. */
 export async function saveDocumentAs(
   state: EditorState,
   dispatch: Dispatch,
 ): Promise<void> {
   try {
-    const path = await pickSavePath(state);
+    const path = await host().save(
+      state.doc,
+      null,
+      state.currentPath ?? state.doc.metadata.name,
+    );
     if (path === null) return;
-    await write(path, state, dispatch);
+    await adopt(path, dispatch);
   } catch (err) {
     await report("Couldn't save the file", err);
   }
 }
 
 /**
- * Write the drawing out as a picture — chrome-free, cropped to the diagram, and
- * independent of where the canvas happens to be scrolled.
+ * Write the drawing out as a picture.
  *
- * **An export is not a document.** It is a sibling of {@link write}, never a
- * caller: it must not remember the path as a recent *document*, must not clear
- * `dirty`, and must not adopt the file as the one being edited — which is why it
- * takes no `dispatch` at all. Nothing about the editor changes because a picture
- * was written.
+ * Takes no `dispatch` on purpose: writing a picture changes nothing about the
+ * document, so it must not mark it saved, adopt the path, or touch recents.
+ *
+ * `format` is how the browser asks for one of its two explicit commands. The
+ * desktop passes nothing and its save dialog decides, which is the only way a
+ * single Export… command can offer both (`export.tsx:exportFormat`).
  */
-export async function exportDiagram(state: EditorState): Promise<void> {
+export async function exportDiagram(
+  state: EditorState,
+  format: ExportFormat | null = null,
+): Promise<void> {
   try {
-    const chosen = await save({
-      title: "Export diagram",
-      defaultPath: withExtension(
-        state.currentPath ?? state.doc.metadata.name,
-        "svg",
-      ),
-      filters: EXPORT_FILTERS,
+    const target = await host().exportTarget({
+      format,
+      currentPath: state.currentPath,
+      name: state.doc.metadata.name,
     });
-    if (chosen === null) return;
+    if (target === null) return;
 
     // Built once: both formats frame the same drawing, and the raster is this
-    // very file rendered by the webview rather than a second drawing of it.
+    // very file rendered by the browser rather than a second drawing of it.
     const svg = diagramSvg(state.doc, await measureDiagram(state.doc));
 
-    if (exportFormat(chosen) === "png") {
-      const bytes = await rasterizePng(svg, PNG_SCALE);
-      // `Array.from` is load-bearing: nested in the argument object a
-      // `Uint8Array` stringifies to `{"0":…,"1":…}`, which serde will not read
-      // back as a `Vec<u8>`. A plain number array it does.
-      // The path is written exactly as chosen — `exportFormat` only says "png"
-      // for a name that already ends in it, so there is nothing to append.
-      await invoke("write_binary_file", {
-        path: chosen,
-        contents: Array.from(bytes),
-      });
-      return;
-    }
-
-    await invoke("write_text_file", {
-      path: ensureExtension(chosen, "svg"),
-      contents: svg,
-    });
+    await host().deliverExport(
+      target,
+      target.format === "png" ? await rasterizePng(svg, PNG_SCALE) : svg,
+    );
   } catch (err) {
     await report("Couldn't export the diagram", err);
   }
 }
 
-/** Read a document through the Rust command and install it as the current one. */
-async function load(path: string, dispatch: Dispatch): Promise<void> {
-  // Handed to the reducer raw: the command's JSON omits empty collections
-  // (`skip_serializing_if`), and `loadDocument` is the one place that normalizes.
-  const doc = await invoke<RawDocument>("load_document", { path });
-  dispatch({ type: "loadDocument", doc, path });
-  await rememberRecent(path, dispatch);
-}
-
-/** Run the save dialog; `null` when the user cancels. */
-async function pickSavePath(state: EditorState): Promise<string | null> {
-  const chosen = await save({
-    title: "Save schematic",
-    defaultPath: ensureZkaiExtension(
-      state.currentPath ?? state.doc.metadata.name,
-    ),
-    filters: FILTERS,
-  });
-  return chosen === null ? null : ensureZkaiExtension(chosen);
-}
-
-/** Write the document through the Rust command and clear `dirty`. */
-async function write(
-  path: string,
-  state: EditorState,
-  dispatch: Dispatch,
-): Promise<void> {
-  await invoke("save_document", { path, doc: state.doc });
+/**
+ * Adopt a freshly written path: the document now lives there and is clean.
+ * One site, so both save commands remember the file exactly once.
+ */
+async function adopt(path: string, dispatch: Dispatch): Promise<void> {
   dispatch({ type: "markSaved", path });
   await rememberRecent(path, dispatch);
 }
 
 /**
- * Load the remembered document list into state. Silent without a Tauri runtime:
- * the browser dev server has no menu to show them in anyway.
+ * Install a loaded document. One site, so both open commands dispatch and
+ * remember identically.
  */
+async function install(
+  doc: RawDocument,
+  path: string,
+  dispatch: Dispatch,
+): Promise<void> {
+  // Raw: the reducer is the one place that normalizes.
+  dispatch({ type: "loadDocument", doc, path });
+  await rememberRecent(path, dispatch);
+}
+
+/** Re-read the remembered file list. Empty on a host that remembers nothing. */
 export async function refreshRecents(dispatch: Dispatch): Promise<void> {
-  if (!isTauri()) return;
   try {
-    const recents = await invoke<string[]>("recent_files");
-    dispatch({ type: "setRecents", recents });
+    dispatch({ type: "setRecents", recents: await host().recents() });
   } catch (err) {
     console.error(`[zukai] Couldn't read the recent files: ${detail(err)}`);
   }
 }
 
 /**
- * Remember a path as the most recent document. Deliberately swallows its errors:
- * a broken recents store must not turn a successful save or open into a failure.
+ * Push a path to the front of the remembered list.
+ *
+ * Failures are swallowed to a console line on purpose: a broken recents store is
+ * not a reason to tell someone their save failed, because it did not.
  */
-async function rememberRecent(path: string, dispatch: Dispatch): Promise<void> {
+async function rememberRecent(
+  path: string,
+  dispatch: Dispatch,
+): Promise<void> {
   try {
-    const recents = await invoke<string[]>("push_recent_file", { path });
-    dispatch({ type: "setRecents", recents });
+    dispatch({ type: "setRecents", recents: await host().rememberRecent(path) });
   } catch (err) {
     console.error(`[zukai] Couldn't update the recent files: ${detail(err)}`);
   }
 }
 
 /**
- * Guard the window's close button with the same prompt as New/Open, so closing
- * never silently drops unsaved work. Returns the unlisten handle, or `null` when
- * there is no native window to guard (plain `bun run dev`).
+ * Stop the window closing on unsaved work. Returns the unsubscribe, or `null`
+ * where the host has no such event to hook.
+ *
+ * `getState` rather than a snapshot: this is installed once and asked much
+ * later, so it must read the document as it is at close time.
  */
 export async function installCloseGuard(
   getState: () => EditorState,
-): Promise<UnlistenFn | null> {
-  if (!isTauri()) return null;
+): Promise<Unsubscribe | null> {
   try {
-    return await getCurrentWindow().onCloseRequested(async (event) => {
-      try {
-        if (!(await confirmDiscard(getState()))) event.preventDefault();
-      } catch (err) {
-        // A prompt that failed to appear is no reason to lose the document:
-        // keep the window and tell the user why it would not close.
-        event.preventDefault();
-        await report("Couldn't check for unsaved changes", err);
-      }
+    return await host().closeGuard({
+      hasUnsavedWork: () => getState().dirty,
+      async mayClose() {
+        try {
+          return await confirmDiscard(getState());
+        } catch (err) {
+          // A prompt that failed to appear is no reason to lose the document:
+          // keep the window and tell the user why it would not close.
+          await report("Couldn't check for unsaved changes", err);
+          return false;
+        }
+      },
     });
   } catch (err) {
     console.error(`[zukai] Couldn't guard the close button: ${detail(err)}`);
@@ -294,18 +254,12 @@ export async function installCloseGuard(
 }
 
 /**
- * `true` when it is safe to replace the current document — either nothing is
- * unsaved, or the user confirmed. Uses the dialog plugin's `ask()`; the webview's
- * own `window.confirm` is unreliable across platforms.
+ * Whether it is safe to throw the current document away — trivially true when
+ * there is nothing unsaved, so a clean document never sees a prompt.
  */
 async function confirmDiscard(state: EditorState): Promise<boolean> {
   if (!state.dirty) return true;
-  return ask("Discard unsaved changes?", {
-    title: "Unsaved changes",
-    kind: "warning",
-    okLabel: "Discard",
-    cancelLabel: "Cancel",
-  });
+  return host().confirm("Discard unsaved changes?");
 }
 
 /** Surface a failed command to the user, always leaving a console trail. */
@@ -313,9 +267,9 @@ async function report(title: string, err: unknown): Promise<void> {
   const text = detail(err);
   console.error(`[zukai] ${title}: ${text}`);
   try {
-    await message(text, { title, kind: "error" });
+    await host().notify(title, text);
   } catch {
-    // No Tauri runtime (plain `bun run dev`) — the console line above is it.
+    // Nothing left to try — the console line above is it.
   }
 }
 
