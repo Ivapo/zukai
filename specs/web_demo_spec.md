@@ -24,7 +24,7 @@ phases:
     cut: null
     by: null
   - name: "Phase 4 — The GitHub Pages deploy"
-    reviewed: null
+    reviewed: 2026-08-22
     shipped: null
     cut: null
     by: null
@@ -60,8 +60,8 @@ whether it gets a real diagram in front of someone who does not have the app.
 The concrete end state:
 
 ```
-https://<pages-host>/zukai/          the landing page — what Zukai draws
-https://<pages-host>/zukai/demo/     the editor, in the tab
+https://ivapo.github.io/zukai/       the landing page — what Zukai draws
+https://ivapo.github.io/zukai/demo/  the editor, in the tab
 ```
 
 A reader follows the second link, drags `cross-4.yaml` onto the canvas, and
@@ -216,10 +216,62 @@ exported SVGs needs) and they
 share the example diagrams. Two deploys would mean two builds sharing one component
 library and drifting apart — the same failure §2.4 rejects, one layer up.
 
-The wasm artifact imposes no exotic hosting requirement: GitHub Pages serves
-`.wasm` with the correct MIME type, and nothing here uses threads or
-`SharedArrayBuffer`, so no COOP/COEP headers are needed — which matters,
-because Pages cannot set them.
+**One build, two entries, and the desktop must not notice (decision, recorded).**
+This is where "one Vite build" stops being a slogan and becomes a constraint,
+because the same `vite.config.ts` and the same `bun run build` feed Tauri:
+`src-tauri/tauri.conf.json` sets `beforeBuildCommand: "bun run build"` and
+`frontendDist: "../dist"`, and today `dist/index.html` **is** the editor. So the
+two obvious moves each break the primary artifact §1.1 says must keep winning,
+and both were measured rather than feared:
+
+- Setting `base: "/zukai/"` in `vite.config.ts` rewrites every asset URL to
+  `/zukai/assets/…`, which does not resolve under Tauri's `tauri://localhost`,
+  and leaves `bun run dev` serving the app at `/zukai/` while `devUrl` still
+  points at `/`.
+- Moving the editor to `demo/index.html` makes `dist/index.html` the *landing*
+  page — which is the file the desktop window opens.
+
+The resolution, and the reason the phase below names files:
+
+- **`base` is never set in `vite.config.ts`.** It stays `/`, which is what Tauri
+  needs, and the deploy passes `--base=/zukai/` through its own script. The
+  non-root base then exists only on the path that wants it, and no build a
+  developer runs locally can acquire it by accident. A `mode`-conditional `base`
+  inside the config was considered and declined: it makes the desktop artifact
+  depend on an env var being right, where a separate script makes it depend on
+  which command was typed.
+- **The editor moves to `demo/index.html` and `tauri.conf.json` follows it** — in
+  **`app.windows[0].url` alone**. That is a real change to the desktop app's
+  configuration, it is **one line**, and it is named here rather than discovered,
+  which is why Phase 4 can no longer say "nothing about the app changes" and why
+  its gate launches the desktop app.
+
+  **The one line is exact, and both neighbouring edits are wrong.** Traced
+  through the pinned `tauri 2.11.5` (`Cargo.lock`), in its own
+  `src/manager/` — `prepare_webview` resolves a `WebviewUrl::App(path)` as
+  `get_app_url().join(path)`, and `get_app_url` returns `build.devUrl` verbatim
+  under `cfg(dev)` and the `tauri://` protocol URL otherwise. So:
+
+  | change | `tauri dev` | `tauri build` |
+  |---|---|---|
+  | `windows[0].url` only, `devUrl` untouched | `…:1420/demo/index.html` ✅ | `tauri://localhost/demo/index.html` ✅ |
+  | `devUrl` only | `…:1420/demo/` ✅ | serves `dist/index.html` — the **landing page** ❌ |
+  | both | `…:1420/demo/demo/index.html` ❌ | ✅ |
+
+  The middle row is the trap, and it is this section's own failure mode
+  surviving into the cure: that resolver skips the join for the literal
+  string `index.html`, so leaving `url` at its default makes the packaged app
+  fall back to the dist root and open the placeholder — passing `tauri dev`
+  while failing `tauri build`. **Do not touch `devUrl`.**
+
+The wasm artifact imposes no exotic hosting requirement: nothing here uses
+threads or `SharedArrayBuffer`, so no COOP/COEP headers are needed — which
+matters, because Pages cannot set them. GitHub Pages also serves `.wasm` as
+`application/wasm`, **but nothing depends on that**: wasm-pack's generated glue
+already falls back from `instantiateStreaming` to `arrayBuffer()` +
+`WebAssembly.instantiate` on a wrong content type, and does it with a
+`console.warn` rather than an error. Worth recording in `rules/deploy.md` so the
+claim is not trusted as load-bearing when it is not.
 
 ### 2.7 Errors need somewhere to go, and PNG needs a chooser (decision, recorded)
 
@@ -257,9 +309,22 @@ survives. The download filename comes from `document.ts:withExtension` over
   candidates live in Assimilator, which is **partly private**, so this is a
   permission question before it is a technical one. *(needs-input)* Blocks
   Phase 5's exit gate; does not block Phases 1–4, which can use the fixtures.
-- **OQ-2** — Project page (`<user>.github.io/zukai/`) or a custom domain? This
+- **OQ-2 — RESOLVED 2026-08-22: the project page, `base: "/zukai/"`.**
+  ~~Project page (`<user>.github.io/zukai/`) or a custom domain? This
   fixes Vite's `base` and therefore every asset URL, so it wants answering
-  before Phase 4 rather than during it. *(needs-input)*
+  before Phase 4 rather than during it.~~ *(needs-input; answered by the repo
+  owner.)*
+
+  The deploy is `https://ivapo.github.io/zukai/`, with the editor at
+  `/zukai/demo/` — which is what §1's end state now states literally, the
+  `<pages-host>` placeholder having been the other thing this question was
+  holding open. A custom domain is not refused, only not bought; moving to one
+  later is a change to the one `--base` this spec passes plus a redeploy,
+  because **`base` is baked at build time and is not a DNS-level switch**.
+
+  Where it landed: §2.6 owns the mechanism — `base` is never written into
+  `vite.config.ts`, so the desktop build cannot acquire it — and Phase 4 spends
+  it.
 - **OQ-3 — RESOLVED 2026-08-21: download-only everywhere.** ~~Does the browser
   host use the File System Access API where it exists (Chrome: a real
   save-in-place, so Cmd-S means what it means on the desktop) or download-only
@@ -620,18 +685,119 @@ asked here rather than assumed away.
 *Produces the observable: **yes** — it is the phase that puts the figures at a
 URL, which is the entire point of the spec.*
 
-- **Scope:** Vite `base` per OQ-2, a landing entry at `/` and the editor at
-  `/demo/`. A GitHub Actions workflow: Rust toolchain with the
-  `wasm32-unknown-unknown` target, `wasm-pack`, Bun, build, `upload-pages-artifact`,
-  `deploy-pages`. Repository Pages settings. Nothing about the app changes.
-- **Exit gate:** the public URL serves the demo, and **the behavioural checks
-  from Phases 1, 2 and 3 are re-run against the deployed site** — import the
-  fixture, export an SVG, and save-then-reopen a `.zkai` — in both Chrome and
-  Firefox. A cold load with an
-  empty cache completes without console errors, which is where a wrong `base`
-  or a mis-served `.wasm` surfaces.
-- **Close-out:** seeds `rules/deploy.md`; adds the demo URL to `README.md`.
-  One push, and the push is the deploy.
+**It is also the phase that can silently break the desktop app**, which the
+first draft of it did not notice and three reviewers did. §2.6 carries the
+decision; this phase spends it, and says so in its gate.
+
+- **Scope, the build.** Four files, named rather than left to be found:
+  - `index.html` — the repo's single entry today, and it *is* the editor —
+    **moves to `demo/index.html`**. A new `index.html` takes its place as the
+    landing entry.
+  - `vite.config.ts` — gains `build.rollupOptions.input` naming both entries.
+    **It does not gain a `base`**, for the reason §2.6 gives.
+  - `package.json` — gains `build:web`, spelled **`bun run build --base=/zukai/`**
+    and not as a copy of `build`'s own body. The spelling is load-bearing: bun
+    appends a passthrough flag to the end of the script string, so it lands on
+    `vite build` *and* the existing `prebuild` → `bun run wasm` hook still fires
+    (measured). A duplicated `tsc && vite build --base=…` would look equivalent
+    and skip the wasm build, which CI cannot survive — `src-tauri/pkg/` is
+    gitignored, so a fresh checkout has no dynamic-import target. The deploy runs
+    this script; every other command keeps the root base Tauri needs.
+  - `src-tauri/tauri.conf.json` — **one line**: `app.windows[0].url` becomes
+    `demo/index.html`, so the desktop window still opens the editor.
+    **`devUrl` is left exactly as it is** — §2.6 carries the truth table, and
+    both of the neighbouring edits an implementer would reach for are wrong.
+
+- **Scope, what `/` serves.** A **deliberate placeholder**, not the landing page:
+  a title, one sentence, and a link to `demo/` — **`href="demo/"`, never
+  `href="/demo/"`**, because `a[href]` is not in Vite's asset-attribute table and
+  so never gets the base applied: the root-absolute form would point at
+  `ivapo.github.io/demo/` and 404. Phase 5 fills it. The point of
+  shipping any file at all is that the second entry is *built, deployed and
+  reachable* one phase before there is content to put in it — an entry that
+  exists only in Phase 5 is an entry whose routing is first exercised in Phase 5.
+
+- **Scope, the deploy.** A GitHub Actions workflow at
+  `.github/workflows/pages.yml`: Bun, a Rust toolchain with the
+  `wasm32-unknown-unknown` target, `wasm-pack`, `bun install`, `bun run
+  build:web`, then `actions/configure-pages`, `actions/upload-pages-artifact`
+  (`path: dist`) and `actions/deploy-pages`. It needs
+  `permissions: {contents: read, pages: write, id-token: write}` and an
+  `environment: github-pages` job, both of which `deploy-pages` requires and
+  neither of which is optional. Triggered `on: push` to `main` plus
+  `workflow_dispatch`, under a `concurrency` group, so "the push is the deploy"
+  names a mechanism rather than a hope.
+
+- **Scope, one thing a commit cannot do.** **Repository Pages settings are a
+  human action, not a step** — `Ivapo/zukai` currently has Pages *off*
+  (`gh api repos/Ivapo/zukai/pages` → 404), and `deploy-pages` fails until the
+  source is switched to GitHub Actions. Arrange it before the pass, not during
+  it; it is the one step between a green workflow and a red one.
+
+- **Scope, the favicon.** `src-tauri/icons/32x32.png` is copied to a new
+  `public/favicon.png` — Vite's default `publicDir`, which the repo does not have
+  yet — and both entries get a `<link rel="icon" href="/favicon.png">`. Vite
+  rewrites a root-relative `href` under the deploy's base, so the one file serves
+  both hosts. It is in scope because of the gate below: with no icon declared a
+  browser requests `/favicon.ico` against the **host** root, which on a project
+  page is `ivapo.github.io/favicon.ico` and 404s no matter how right `base` is.
+
+- **Exit gate.** In four parts, because this phase's blast radius is both hosts
+  and a deploy — not just a URL.
+
+  1. **The desktop still works, and this is checked first.** `bun run build`
+     green with the root base (the assets it emits are `/assets/…`, not
+     `/zukai/assets/…`), and `bun run tauri dev` opens a window showing **the
+     editor** — the toolbar, the canvas, the grid — rather than the landing
+     placeholder or a blank page. Without this clause the §2.6 breakage ships
+     green, which is exactly how it nearly did.
+  2. **Both URLs serve.** `https://ivapo.github.io/zukai/` serves the
+     placeholder and its link reaches `https://ivapo.github.io/zukai/demo/`,
+     which serves the editor.
+  3. **The demo works where it is deployed**, in **both Chrome and Firefox**.
+     Written out here rather than delegated to Phases 1–3, whose own wording has
+     since drifted: Phase 1's ends at confirming a banner appears when Open
+     *refuses*, and Phase 3 made Open work, so that check has nothing left to
+     observe. (The banner itself survives — it is still `notify`'s surface; what
+     retired is the `notYet` message behind it.) The checker
+     needs a repo checkout for the fixtures; the in-app "Open an example" menu
+     is Phase 5, so nothing on the deployed site supplies them yet:
+     - drop `src-tauri/tests/fixtures/network/cross-4.yaml` on the canvas → a
+       four-arm junction carrying **8** turn-arrow markings, the count Phase 2
+       pinned;
+     - Export SVG, and open the downloaded file — it shows what the canvas does;
+     - Export PNG, likewise;
+     - Save, then Open the downloaded `.zkai` → the same drawing.
+  4. **A cold load with an empty cache** — hard-reload, devtools open — raises
+     **no console error from the site's own assets**. That is where a wrong
+     `base` surfaces for the JS, CSS and fonts. It is deliberately *not* claimed
+     to surface a mis-served `.wasm`: OQ-4 already records that the wasm sits
+     behind a dynamic import and is fetched on the first Import, so part 3 is
+     what covers it. The qualifier "from the site's own assets" is load-bearing
+     too — Chrome and Firefox disagree about whether a favicon 404 is an error
+     at all, and a gate that two browsers score differently is not a gate.
+
+- **Close-out:** seeds `rules/deploy.md`, whose `sources` are the workflow,
+  `vite.config.ts`, `package.json`, `index.html`, `demo/index.html` and
+  `src-tauri/tauri.conf.json` — no existing rule declares any of those, so this
+  is genuinely new ground rather than a gap in an old rule. Adds the demo URL to
+  `README.md` — **the link only**; that file is stale in two ways Phase 5 owns,
+  and this phase should say so in its commit rather than quietly widen.
+
+  **`CLAUDE.md`'s Commands block needs two edits, not one.** `build:web` is the
+  obvious one. The other is easy to miss: after the move, `bun run dev` serves
+  the *placeholder* at `/` and the editor at `/demo/`, so the block's
+  `bun run dev # frontend only` line and every "under plain `bun run dev`"
+  reading of it now points at the wrong page. The same block's "`dev`, `build`
+  and `test` each run `wasm` first" sentence wants `build:web` in its list, and
+  that is part of the same edit rather than a third one.
+
+  `README.md`'s own `bun run dev` line acquires that same staleness. It is
+  staleness **this** phase creates rather than one of the two Phase 5 owns, so
+  say which is which in the commit; Phase 5's `README.md` reconciliation is
+  still where it gets fixed. Also updates the project-memory roadmap, because a
+  demo going live is exactly a roadmap line. One push, and the push is the
+  deploy.
 
 ### Phase 5 — The landing page, and the examples it is made of
 *Produces the observable: **yes**, and more directly than any phase above — the
