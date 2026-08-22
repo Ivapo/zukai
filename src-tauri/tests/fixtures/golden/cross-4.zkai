@@ -117,11 +117,11 @@ layout:
     N1:
       pos:
         x: 0.0
-        y: -0.0
+        y: 0.0
     N2:
       pos:
         x: 500.0
-        y: -0.0
+        y: 0.0
     N3:
       pos:
         x: 250.0
@@ -133,7 +133,7 @@ layout:
     N5:
       pos:
         x: 250.0
-        y: -0.0
+        y: 0.0
   links:
     L1:
       style: arterial

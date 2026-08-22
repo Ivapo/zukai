@@ -344,8 +344,20 @@ pub fn parse_network(text: &str) -> Result<NetworkFile, String> {
 /// [`layout_factor`]'s fitted answer instead, because a node has to arrive where
 /// it reads well rather than where it is (spec §2.6.1). The y-negation has
 /// exactly one home either way, which is this line.
+///
+/// **The `+ 0.0` is not noise: it is what stops the negation minting `-0.0`.**
+/// A node on the metric x-axis has `point[1] == 0.0`, and negating that yields
+/// a signed zero that means nothing on a canvas and does not survive a trip
+/// through JavaScript — `JSON.stringify(-0)` is `"0"`, so the file said `-0.0`
+/// and every host that reopened and resaved it wrote `0.0`. That is true of the
+/// desktop too, whose IPC marshals through JSON exactly as the wasm shell does;
+/// the browser's byte-identity golden is simply what finally noticed. IEEE 754
+/// makes `-0.0 + 0.0` positive zero and leaves every other value alone.
 pub fn metres_to_canvas(point: [f64; 2], units_per_metre: f64) -> Vec2 {
-    Vec2::new(point[0] * units_per_metre, -point[1] * units_per_metre)
+    Vec2::new(
+        point[0] * units_per_metre + 0.0,
+        -point[1] * units_per_metre + 0.0,
+    )
 }
 
 /// The canvas units per metre this network's **nodes are placed at** — fit the
