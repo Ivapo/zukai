@@ -35,6 +35,8 @@
 //! `specs/network_yaml_spec.md` §2.5–§2.6 and `specs/lane_arrows_spec.md` §2.5.
 
 use std::collections::BTreeMap;
+// The module's one non-portable line, and it serves exactly one function.
+#[cfg(not(target_arch = "wasm32"))]
 use std::fs;
 
 use crate::model::decoration::{LinkEnd, Marking, MarkingKind, TurnDirection};
@@ -80,10 +82,33 @@ const CANONICAL_TURN_DIRECTIONS: [TurnDirection; 6] = [
 /// two part company — an imported document is **dirty and pathless**, because
 /// this is not a `.zkai` and Save must not write back over the file it came
 /// from. That rule lives in the reducer (`importDocument`), not here.
+#[cfg(not(target_arch = "wasm32"))]
 #[tauri::command]
 pub fn import_network(path: String) -> Result<Document, String> {
     let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    network_to_document(parse_network(&text)?)
+    import_network_str(&text)
+}
+
+/// The same conversion, given the file's *text* rather than its path.
+///
+/// The desktop twin of the browser's `#[wasm_bindgen]` shell, and it exists so
+/// `Host.importNetworkText` is a method **both** hosts honour rather than one
+/// the desktop refuses (`specs/web_demo_spec.md` Phase 2). Nothing dispatches to
+/// it today — the browser drop calls the wasm — but wiring the Tauri webview's
+/// own file drop to it later is a one-liner rather than a redesign of the seam.
+#[cfg(not(target_arch = "wasm32"))]
+#[tauri::command]
+pub fn import_network_text(text: String) -> Result<Document, String> {
+    import_network_str(&text)
+}
+
+/// Parse, then convert. **The one place those two steps are composed**, and the
+/// reason it is a function rather than a line repeated three times: there are
+/// three shells over it now — the two commands above and `crate::wasm` — and a
+/// shell that composed them itself would be a second implementation to keep in
+/// step. Takes a `&str` and returns a [`Document`]; touches nothing else.
+pub fn import_network_str(text: &str) -> Result<Document, String> {
+    network_to_document(parse_network(text)?)
 }
 
 /// Turn a parsed [`NetworkFile`] into a Zukai [`Document`].
@@ -1039,6 +1064,44 @@ mod tests {
 
         assert_eq!(doc, back);
         assert_eq!(back.schema_version, crate::model::SCHEMA_VERSION);
+    }
+
+    /// The **whole** converted document, pinned against a committed file — where
+    /// every test above pins one property of it.
+    ///
+    /// It exists for a reader this crate does not contain:
+    /// `src/editor/network-wasm.test.ts` feeds the same fixture to the
+    /// `#[wasm_bindgen]` shell and asserts the result deep-equals this same JSON.
+    /// Two readers, one file, so the golden cannot rot without this test going
+    /// red. What the pair catches is **marshalling** drift, not converter drift —
+    /// both paths call [`network_to_document`], so a converter change moves them
+    /// together. Marshalling is the real hazard: `serde_wasm_bindgen`'s default
+    /// serializer emits an ES `Map` for a `BTreeMap`, which `normalizeDocument`
+    /// would index as an object and find empty — a blank canvas that throws
+    /// nothing.
+    ///
+    /// **Asserts by default; rewrites only under `ZUKAI_UPDATE_GOLDEN`.** A test
+    /// that regenerates its own fixture on every run always matches itself and
+    /// so asserts nothing.
+    #[test]
+    fn cross_4_matches_the_committed_golden_document() {
+        const GOLDEN: &str = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/golden/cross-4.document.json"
+        );
+
+        let json = serde_json::to_string_pretty(&import(CROSS_4)).expect("serialize") + "\n";
+        if std::env::var_os("ZUKAI_UPDATE_GOLDEN").is_some() {
+            fs::write(GOLDEN, &json).expect("rewrite the golden");
+        }
+
+        let committed = fs::read_to_string(GOLDEN)
+            .expect("golden missing — regenerate with `ZUKAI_UPDATE_GOLDEN=1 cargo test`");
+        assert_eq!(
+            json, committed,
+            "the imported document has changed; if that is intended, regenerate \
+             with `ZUKAI_UPDATE_GOLDEN=1 cargo test` and read the diff"
+        );
     }
 
     /// The command is a *shell*, not a second implementation: read the file and

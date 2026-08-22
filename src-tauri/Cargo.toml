@@ -15,16 +15,28 @@ name = "zukai_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
+# Host-compiled, so no target table can keep this out of a wasm32 build —
+# `build.rs` gates the *call* instead. See the comment there.
 tauri-build = { version = "2", features = [] }
 
+# Everything that crosses to `wasm32-unknown-unknown`. `serde_yaml` 0.9 is pure
+# Rust (`unsafe-libyaml`), so there is no C dependency to port.
 [dependencies]
-tauri = { version = "2", features = [] }
-tauri-plugin-dialog = "2"
-tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
 
+# The desktop app. Dialogs do not compile to wasm — they get replaced by the
+# browser host (`specs/web_demo_spec.md` §2.1).
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+
+# The browser. Only `src/wasm.rs` uses these, and it is gated to this target.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+serde-wasm-bindgen = "0.6"
+
 [dev-dependencies]
 tempfile = "3"
-
