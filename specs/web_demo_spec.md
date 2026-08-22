@@ -25,7 +25,7 @@ phases:
     by: null
   - name: "Phase 4 — The GitHub Pages deploy"
     reviewed: 2026-08-22
-    shipped: null
+    shipped: 2026-08-22
     cut: null
     by: null
   - name: "Phase 5 — The landing page, and the examples it is made of"
