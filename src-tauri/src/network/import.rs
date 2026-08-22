@@ -1070,7 +1070,7 @@ mod tests {
     /// every test above pins one property of it.
     ///
     /// It exists for a reader this crate does not contain:
-    /// `src/editor/network-wasm.test.ts` feeds the same fixture to the
+    /// `src/editor/wasm.test.ts` feeds the same fixture to the
     /// `#[wasm_bindgen]` shell and asserts the result deep-equals this same JSON.
     /// Two readers, one file, so the golden cannot rot without this test going
     /// red. What the pair catches is **marshalling** drift, not converter drift —

@@ -9,11 +9,9 @@ pub mod model;
 // from the crate root and failed `cargo clippy --all-targets -- -D warnings` on
 // `dead_code`. `import_network` is now that caller.
 mod network;
-// Gated for wasm32 **in zk-015 Phase 2 only, and un-gated in Phase 3**: with
-// both its commands out, `migrate` and `VersionProbe` are unreachable and the
-// wasm build warns `dead_code`. Phase 3 extracts a pure `encode`/`decode` pair
-// that the wasm shell calls, which is what makes the module live again.
-#[cfg(not(target_arch = "wasm32"))]
+// Not gated: `persist::encode`/`decode` are the `.zkai` codec and cross to wasm.
+// Only its `#[tauri::command]` shells are desktop-only, and they are gated
+// inside the module.
 mod persist;
 #[cfg(not(target_arch = "wasm32"))]
 mod recent;
@@ -38,6 +36,7 @@ pub fn run() {
             greet,
             persist::save_document,
             persist::load_document,
+            persist::load_document_text,
             network::import::import_network,
             network::import::import_network_text,
             export::write_text_file,

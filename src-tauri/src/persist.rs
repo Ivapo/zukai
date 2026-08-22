@@ -1,12 +1,21 @@
-//! Disk persistence for Zukai documents.
+//! The `.zkai` codec, and the two shells that carry it to a destination.
 //!
 //! Zukai saves its own YAML (the `.zkai` format), versioned by
 //! [`SCHEMA_VERSION`](crate::model::SCHEMA_VERSION). Serialization lives here on
 //! the Rust side because `serde_yaml` plus the model's serde attributes are the
 //! single source of truth for the on-disk shape — a second (JS) encoder would
 //! drift. The document crosses the IPC boundary as JSON (Tauri marshals JS↔serde
-//! via `serde_json`); YAML is used *only* for the file body written/read here.
+//! via `serde_json`); YAML is used *only* for the file body.
+//!
+//! **[`encode`] and [`decode`] are the codec, and they name no destination.**
+//! That split is what lets the same bytes be produced in a browser tab: the two
+//! `#[tauri::command]` shells below add a path and `std::fs`, and
+//! `crate::wasm` adds a `Blob` and a download. Three shells, one codec — a
+//! second one compiled for the web would be exactly the drift the paragraph
+//! above refuses (`specs/web_demo_spec.md` §2.4).
 
+// The module's only non-portable line, and it serves exactly the two commands.
+#[cfg(not(target_arch = "wasm32"))]
 use std::fs;
 
 use serde::Deserialize;
@@ -14,11 +23,61 @@ use serde::Deserialize;
 use crate::model::layout::JunctionGlyph;
 use crate::model::{Document, SCHEMA_VERSION};
 
+/// The `.zkai` text for a document.
+///
+/// Trivial today, and deliberately still a named function: it is the *only*
+/// place the on-disk shape is produced, so both hosts write bytes that came out
+/// of one `serde_yaml` call rather than two that happen to agree.
+pub fn encode(doc: &Document) -> Result<String, String> {
+    serde_yaml::to_string(doc).map_err(|e| e.to_string())
+}
+
+/// Read `.zkai` text: check its schema version, deserialize, then migrate.
+///
+/// The version is probed first (see [`VersionProbe`]): a file made by a *newer*
+/// Zukai is rejected with a clear message. An equal-or-older version falls
+/// through to the full deserialize and then to [`migrate`], which is where an
+/// older file's retired spellings are folded forward.
+pub fn decode(text: &str) -> Result<Document, String> {
+    let probe: VersionProbe = serde_yaml::from_str(text).map_err(|e| e.to_string())?;
+    if probe.schema_version > SCHEMA_VERSION {
+        return Err(format!(
+            "This file was made by a newer version of Zukai (schema version {}, \
+             this build supports up to {}). Please update Zukai to open it.",
+            probe.schema_version, SCHEMA_VERSION
+        ));
+    }
+    let mut doc: Document = serde_yaml::from_str(text).map_err(|e| e.to_string())?;
+    migrate(&mut doc);
+    Ok(doc)
+}
+
 /// Serialize the document to Zukai YAML and write it to `path`.
+#[cfg(not(target_arch = "wasm32"))]
 #[tauri::command]
 pub fn save_document(path: String, doc: Document) -> Result<(), String> {
-    let yaml = serde_yaml::to_string(&doc).map_err(|e| e.to_string())?;
-    fs::write(&path, yaml).map_err(|e| e.to_string())
+    fs::write(&path, encode(&doc)?).map_err(|e| e.to_string())
+}
+
+/// Read a `.zkai` file and deserialize the full [`Document`].
+#[cfg(not(target_arch = "wasm32"))]
+#[tauri::command]
+pub fn load_document(path: String) -> Result<Document, String> {
+    decode(&fs::read_to_string(&path).map_err(|e| e.to_string())?)
+}
+
+/// The same read, given the file's *text* rather than its path.
+///
+/// The desktop twin of the browser's `#[wasm_bindgen]` shell, and it exists for
+/// the reason `crate::network::import::import_network_text` does:
+/// `Host.openDocumentText` is a method **both** hosts honour rather than one the
+/// desktop refuses (`specs/web_demo_spec.md` Phase 3). Nothing dispatches to it
+/// today — the canvas drop is browser-only — but wiring the Tauri webview's own
+/// file drop to it later is a one-liner rather than a redesign of the seam.
+#[cfg(not(target_arch = "wasm32"))]
+#[tauri::command]
+pub fn load_document_text(text: String) -> Result<Document, String> {
+    decode(&text)
 }
 
 /// Just enough of a `.zkai` file to read its version without committing to the
@@ -55,29 +114,6 @@ fn migrate(doc: &mut Document) {
             view.glyph = JunctionGlyph::Generic;
         }
     }
-}
-
-/// Read a `.zkai` file, check its schema version, then deserialize the full
-/// [`Document`].
-///
-/// The version is probed first (see [`VersionProbe`]): a file made by a *newer*
-/// Zukai is rejected with a clear message. An equal-or-older version falls
-/// through to the full deserialize and then to [`migrate`], which is where an
-/// older file's retired spellings are folded forward.
-#[tauri::command]
-pub fn load_document(path: String) -> Result<Document, String> {
-    let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let probe: VersionProbe = serde_yaml::from_str(&text).map_err(|e| e.to_string())?;
-    if probe.schema_version > SCHEMA_VERSION {
-        return Err(format!(
-            "This file was made by a newer version of Zukai (schema version {}, \
-             this build supports up to {}). Please update Zukai to open it.",
-            probe.schema_version, SCHEMA_VERSION
-        ));
-    }
-    let mut doc: Document = serde_yaml::from_str(&text).map_err(|e| e.to_string())?;
-    migrate(&mut doc);
-    Ok(doc)
 }
 
 #[cfg(test)]
@@ -261,5 +297,55 @@ mod tests {
             text.contains("schema_version: 2"),
             "expected the current schema version in {text:?}"
         );
+    }
+
+    /// **The `.zkai` bytes, pinned against a committed file** — the reference
+    /// the browser's encoder is held to.
+    ///
+    /// It exists for a reader this crate does not contain: `src/editor/wasm.test.ts`
+    /// runs `cross-4.yaml` through the wasm importer, hands *that* document to
+    /// the wasm encoder, and asserts the result is these same bytes. Chaining
+    /// the two is what the demo actually does, and it is stronger than encoding
+    /// a `JSON.parse` of the imported golden.
+    ///
+    /// Byte-identity across the two targets is achievable rather than hopeful:
+    /// `serde_yaml` formats floats through `ryu`, key order is struct field
+    /// order plus `BTreeMap`, and every `skip_serializing_if` is a pure
+    /// predicate.
+    ///
+    /// **Not** `tests/fixtures/zkai/t-junction-glyph.zkai`: that one is
+    /// hand-authored, its README forbids regenerating it from the app, and
+    /// loading it runs [`migrate`] — so a round trip through it is guaranteed
+    /// *not* to reproduce its own bytes.
+    ///
+    /// **Asserts by default; rewrites only under `ZUKAI_UPDATE_GOLDEN`**, the
+    /// same opt-in `import.rs`'s golden uses. A test that regenerates its own
+    /// fixture on every run always matches itself and so asserts nothing.
+    #[test]
+    fn cross_4_encodes_to_the_committed_golden_zkai() {
+        const GOLDEN: &str = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/golden/cross-4.zkai"
+        );
+
+        let doc = crate::network::import::import_network_str(crate::network::CROSS_4)
+            .expect("import the fixture");
+        let yaml = encode(&doc).expect("encode");
+
+        if std::env::var_os("ZUKAI_UPDATE_GOLDEN").is_some() {
+            fs::write(GOLDEN, &yaml).expect("rewrite the golden");
+        }
+
+        let committed = fs::read_to_string(GOLDEN)
+            .expect("golden missing — regenerate with `ZUKAI_UPDATE_GOLDEN=1 cargo test`");
+        assert_eq!(
+            yaml, committed,
+            "the encoded document has changed; if that is intended, regenerate \
+             with `ZUKAI_UPDATE_GOLDEN=1 cargo test` and read the diff"
+        );
+
+        // The other direction, on the same bytes: what this build writes, this
+        // build reads back unchanged.
+        assert_eq!(decode(&committed).expect("decode the golden"), doc);
     }
 }

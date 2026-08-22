@@ -1,0 +1,238 @@
+schema_version: 2
+metadata:
+  name: Editor Network
+nodes:
+- id: N1
+  type: endpoint
+- id: N2
+  type: endpoint
+- id: N3
+  type: endpoint
+- id: N4
+  type: endpoint
+- id: N5
+  type: junction
+links:
+- id: L1
+  from_node: N1
+  to_node: N5
+  lanes:
+  - id: 0
+    width: 3.5
+    speed_limit: 13.88888888888889
+  - id: 1
+    width: 3.5
+    speed_limit: 13.88888888888889
+  median_gap: 0.5
+  length: 100.0
+- id: L2
+  from_node: N5
+  to_node: N1
+  lanes:
+  - id: 0
+    width: 3.5
+    speed_limit: 13.88888888888889
+  - id: 1
+    width: 3.5
+    speed_limit: 13.88888888888889
+  median_gap: 0.5
+  length: 100.0
+- id: L3
+  from_node: N5
+  to_node: N2
+  lanes:
+  - id: 0
+    width: 3.5
+    speed_limit: 13.88888888888889
+  - id: 1
+    width: 3.5
+    speed_limit: 13.88888888888889
+  median_gap: 0.5
+  length: 100.0
+- id: L4
+  from_node: N2
+  to_node: N5
+  lanes:
+  - id: 0
+    width: 3.5
+    speed_limit: 13.88888888888889
+  - id: 1
+    width: 3.5
+    speed_limit: 13.88888888888889
+  median_gap: 0.5
+  length: 100.0
+- id: L5
+  from_node: N3
+  to_node: N5
+  lanes:
+  - id: 0
+    width: 3.5
+    speed_limit: 13.88888888888889
+  - id: 1
+    width: 3.5
+    speed_limit: 13.88888888888889
+  median_gap: 0.5
+  length: 100.0
+- id: L6
+  from_node: N5
+  to_node: N3
+  lanes:
+  - id: 0
+    width: 3.5
+    speed_limit: 13.88888888888889
+  - id: 1
+    width: 3.5
+    speed_limit: 13.88888888888889
+  median_gap: 0.5
+  length: 100.0
+- id: L7
+  from_node: N5
+  to_node: N4
+  lanes:
+  - id: 0
+    width: 3.5
+    speed_limit: 13.88888888888889
+  - id: 1
+    width: 3.5
+    speed_limit: 13.88888888888889
+  median_gap: 0.5
+  length: 100.0
+- id: L8
+  from_node: N4
+  to_node: N5
+  lanes:
+  - id: 0
+    width: 3.5
+    speed_limit: 13.88888888888889
+  - id: 1
+    width: 3.5
+    speed_limit: 13.88888888888889
+  median_gap: 0.5
+  length: 100.0
+junctions:
+- node_id: N5
+  control: signal
+layout:
+  nodes:
+    N1:
+      pos:
+        x: 0.0
+        y: -0.0
+    N2:
+      pos:
+        x: 500.0
+        y: -0.0
+    N3:
+      pos:
+        x: 250.0
+        y: 250.0
+    N4:
+      pos:
+        x: 250.0
+        y: -250.0
+    N5:
+      pos:
+        x: 250.0
+        y: -0.0
+  links:
+    L1:
+      style: arterial
+    L2:
+      style: arterial
+    L3:
+      style: arterial
+    L4:
+      style: arterial
+    L5:
+      style: arterial
+    L6:
+      style: arterial
+    L7:
+      style: arterial
+    L8:
+      style: arterial
+  junctions:
+    N5:
+      glyph: generic
+      scale: 1.0
+markings:
+- id: M1
+  link: L1
+  position: 8.75
+  anchor: end
+  lane: 0
+  kind:
+    type: turn_arrow
+    directions:
+    - through
+    - right
+- id: M2
+  link: L1
+  position: 8.75
+  anchor: end
+  lane: 1
+  kind:
+    type: turn_arrow
+    directions:
+    - left
+    - through
+- id: M3
+  link: L4
+  position: 8.75
+  anchor: end
+  lane: 0
+  kind:
+    type: turn_arrow
+    directions:
+    - through
+    - right
+- id: M4
+  link: L4
+  position: 8.75
+  anchor: end
+  lane: 1
+  kind:
+    type: turn_arrow
+    directions:
+    - left
+    - through
+- id: M5
+  link: L5
+  position: 8.75
+  anchor: end
+  lane: 0
+  kind:
+    type: turn_arrow
+    directions:
+    - through
+    - right
+- id: M6
+  link: L5
+  position: 8.75
+  anchor: end
+  lane: 1
+  kind:
+    type: turn_arrow
+    directions:
+    - left
+    - through
+- id: M7
+  link: L8
+  position: 8.75
+  anchor: end
+  lane: 0
+  kind:
+    type: turn_arrow
+    directions:
+    - through
+    - right
+- id: M8
+  link: L8
+  position: 8.75
+  anchor: end
+  lane: 1
+  kind:
+    type: turn_arrow
+    directions:
+    - left
+    - through
