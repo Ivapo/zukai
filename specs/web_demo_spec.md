@@ -5,7 +5,7 @@ note: >
   Publish Zukai on the web — the editor running in a browser tab with no Rust
   toolchain, and a landing page made of the diagrams it draws.
 status: accepted
-last_updated: 2026-08-21
+last_updated: 2026-08-22
 
 phases:
   - name: "Phase 1 — The host seam, and the file commands working in a browser"
@@ -20,7 +20,7 @@ phases:
     by: null
   - name: "Phase 3 — `.zkai` in the tab: decode, encode, Open and Save"
     reviewed: 2026-08-21
-    shipped: null
+    shipped: 2026-08-22
     cut: null
     by: null
   - name: "Phase 4 — The GitHub Pages deploy"
@@ -301,6 +301,16 @@ survives. The download filename comes from `document.ts:withExtension` over
   Mono face is ~18 kB. No threshold is proposed on the strength of one
   measurement; the number is here so a later one has something to be compared
   against.
+
+  **Re-measured after Phase 3: 683.4 kB raw, 239.6 kB gzipped** — the `.zkai`
+  codec roughly doubled it, which is `serde_yaml`'s *deserializer* for the whole
+  `Document` arriving on top of the serializer that was already there. Still
+  behind the same dynamic import, and now fetched by Open and Save as well as
+  Import. This is the second measurement the paragraph above wanted, and it
+  still argues for no threshold: the growth is one feature's worth and it is
+  explainable, so a number invented now would be fitted to it rather than
+  derived from anything. Phase 4 deploys it over a CDN, which is the point at
+  which the figure starts to mean something about what a visitor waits for.
 - **OQ-5** — Does the web build ever become the *only* build? Assume no; the
   non-goal in §1.1 stands until something forces the question. *(deferred by
   evidence)*
@@ -495,10 +505,10 @@ thing OQ-3 governed — out of the phase entirely.
   only, leaving the flag gating exactly the command its name describes. It
   retires in Phase 3.
 
-  **`host-browser.ts:notYet` goes partly stale here** and must be reworded: its
-  text says the web build "does not carry the document codec", which stops being
-  true for `open` and `save` the moment this phase lands a codec that simply
-  does not decode `.zkai` yet.
+  **The `notYet` message in `host-browser.ts` goes partly stale here** and must
+  be reworded: its text says the web build "does not carry the document codec",
+  which stops being true for `open` and `save` the moment this phase lands a
+  codec that simply does not decode `.zkai` yet.
 
 - **Exit gate:** `cargo test` green, and **the 69 that exist today all still
   run** — this phase adds the golden-writer below, so the total lands at 70.
@@ -572,7 +582,7 @@ asked here rather than assumed away.
   and Save. Per **OQ-3, resolved: download-only**. `browserHost.save` returns
   **`null`**, so `files.ts:adopt` never runs, the document stays dirty and
   `currentPath` stays unset — Save is Save-a-copy and the app does not pretend
-  otherwise. `canOpenDocuments` and `host-browser.ts:notYet` retire; note
+  otherwise. `canOpenDocuments` and the `notYet` helper retire; note
   `browserHost.read` (Open Recent) **keeps throwing**, because §2.5 keeps
   recents empty on this host, so its message must stop citing the codec.
 - **Exit gate:** `cargo test` green, and **every test Phase 2 left behind still

@@ -8,7 +8,7 @@ sources:
   - src/editor/files.ts
   - src/editor/host.ts
   - src/editor/menu.ts
-  - src/editor/network-wasm.ts
+  - src/editor/wasm.ts
   - src/editor/state.ts
 covers: >
   reading Assimilator's network.yaml: the serde mirror and what earns a place in
@@ -305,7 +305,7 @@ it that decides only where the bytes came from:
 The first three reach `files.ts` (`importNetwork` for the pickers,
 `importNetworkFile` for the drop); the fourth is honoured so the seam carries no
 method a host refuses. The **wasm** shell is `src-tauri/src/wasm.rs`, loaded by
-`src/editor/network-wasm.ts`, and it exists so the browser gets no second,
+`src/editor/wasm.ts`, and it exists so the browser gets no second,
 JavaScript reader — the lane-numbering reconciliation below is exactly what a
 re-implementation gets subtly wrong.
 

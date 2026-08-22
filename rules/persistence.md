@@ -9,17 +9,18 @@ sources:
   - src/editor/host-tauri.ts
   - src/editor/menu.ts
   - src/editor/state.ts
+  - src/editor/wasm.ts
   - src/model/document.ts
   - src-tauri/capabilities/default.json
   - src-tauri/src/lib.rs
   - src-tauri/src/persist.rs
   - src-tauri/src/recent.rs
 covers: >
-  the .zkai save/open path end to end — trigger, dialog and IPC, Rust commands,
-  the version probe and the one migration arm, reducer, the
+  the .zkai save/open path end to end — trigger, dialog and IPC, the codec and
+  its three shells, the version probe and the one migration arm, reducer, the
   normalize-at-one-boundary rule, the close guard — plus the JS-built native
-  menu, how recents are stored and pruned, and which of it survives in a browser
-max_lines: 133
+  menu, how recents are stored and pruned, and how the browser differs
+max_lines: 160
 generated: 2026-08-22
 ---
 
@@ -34,19 +35,27 @@ design rationale lives in `specs/save_load_spec.md`.
 |------|-------|
 | Trigger | Toolbar `.file-actions` buttons (`src/components/Toolbar.tsx`), the native File menu (`src/editor/menu.ts`), and Cmd/Ctrl+N/O/S, Shift for Save As (`src/App.tsx` keydown) — the same three surfaces undo/redo use (`rules/history.md`) |
 | Dialog + IPC | `src/editor/host-tauri.ts`, reached through the `Host` interface — `files.ts` itself names no Tauri (`rules/host-seam.md`) |
-| Commands | `save_document` / `load_document` (`src-tauri/src/persist.rs`), `recent_files` / `push_recent_file` (`src-tauri/src/recent.rs`), all registered in `src-tauri/src/lib.rs` — whose handler list also still carries the Tauri template's unused `greet` |
+| Codec | `persist::encode` / `persist::decode` (`src-tauri/src/persist.rs`) — no path in either |
+| Commands | `save_document` / `load_document` / `load_document_text` (`src-tauri/src/persist.rs`), `recent_files` / `push_recent_file` (`src-tauri/src/recent.rs`), all registered in `src-tauri/src/lib.rs` — whose handler list also still carries the Tauri template's unused `greet` |
 | Apply | `loadDocument` / `importDocument` / `newDocument` / `markSaved` / `setRecents` reducer cases (`src/editor/state.ts`) |
 | Normalize | `normalizeDocument` (`src/model/document.ts`), applied only in the reducer's document-install cases (`loadDocument`, `importDocument`) |
 | Close guard | `installCloseGuard` (`files.ts`), installed once by `App.tsx`; reuses the New/Open prompt |
 
-The document crosses IPC as JSON; YAML is only the file body, written and parsed
-in Rust (`std::fs` + `serde_yaml`) so the on-disk shape has one owner. No
-`tauri-plugin-fs`.
+The document crosses IPC as JSON; YAML is only the file body, produced and read
+in Rust (`serde_yaml`) so the on-disk shape has one owner. No `tauri-plugin-fs`.
 
-`load_document` **probes the version before deserializing**: a minimal
+**`encode` and `decode` are that owner, and they name no destination.** That
+split is what lets the same bytes be produced in a browser tab: three shells sit
+over one codec — the two `#[tauri::command]`s that add `std::fs`, and
+`src-tauri/src/wasm.rs` which adds a `Blob` and a download. A second encoder
+compiled for the web would be exactly the drift the one-owner rule refuses
+(`rules/host-seam.md`, `specs/web_demo_spec.md` §2.4).
+
+`decode` **probes the version before deserializing**: a minimal
 `VersionProbe` reads `schema_version` alone, so a *newer* file is refused with a
 readable message rather than a serde error from inside `Document`. Older files
-fall straight through to `migrate`.
+fall straight through to `migrate`. Both halves cross to wasm, so the browser
+refuses a future file with the same sentence the desktop does.
 
 **There is one migration arm, and the probe is exactly why it must exist.**
 `migrate` folds the retired `t_junction` glyph to `generic` (`rules/junctions.md`).
@@ -79,11 +88,10 @@ one.
   dirty flag in one pass. The carve-outs set it explicitly: the persistence
   actions, plus `undo`/`redo`, which always dirty (`specs/undo_redo_spec.md`
   §2.5). A new editing action still needs no dirty bookkeeping.
-- **Dialogs need the Tauri runtime.** Under plain `bun run dev` every command in
-  `files.ts` fails; each is wrapped so the failure is reported (dialog `message()`,
-  falling back to `console.error`) instead of leaving an unhandled rejection. The
-  menu, close guard, and recents check `isTauri()` and quietly do nothing instead.
-  Verify file behaviour with `bun run tauri dev`.
+- **Every command is wrapped**, so a failure is reported — a native `message()`
+  dialog on the desktop, the in-page banner in a browser — instead of leaving an
+  unhandled rejection. Verify desktop file behaviour with `bun run tauri dev`
+  and browser behaviour with plain `bun run dev`; both paths are real.
 - **Permissions:** `"dialog:default"` and `"core:window:allow-destroy"` in
   `src-tauri/capabilities/default.json`. `dialog:default` grants `open`, `save`, and
   `message` — `ask()` rides on the `message` command, so it needs nothing extra. The
@@ -143,14 +151,25 @@ one.
   best-effort: a missing or malformed store reads as empty and `rememberRecent`
   swallows its errors, because a failed write must not fail a successful save.
 
-## None of this exists on a browser host
+## How a browser host differs
 
-Save and open both need the serde codec that defines the on-disk shape, and a
-second JavaScript encoder would drift from it — so on the browser host `open`,
-`read` and `save` throw "not available yet" and surface as an in-page banner
-(`rules/host-seam.md`). **Import is the exception**, and for the same reason
-read the other way: it needs a *different* codec, and the browser has that one
-compiled to wasm (`rules/network-yaml.md`). **Recents are absent by decision**, not by omission:
-`recents()` answers `[]`, `state.recents` stays empty, and no Open Recent surface
-appears. Dirty tracking, the close guard and `newDocument` all work — the guard
-through `beforeunload` rather than `onCloseRequested`.
+Open and Save both work, over the same codec compiled to wasm
+(`src/editor/wasm.ts`, `rules/host-seam.md`) — the point of that being one codec
+and not two is that a document round-trips identically on either host, which a
+committed golden holds it to. Three things still differ, all by decision:
+
+- **Save is Save-a-copy.** A download has no address, so `browserHost.save`
+  returns `null`, the document stays dirty and `currentPath` stays unset. A
+  second Cmd-S downloads again rather than writing in place.
+- **Recents are absent**, not omitted: `recents()` answers `[]`, `state.recents`
+  stays empty, no Open Recent surface appears, and `browserHost.read` is
+  therefore unreachable and throws.
+- **There is no native menu**, so the toolbar row is the whole command surface
+  and gains an Import button; `installMenu` resolves `false` and `App` keeps the
+  Cmd/Ctrl chords.
+
+Dirty tracking, the close guard and `newDocument` all work — the guard through
+`beforeunload` rather than `onCloseRequested`. A `.zkai` also arrives by being
+dropped on the canvas, through `files.ts:openDocumentFile` and
+`Host.openDocumentText`; the desktop honours that method too (`load_document_text`)
+even though nothing dispatches to it there yet.

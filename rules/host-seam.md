@@ -11,16 +11,17 @@ sources:
   - src/editor/host-browser.ts
   - src/editor/host-tauri.ts
   - src/editor/menu.ts
-  - src/editor/network-wasm.ts
+  - src/editor/wasm.ts
   - src/editor/notices.ts
   - src/model/document.ts
 covers: >
   how the file commands reach the outside world on two hosts — the Host
   interface and its cancel/throw contract, which capabilities the browser has
-  and which still wait for the .zkai codec, the two shapes of Import and where
-  the codec is called, how a host is chosen and which surfaces vary by it, where
-  an export's filename and MIME are decided, and the in-page error banner
-max_lines: 165
+  and which it answers differently, the two shapes of Open and Import and where
+  the codecs are called, the three readings of a null return, how a host is
+  chosen and which surfaces vary by it, where an export's filename and MIME are
+  decided, and the in-page error banner
+max_lines: 200
 generated: 2026-08-22
 ---
 
@@ -34,11 +35,11 @@ written down. The *why* lives in `specs/web_demo_spec.md`.
 
 | Layer | Where | May name Tauri? |
 |---|---|---|
-| Commands | `src/editor/files.ts` — the eleven exported commands | **no** |
+| Commands | `src/editor/files.ts` — the twelve exported commands | **no** |
 | Interface | `src/editor/host.ts` — `Host`, `Unsubscribe`, `CloseGuard`, `OpenedDocument` | `isTauri()` only |
 | Desktop | `src/editor/host-tauri.ts` — `invoke`, `ask`, `message`, `open`, `save`, `getCurrentWindow` | yes |
 | Browser | `src/editor/host-browser.ts` — `Blob`, `<input type="file">`, `window.confirm`, `beforeunload` | **no** |
-| Network codec | `src/editor/network-wasm.ts` — the crate, built for wasm32 | **no** |
+| Codecs | `src/editor/wasm.ts` — the crate, built for wasm32 | **no** |
 | Export target | `src/editor/export-target.ts` — filename, format, MIME | **no** |
 | Error surface | `src/editor/notices.ts` + `src/components/Banner.tsx` | **no** |
 
@@ -68,7 +69,10 @@ a leaf is also what lets it be tested with no DOM.
 
 | Capability | Desktop | Browser |
 |---|---|---|
-| `open` / `read` / `save` | dialogs + IPC | **throws** — needs the `.zkai` codec |
+| `open` | open dialog → `load_document` | hidden `<input type="file">` → the wasm |
+| `openDocumentText` | `load_document_text` | the wasm |
+| `read` (Open Recent) | `load_document` | **throws** — unreachable, see `recents` |
+| `save` | save dialog → `save_document` | the wasm → a download, returning `null` |
 | `importNetwork` | open dialog → `import_network` | hidden `<input type="file">` → the wasm |
 | `importNetworkText` | `import_network_text` | the wasm |
 | `exportTarget` / `deliverExport` | save dialog → `write_text_file` / `write_binary_file` | pure decision → `Blob` download |
@@ -77,42 +81,74 @@ a leaf is also what lets it be tested with no DOM.
 | `notify` | native `message` dialog | the in-page banner |
 | `closeGuard` | `onCloseRequested` + a real prompt | `beforeunload`, decided synchronously |
 
-`canOpenDocuments` is `false` on the browser and **checked before the discard
-prompt**, so a dirty document is never asked to throw away work for a command
-that is about to refuse. It is the one capability flag, and it gates
-`openDocument` alone: Import came off it when the wasm network reader landed, so
-the flag now means exactly what its name says — `.zkai`, not any file. It goes
-away when Phase 3 lands that codec.
+**There is no capability flag left.** `canOpenDocuments` gated `openDocument`
+while the browser had no document codec; both hosts read both formats now, so it
+retired with the throw it was guarding.
 
-## Import has two shapes, and the split is what keeps the seam intact
+## `null` from `save` carries three readings, and they mean one thing
 
-`importNetwork()` is **pull**-shaped — it takes no arguments and each host
-sources its own file, which is what let the desktop path stay byte-identical
-when the browser gained one. A dropped file is **push**-shaped: it arrives
-already in hand. So there are two entry points, and the second one is where the
-line is drawn.
+The seam's usual pair is *cancelled* (`null`) against *failed* (a throw). `save`
+adds a third: **delivered, but there is nothing to adopt.** A browser download
+has no address, so `browserHost.save` answers `null` rather than inventing a
+path for a file the page cannot address — which is what makes its Save honestly
+a **Save-a-copy**: the document stays dirty, `currentPath` stays unset, and a
+second Cmd-S downloads again (`specs/web_demo_spec.md` OQ-3, resolved).
 
-- `files.ts:importNetworkFile(state, dispatch, file)` reads `file.text()` and
-  nothing else. `File` is a web type both hosts have and `text()` names no
-  codec, so the commands module stays free of both `invoke` and wasm.
-- `Host.importNetworkText(text)` is **the one seam method that names a codec**,
-  and **both hosts honour it** — the browser through `network-wasm.ts`, the
-  desktop through `import_network_text`. A method one host refused would be a
-  hole in the interface; a five-line Rust command is cheaper than the hole.
+One sentinel still covers all three because the caller does the same thing with
+each: `files.ts:adopt` does not run. Only `markSaved` would have been wrong, and
+none of the three wants it.
+
+## Open and Import each have two shapes, and the split keeps the seam intact
+
+`open()` and `importNetwork()` are **pull**-shaped — they take no arguments and
+each host sources its own file, which is what let the desktop paths stay
+byte-identical when the browser gained its own. A dropped file is
+**push**-shaped: it arrives already in hand. So each has a second entry point,
+and that second one is where the line is drawn.
+
+- `files.ts:openDocumentFile(state, dispatch, file)` and
+  `files.ts:importNetworkFile(...)` read `file.text()` and nothing else. `File`
+  is a web type both hosts have and `text()` names no codec, so the commands
+  module stays free of both `invoke` and wasm.
+- `Host.openDocumentText(text)` and `Host.importNetworkText(text)` are **the two
+  seam methods that name a codec**, and **both hosts honour both** — the browser
+  through `wasm.ts`, the desktop through `load_document_text` and
+  `import_network_text`. A method one host refused would be a hole in the
+  interface; a five-line Rust command is cheaper than the hole, and it is what
+  makes wiring the Tauri webview's own file drop a later one-liner.
+
+`OpenedDocument.path` is **host-opaque**, like `ExportTarget.destination`: an
+absolute path on the desktop, a bare `File.name` in a browser, which is all a
+page ever learns about where a file came from. It is what the toolbar shows and
+what an export names itself after, and nothing else may read it as a location.
 
 Neither host may call into `files.ts` to reach the banner: that edge closes the
 ESM cycle above. The drop's own error path is `files.ts:reportUnsupportedDrop`.
 
 The canvas drop is gated on `isTauri()` and is browser-only for now, because a
 Tauri webview intercepts file drops itself and wants its own configuration. It
-routes on `document.ts:isNetworkFile`, which the desktop's dialog filter also
-reads, so the two hosts cannot disagree about what a network is.
+routes on `document.ts:isNetworkFile` and `isZkaiFile`, which the desktop's
+dialog filters also read, so the two hosts cannot disagree about what either
+kind is — and a network is *imported* (dirty and pathless) where a schematic is
+*opened*, which is the whole of the difference between the arms.
 
-Two things about the wasm that are easy to get wrong and fail *silently*: the
-Rust must serialize through `Serializer::json_compatible()`, or a `BTreeMap`
-crosses as an ES `Map` and `normalizeDocument` indexes it as an empty object —
-a blank canvas that throws nothing; and the module loads on first import rather
-than at startup, so a visitor who never imports never fetches the `.wasm`.
+Three things about the wasm that are easy to get wrong and fail *silently*.
+Rust → JS must serialize through `Serializer::json_compatible()`, or a
+`BTreeMap` crosses as an ES `Map` and `normalizeDocument` indexes it as an empty
+object — a blank canvas that throws nothing. **JS → Rust goes the other way on
+purpose**: `wasm.ts:encodeZkai` hands the crate `JSON.stringify(doc)` so
+`serde_json` — the reader Tauri's IPC already uses on that same object — is the
+only reader of that shape, where `serde_wasm_bindgen::from_value` would be a
+second one that disagrees about a key present as `undefined`. And the module
+loads on first use rather than at startup, so a visitor who only looks never
+fetches the `.wasm`.
+
+Both directions are pinned by committed goldens under
+`src-tauri/tests/fixtures/golden/`, each read by a Rust test and a vitest. What
+that pair catches is **marshalling** drift, not converter drift — the two sides
+call the same Rust. It is not theoretical: the `.zkai` golden's first run caught
+`-0.0` surviving in Rust and not in JSON, which had been silently wrong on the
+desktop too.
 
 `CloseGuard` carries two methods and each host uses exactly one. That is not
 unfinished: a desktop window can be held open across an `await`, so it gets
@@ -175,11 +211,11 @@ survives a broken notice surface.
 | `Host`, `Unsubscribe`, `CloseGuard`, `selectHost`, `host` | `src/editor/host.ts` | the app; no unit test |
 | `browserExportTarget`, `exportMime`, `ExportTarget` | `src/editor/export-target.ts` | `src/editor/export-target.test.ts` |
 | `tauriHost` | `src/editor/host-tauri.ts` | `bun run tauri dev` |
-| `browserHost`, `notYet` | `src/editor/host-browser.ts` | `bun run dev` in a browser |
+| `browserHost`, `pickFile`, `download` | `src/editor/host-browser.ts` | `bun run dev` in a browser |
 | notice store | `src/editor/notices.ts` | `src/editor/notices.test.ts` |
 | `Banner` | `src/components/Banner.tsx` | `bun run dev` |
-| the eleven commands | `src/editor/files.ts` | `bun run dev` / `tauri dev` |
-| `importNetworkYaml` (the wasm loader) | `src/editor/network-wasm.ts` | `src/editor/network-wasm.test.ts` |
-| `isNetworkFile`, `NETWORK_EXTENSIONS` | `src/model/document.ts` | `src/model/document.test.ts` |
+| the twelve commands | `src/editor/files.ts` | `bun run dev` / `tauri dev` |
+| `importNetworkYaml`, `decodeZkai`, `encodeZkai` | `src/editor/wasm.ts` | `src/editor/wasm.test.ts` |
+| `isNetworkFile`, `isZkaiFile`, the extension consts | `src/model/document.ts` | `src/model/document.test.ts` |
 | the canvas drop | `src/components/Canvas.tsx` | `bun run dev` in a browser |
 | `FileActions`, `fileCommands` | `src/components/Toolbar.tsx` | `bun run dev` |
