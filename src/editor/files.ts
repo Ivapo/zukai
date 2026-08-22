@@ -1,6 +1,9 @@
 /**
  * The New / Open / Save / Save As / Import / Export commands.
  *
+ * Import comes in two shapes — one that asks the host for a file and one that
+ * is handed a `File` — and the second is what a canvas drop calls.
+ *
  * Every one of them is the same shape: decide what the user wants, ask the
  * *host* to touch the outside world, then dispatch. The host
  * (`host.ts`) is what makes them work in a browser tab as well as in the desktop
@@ -67,16 +70,16 @@ export async function openDocument(
  * `loadDocument`): it is a fresh schematic derived from someone else's file, not
  * a Zukai document that lives at that path, so Save must ask where to put it.
  * The network's path is deliberately not pushed to recents for the same reason.
+ *
+ * No `canOpenDocuments` check, unlike `openDocument`: both hosts can read a
+ * network now — the desktop over IPC, the browser through the wasm — and that
+ * flag is about `.zkai`.
  */
 export async function importNetwork(
   state: EditorState,
   dispatch: Dispatch,
 ): Promise<void> {
   try {
-    if (!host().canOpenDocuments) {
-      await host().importNetwork();
-      return;
-    }
     if (!(await confirmDiscard(state))) return;
     const doc = await host().importNetwork();
     if (doc === null) return;
@@ -84,6 +87,44 @@ export async function importNetwork(
   } catch (err) {
     await report("Couldn't import the network", err);
   }
+}
+
+/**
+ * Import a network the user has already handed over — a dropped file.
+ *
+ * The push-shaped twin of {@link importNetwork}, which is pull-shaped: there,
+ * the host opens a picker and sources the file itself; here the `File` arrives
+ * first and the host is asked only to read its text. Everything else is
+ * identical, discard prompt included, so a drop cannot lose work a click would
+ * have protected. `File` is a web type both hosts have, and `file.text()` names
+ * no codec — {@link Host.importNetworkText} is where that lives.
+ */
+export async function importNetworkFile(
+  state: EditorState,
+  dispatch: Dispatch,
+  file: File,
+): Promise<void> {
+  try {
+    if (!(await confirmDiscard(state))) return;
+    const doc = await host().importNetworkText(await file.text());
+    dispatch({ type: "importDocument", doc });
+  } catch (err) {
+    await report("Couldn't import the network", err);
+  }
+}
+
+/**
+ * Say so when something was dropped that this build cannot read.
+ *
+ * Lives here rather than at the drop site so that `report` — and therefore the
+ * banner — keeps exactly one caller-facing home. `.zkai` joins the readable set
+ * in Phase 3; until then it lands here with everything else.
+ */
+export async function reportUnsupportedDrop(name: string): Promise<void> {
+  await report(
+    "Couldn't open the dropped file",
+    `${name} is not an Assimilator network. Drop a .yaml or .yml network file.`,
+  );
 }
 
 /** Open a remembered file, after checking there is nothing to lose. */

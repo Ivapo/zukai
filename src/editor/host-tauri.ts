@@ -13,6 +13,7 @@ import { ask, message, open, save } from "@tauri-apps/plugin-dialog";
 import {
   ensureExtension,
   ensureZkaiExtension,
+  NETWORK_EXTENSIONS,
   type RawDocument,
   withExtension,
   ZKAI_EXTENSION,
@@ -25,9 +26,9 @@ import type { CloseGuard, Host, OpenedDocument, Unsubscribe } from "./host";
 /** The `.zkai` filter, shared by Open and Save. */
 const FILTERS = [{ name: "Zukai schematic", extensions: [ZKAI_EXTENSION] }];
 
-/** Assimilator writes `.yaml`; `.yml` is accepted for hand-made fixtures. */
+/** The same extensions the canvas drop routes on, so the two cannot disagree. */
 const NETWORK_FILTERS = [
-  { name: "Assimilator network", extensions: ["yaml", "yml"] },
+  { name: "Assimilator network", extensions: NETWORK_EXTENSIONS },
 ];
 
 /**
@@ -87,6 +88,15 @@ export const tauriHost: Host = {
     if (path === null) return null;
     // Raw, like `read`: the reducer is the one place that normalizes.
     return invoke<RawDocument>("import_network", { path });
+  },
+
+  importNetworkText(text: string): Promise<RawDocument> {
+    // A second command rather than reading the file here: the codec is Rust's,
+    // and a `network.yaml` read in JavaScript would be the second reader §2.4
+    // exists to prevent. Nothing dispatches to this on the desktop yet — the
+    // canvas drop is browser-only for now — but the seam is honoured rather
+    // than refused, which is what makes turning it on later a one-liner.
+    return invoke<RawDocument>("import_network_text", { text });
   },
 
   async exportTarget(request: ExportRequest): Promise<ExportTarget | null> {

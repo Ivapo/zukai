@@ -5,6 +5,7 @@ import {
   ensureZkaiExtension,
   fileLabel,
   findJunction,
+  isNetworkFile,
   normalizeDocument,
   RawDocument,
   withExtension,
@@ -141,6 +142,36 @@ describe("withExtension", () => {
 
   it("replaces only the last extension of a multi-dotted name", () => {
     expect(withExtension("roads.v2.zkai", "svg")).toBe("roads.v2.svg");
+  });
+});
+
+describe("isNetworkFile", () => {
+  it("accepts both spellings Assimilator and the fixtures use", () => {
+    expect(isNetworkFile("network.yaml")).toBe(true);
+    expect(isNetworkFile("t_junction.yml")).toBe(true);
+  });
+
+  it("ignores case, because a drop carries whatever the disk spelled", () => {
+    expect(isNetworkFile("NETWORK.YAML")).toBe(true);
+  });
+
+  it("rejects a schematic, which is the whole point of asking", () => {
+    expect(isNetworkFile("interchange.zkai")).toBe(false);
+    expect(isNetworkFile("drawing.svg")).toBe(false);
+  });
+
+  it("rejects a name with no extension at all", () => {
+    expect(isNetworkFile("network")).toBe(false);
+  });
+
+  it("reads only the last extension of a multi-dotted name", () => {
+    expect(isNetworkFile("roads.yaml.bak")).toBe(false);
+    expect(isNetworkFile("roads.v2.yaml")).toBe(true);
+  });
+
+  /** A leading dot is part of the name, as `withExtension` also holds. */
+  it("treats a leading dot as a name rather than an extension", () => {
+    expect(isNetworkFile(".yaml")).toBe(false);
   });
 });
 

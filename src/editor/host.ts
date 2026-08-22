@@ -57,9 +57,12 @@ export interface CloseGuard {
 
 export interface Host {
   /**
-   * Whether a document can be read at all. False in the browser until the wasm
-   * codec lands (§2.4), and checked *before* the discard prompt so nobody is
-   * asked to throw away work for a command that cannot run.
+   * Whether a `.zkai` can be read at all. False in the browser until the
+   * document codec lands (§2.4, Phase 3), and checked *before* the discard
+   * prompt so nobody is asked to throw away work for a command that cannot run.
+   *
+   * It gates `openDocument` and nothing else. Import came off it when the wasm
+   * network reader landed, which is why the flag keeps a name about *documents*.
    */
   readonly canOpenDocuments: boolean;
 
@@ -74,6 +77,17 @@ export interface Host {
   save(doc: Document, path: string | null, name: string): Promise<string | null>;
   /** Pick an Assimilator `network.yaml` and read it. */
   importNetwork(): Promise<RawDocument | null>;
+  /**
+   * Convert a `network.yaml` whose **text** is already in hand — a dropped file,
+   * where the seam above is pull-shaped and a drop is push-shaped.
+   *
+   * This is the one method that names a codec, and that is deliberate: it keeps
+   * `files.ts` naming neither `invoke` nor wasm, and it keeps the hosts from
+   * importing `files.ts`, which would close the cycle this module forbids. Both
+   * hosts honour it — the desktop over IPC, the browser through the wasm — so
+   * the seam carries no method a host refuses.
+   */
+  importNetworkText(text: string): Promise<RawDocument>;
 
   /** Decide where an export goes. `null` if the user backed out. */
   exportTarget(request: ExportRequest): Promise<ExportTarget | null>;

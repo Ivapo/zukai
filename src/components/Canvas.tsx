@@ -1,11 +1,13 @@
 /** The SVG drawing surface: grid, view transform, and all pointer interaction. */
 
+import { isTauri } from "@tauri-apps/api/core";
 import type React from "react";
 import { useRef, useState } from "react";
 import {
   findLink,
   findMarking,
   linkPolyline,
+  isNetworkFile,
   linkStyle,
   nodePos,
 } from "../model/document";
@@ -38,6 +40,7 @@ import {
   snap,
   zoomAbout,
 } from "../editor/geometry";
+import { importNetworkFile, reportUnsupportedDrop } from "../editor/files";
 import { Action, EditorState } from "../editor/state";
 import { Diagram } from "./Diagram";
 
@@ -510,6 +513,38 @@ export function Canvas({ state, dispatch }: CanvasProps) {
     dispatch({ type: "setView", view: zoomAbout(view, factor, s.x, s.y) });
   }
 
+  /**
+   * **`preventDefault` is what makes the drop happen at all.** Without it the
+   * browser declines the drop *and then* navigates the tab to the file, which
+   * is the worst of both — no import, and the editor replaced by raw YAML.
+   */
+  function onDragOver(e: React.DragEvent) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  }
+
+  /**
+   * A dropped file becomes a document, routed on its extension — the same
+   * `isNetworkFile` the desktop's dialog filter uses, so the two hosts cannot
+   * disagree about what a network is. `.zkai` is Phase 3, so for now it lands
+   * with everything else in the banner.
+   *
+   * No coordinates are read: an import replaces the whole document and resets
+   * the view, so where on the canvas it landed means nothing.
+   */
+  function onDrop(e: React.DragEvent) {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+    if (isNetworkFile(file.name)) void importNetworkFile(state, dispatch, file);
+    else void reportUnsupportedDrop(file.name);
+  }
+
+  // Browser only: a Tauri webview intercepts file drops itself and wants its own
+  // configuration, which is not this phase. `isTauri()` rather than anything
+  // async, so the surface never renders the wrong host's shape for a frame.
+  const acceptsDrop = !isTauri();
+
   const transform = `translate(${view.tx} ${view.ty}) scale(${view.k})`;
   // The dots and the pointer honour one lattice: the tile is pulled back half a
   // cell so its centred circle lands where `snap` rounds to (§2.7).
@@ -523,6 +558,8 @@ export function Canvas({ state, dispatch }: CanvasProps) {
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onWheel={onWheel}
+      onDragOver={acceptsDrop ? onDragOver : undefined}
+      onDrop={acceptsDrop ? onDrop : undefined}
     >
       <defs>
         <pattern

@@ -1,38 +1,68 @@
 /**
  * The browser host: no filesystem, no dialogs, no IPC.
  *
- * Four capabilities work here and now — export, confirm, notify and the close
- * guard — which is enough for the thing the web demo exists to do: get a real
- * road figure out of a tab as a file. The other three need the wasm codec
- * (`specs/web_demo_spec.md` §2.4, and Phase 2), because a second JavaScript
- * encoder for `.zkai` would drift from the serde one that defines the format.
+ * Five capabilities work here and now — import, export, confirm, notify and the
+ * close guard — which covers the thing the web demo exists to do: get a real
+ * network onto the canvas and a real road figure back out of the tab as a file.
+ * Import reads Assimilator's format through the **wasm** build of this project's
+ * own Rust (`network-wasm.ts`), never a JavaScript YAML reader, because serde
+ * plus the model's attributes are the single source of truth for what these
+ * files mean and a second reader would drift (`specs/web_demo_spec.md` §2.4).
  *
- * Until then those three **throw**, naming themselves. `files.ts` already wraps
- * every command in a `try`/`catch` that reports, so the reply arrives as a
- * visible banner rather than a swallowed console line — no new wiring, and the
- * notify path is exercised by the same code that will carry real failures.
+ * The three that remain — Open, Open Recent and Save — need the `.zkai` codec,
+ * which the wasm does not carry until Phase 3. Until then they **throw**, naming
+ * themselves. `files.ts` already wraps every command in a `try`/`catch` that
+ * reports, so the reply arrives as a visible banner rather than a swallowed
+ * console line — no new wiring, and the notify path is exercised by the same
+ * code that carries real failures.
  *
  * Several methods below deliberately declare fewer parameters than {@link Host}
  * asks for. A function of fewer arguments is assignable to one of more, and it
  * keeps `noUnusedParameters` quiet without a row of underscores.
  */
 
-import type { RawDocument } from "../model/document";
+import { NETWORK_EXTENSIONS, type RawDocument } from "../model/document";
 import {
   browserExportTarget,
   type ExportRequest,
   type ExportTarget,
 } from "./export-target";
 import type { CloseGuard, Host, OpenedDocument, Unsubscribe } from "./host";
+import { importNetworkYaml } from "./network-wasm";
 import { showNotice } from "./notices";
 
-/** What a command that needs the wasm codec throws until Phase 2 lands. */
+/** What a command that needs the `.zkai` codec throws until Phase 3 lands. */
 function notYet(command: string): Error {
   return new Error(
-    `${command} is not available in the browser yet — it needs the document ` +
+    `${command} is not available in the browser yet — it needs the .zkai ` +
       `codec, which the web build does not carry until the next release. ` +
-      `Export still works, and the desktop app does all of it.`,
+      `Import and Export work, and the desktop app does all of it.`,
   );
+}
+
+/**
+ * Ask for one file and hand back what was chosen, or `null` if the picker was
+ * dismissed — this host's stand-in for a native open dialog, and it keeps the
+ * seam's cancel contract intact.
+ *
+ * The input is never added to the document — nothing renders it, and `click()`
+ * opens the picker from anywhere. (`showPicker()` reads better and is newer;
+ * `click()` is what `deliverExport`'s `<a download>` already relies on, so
+ * the file keeps one idiom.) `cancel` is how a dismissed picker announces itself; a
+ * browser too old to fire it leaves the promise pending, which is
+ * indistinguishable from the user never having answered.
+ */
+function pickFile(accept: string): Promise<File | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = accept;
+    input.addEventListener("change", () => resolve(input.files?.[0] ?? null), {
+      once: true,
+    });
+    input.addEventListener("cancel", () => resolve(null), { once: true });
+    input.click();
+  });
 }
 
 export const browserHost: Host = {
@@ -54,8 +84,16 @@ export const browserHost: Host = {
     throw notYet("Save");
   },
 
-  importNetwork(): Promise<RawDocument | null> {
-    throw notYet("Import");
+  async importNetwork(): Promise<RawDocument | null> {
+    const file = await pickFile(NETWORK_EXTENSIONS.map((e) => `.${e}`).join(","));
+    if (file === null) return null;
+    return this.importNetworkText(await file.text());
+  },
+
+  importNetworkText(text: string): Promise<RawDocument> {
+    // Raw, like the desktop's `invoke`: the reducer is the one place that
+    // normalizes. The wasm loads on this first call, not at startup.
+    return importNetworkYaml(text);
   },
 
   async exportTarget(request: ExportRequest): Promise<ExportTarget | null> {

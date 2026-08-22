@@ -96,6 +96,27 @@ export function fileLabel(currentPath: string | null): string {
 export const ZKAI_EXTENSION = "zkai";
 
 /**
+ * The extensions an Assimilator network arrives under. Assimilator writes
+ * `.yaml`; `.yml` is accepted for hand-made fixtures.
+ */
+export const NETWORK_EXTENSIONS = ["yaml", "yml"];
+
+/**
+ * Whether a filename looks like a network rather than a schematic.
+ *
+ * **The extension is the only guard there is**, and that is a standing decision
+ * rather than a shortcut: neither reader sniffs content, and pointing Import at
+ * a `.zkai` fails with the version probe's message instead of half-importing
+ * something (`rules/network-yaml.md`). Used by the dialog's filter on the
+ * desktop and by the canvas drop in the browser, so the two agree by
+ * construction.
+ */
+export function isNetworkFile(name: string): boolean {
+  const dot = name.lastIndexOf(".");
+  return dot > 0 && NETWORK_EXTENSIONS.includes(name.slice(dot + 1).toLowerCase());
+}
+
+/**
  * Add an extension to a path that has none. Save dialogs vary by platform in
  * whether they append the filter's extension, so a name typed as `foo` still
  * lands as `foo.zkai`; a name with any other extension is left alone (the user
