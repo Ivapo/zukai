@@ -6,6 +6,7 @@ sources:
   - package.json
   - index.html
   - demo/index.html
+  - public/mark.svg
   - src-tauri/tauri.conf.json
 covers: >
   how one Vite build serves two hosts — the two entries and which is which,
@@ -93,9 +94,13 @@ the dist root — passing `tauri dev` while failing `tauri build`.
 
 ## The favicon has to exist
 
-`public/favicon.png` (Vite's default `publicDir`, copied from
-`src-tauri/icons/32x32.png`) and a `<link rel="icon" type="image/png"
-href="/favicon.png" />` in **both** entries. Vite base-prefixes a `link[href]`
+`public/mark.svg` is the master — a road bent into a Z, in the palette
+`styles/diagram.css` defines. `public/favicon.png` (256px) and the whole of
+`src-tauri/icons/` are rasterized from it, the latter by
+`bunx tauri icon <1024px.png>`; that command also emits `android/` and `ios/`
+trees this project has no target for, and they are deleted rather than
+committed. Both entries carry `<link rel="icon" type="image/png"
+href="/favicon.png" />`. Vite base-prefixes a `link[href]`
 even in the nested entry, so one file serves both hosts. Without it a browser
 requests `/favicon.ico` against the **host** root, which on a project page is
 `ivapo.github.io/favicon.ico` and 404s no matter how right `base` is.
@@ -135,5 +140,5 @@ than an error.
 | the non-root base | `package.json:build:web` | `/zukai/assets/…` in `dist/demo/index.html` |
 | the root base | `vite.config.ts` (no `base`) | `/assets/…` in the same file after `bun run build` |
 | the desktop window's page | `src-tauri/tauri.conf.json` `app.windows[0].url` | `bun run tauri dev` opens the editor |
-| the favicon | `public/favicon.png` + both entries | a cold load raises no error from the site's own assets |
+| the mark | `public/mark.svg` → `public/favicon.png`, `src-tauri/icons/` | a cold load raises no error from the site's own assets |
 | the deploy | `.github/workflows/pages.yml` | a push to `main` serves both URLs |

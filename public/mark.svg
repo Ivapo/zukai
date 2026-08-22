@@ -1,0 +1,19 @@
+<!-- The Zukai mark: a road bent into a Z, drawn in the app's own vocabulary.
+     Asphalt under a dashed centre line, on paper, with the round ends and
+     bevelled corners the renderer gives a road; the three colours are the
+     asphalt, paint-white and paper tokens `styles/diagram.css` defines.
+
+     This file is the master: `public/favicon.png` and the whole of
+     `src-tauri/icons/` are rasterized from it.
+
+     No double hyphen anywhere in this comment, token names included. Served as
+     `image/svg+xml` the file is parsed as XML, where a double hyphen inside a
+     comment is a parse error and the mark silently fails to render. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect x="16" y="16" width="480" height="480" rx="108" fill="#e7ebee"/>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="bevel" stroke-miterlimit="1.6">
+    <path d="M 152 176 L 356 176 L 152 336 L 356 336" stroke="#2b2f36" stroke-width="76"/>
+    <path d="M 152 176 L 356 176 L 152 336 L 356 336" stroke="#f5f7f8" stroke-width="9"
+          stroke-dasharray="24 20"/>
+  </g>
+</svg>
