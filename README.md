@@ -8,40 +8,57 @@ network rather than a surveyed one.
 The goal is to represent **parts** of networks (a single interchange, one
 roundabout) legibly, rather than reproduce complete geographic maps.
 
-**[Try it in your browser →](https://ivapo.github.io/zukai/demo/)** — the editor
-runs in a tab, with no install and no server. Drop an Assimilator `network.yaml`
-on the canvas and it draws.
+**[See what it draws →](https://ivapo.github.io/zukai/)** · **[Try it in your
+browser →](https://ivapo.github.io/zukai/demo/)** — the editor runs in a tab,
+with no install and no server. Drop an Assimilator `network.yaml` on the canvas
+and it draws.
 
 ## Status
 
-Early. What works today:
+Early, but it draws. What works today:
 
-- **From-scratch drawing** — place nodes, connect them with directed roads, drag
-  to reposition, and delete.
-- **Schematic road rendering** — asphalt casing with painted edge lines, dashed
-  lane dividers scaled to lane count, and direction arrows.
-- **Editing** — set node type (endpoint / junction / waypoint), lane count, and
-  road class; pan and zoom.
+- **Drawing** — place nodes, connect them with directed roads, bend a road
+  around a point you drag onto it, and delete; pan, zoom, undo and redo.
+- **Road rendering** — asphalt casing with painted edge lines, lane dividers
+  scaled to lane count, road class, lane kinds (bus, cycle, hard shoulder), and
+  two-way carriageways that don't sit on top of each other.
+- **Junctions** — a pad that follows the roads meeting at it, plus roundabout,
+  signalized and priority glyphs, control and right-of-way rule.
+- **Paint and signs** — stop and give-way lines, crossings, lane lines, and
+  per-lane turn arrows; roadside signs in a shape-then-colour vocabulary.
+- **Real lengths as labels** — a road states how long it really is. Retype
+  `1800m` as `1500m` and the drawing does not move: the label is the truth about
+  the road, the picture is a diagram.
+- **Documents** — save and open Zukai's own `.zkai` YAML, with dirty tracking
+  and an unsaved-changes guard.
+- **Export** — the schematic leaves as a standalone SVG or PNG, chrome-free and
+  carrying its own lettering.
+- **Import** — read an Assimilator `network.yaml` and draw it.
 
 Planned:
 
-- Junction glyphs (roundabout ring, signalized cross, T-junction).
-- Road markings (turn arrows, stop lines, crossings) and roadside signs.
-- Save / load Zukai's own YAML documents.
-- Import and export against [Assimilator](#relationship-to-assimilator)
-  `network.yaml` files.
+- An "open an example" menu in the browser demo, so a visitor needs no checkout.
+- Downloadable desktop builds — the pipeline is not built yet, so
+  [releases](https://github.com/Ivapo/zukai/releases/latest) is empty for now.
 
 ## Relationship to Assimilator
 
 Zukai is developed independently from Assimilator, a to-scale microscopic traffic
-simulator. The two are coupled only by Assimilator's `network.yaml` file format:
+simulator. The two share no code and the coupling is **one-way**: Zukai reads the
+`network.yaml` file format Assimilator uses.
 
-- **Import** reads a network's *topology* (nodes, links, lanes, junctions,
-  movements) and discards its literal geometry — a schematic intentionally
-  distorts real geometry for clarity.
-- **Export** synthesizes placeholder geometry from the schematic, producing a
-  network fragment useful for testing a junction's lane config or signal plan in
-  isolation.
+**Import** takes a network's *topology* — nodes, links, lanes, junctions, and
+which turns each junction permits — and discards its literal geometry, because a
+schematic intentionally distorts real geometry for clarity. The one number kept
+off the discarded polyline is its total length, and it is kept as a **label**
+rather than as a distance: an imported arm states `500m` while the canvas holds
+its ends 250 units apart.
+
+**Zukai does not write `network.yaml`**, and that is a decision rather than a
+gap. An export shipped and was reverted: it synthesized placeholder geometry,
+which is no substitute for surveyed geometry, so its only use was simulating one
+junction in isolation. A network worth simulating is authored in Assimilator,
+where the geometry is real.
 
 Zukai keeps its own document schema (a semantic graph, a presentation layer, and
 schematic-only decorations) and its own copy of the `network.yaml` types, so it
@@ -52,7 +69,8 @@ never depends on Assimilator's code.
 [Tauri 2](https://tauri.app) · Rust backend · React + TypeScript frontend ·
 Vite · [Bun](https://bun.sh). The canvas is rendered with SVG; type is set in
 [Overpass](https://fonts.google.com/specimen/Overpass), an open face based on the
-FHWA Highway Gothic road-sign lettering.
+FHWA Highway Gothic road-sign lettering. The browser build compiles the same Rust
+to WebAssembly, so both hosts read and write a document through one codec.
 
 ## Getting started
 
@@ -63,10 +81,16 @@ Prerequisites: [Rust](https://rustup.rs), [Bun](https://bun.sh), and the
 bun install            # install frontend dependencies
 bun run tauri dev      # run the desktop app (hot reload)
 
-bun run dev            # frontend only, in a browser (Vite dev server)
+bun run dev            # frontend only, in a browser: the landing page at /,
+                       # the editor at /demo/
 bun run build          # type-check + build the frontend
+bun run build:web      # the same build for GitHub Pages (base /zukai/)
+bun run test           # frontend tests
 cargo test --manifest-path src-tauri/Cargo.toml   # run Rust tests
 ```
+
+The figures on the landing page are generated by driving the built demo and
+pressing its own Export button — see [`examples/`](examples/).
 
 ## License
 
