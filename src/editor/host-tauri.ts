@@ -41,8 +41,6 @@ const EXPORT_FILTERS = [
 ];
 
 export const tauriHost: Host = {
-  canOpenDocuments: true,
-
   async open(): Promise<OpenedDocument | null> {
     const path = await open({
       title: "Open schematic",
@@ -52,6 +50,15 @@ export const tauriHost: Host = {
     });
     if (path === null) return null;
     return { doc: await this.read(path), path };
+  },
+
+  openDocumentText(text: string): Promise<RawDocument> {
+    // A second command rather than parsing here, for the reason
+    // `importNetworkText` gives: the codec is Rust's. Nothing dispatches to this
+    // on the desktop yet — the canvas drop is browser-only — but the seam is
+    // honoured rather than refused, which is what makes turning it on later a
+    // one-liner.
+    return invoke<RawDocument>("load_document_text", { text });
   },
 
   read(path: string): Promise<RawDocument> {

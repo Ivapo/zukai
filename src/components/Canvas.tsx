@@ -8,6 +8,7 @@ import {
   findMarking,
   linkPolyline,
   isNetworkFile,
+  isZkaiFile,
   linkStyle,
   nodePos,
 } from "../model/document";
@@ -40,7 +41,11 @@ import {
   snap,
   zoomAbout,
 } from "../editor/geometry";
-import { importNetworkFile, reportUnsupportedDrop } from "../editor/files";
+import {
+  importNetworkFile,
+  openDocumentFile,
+  reportUnsupportedDrop,
+} from "../editor/files";
 import { Action, EditorState } from "../editor/state";
 import { Diagram } from "./Diagram";
 
@@ -525,9 +530,10 @@ export function Canvas({ state, dispatch }: CanvasProps) {
 
   /**
    * A dropped file becomes a document, routed on its extension — the same
-   * `isNetworkFile` the desktop's dialog filter uses, so the two hosts cannot
-   * disagree about what a network is. `.zkai` is Phase 3, so for now it lands
-   * with everything else in the banner.
+   * `isNetworkFile`/`isZkaiFile` the desktop's dialog filters use, so the two
+   * hosts cannot disagree about what either kind is. A network is *imported*
+   * (dirty and pathless) and a schematic is *opened*, which is the whole of the
+   * difference between the two arms.
    *
    * No coordinates are read: an import replaces the whole document and resets
    * the view, so where on the canvas it landed means nothing.
@@ -537,6 +543,7 @@ export function Canvas({ state, dispatch }: CanvasProps) {
     const file = e.dataTransfer.files[0];
     if (!file) return;
     if (isNetworkFile(file.name)) void importNetworkFile(state, dispatch, file);
+    else if (isZkaiFile(file.name)) void openDocumentFile(state, dispatch, file);
     else void reportUnsupportedDrop(file.name);
   }
 

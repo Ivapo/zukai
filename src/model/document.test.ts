@@ -6,6 +6,7 @@ import {
   fileLabel,
   findJunction,
   isNetworkFile,
+  isZkaiFile,
   normalizeDocument,
   RawDocument,
   withExtension,
@@ -172,6 +173,33 @@ describe("isNetworkFile", () => {
   /** A leading dot is part of the name, as `withExtension` also holds. */
   it("treats a leading dot as a name rather than an extension", () => {
     expect(isNetworkFile(".yaml")).toBe(false);
+  });
+});
+
+describe("isZkaiFile", () => {
+  it("accepts a schematic, ignoring case", () => {
+    expect(isZkaiFile("interchange.zkai")).toBe(true);
+    expect(isZkaiFile("INTERCHANGE.ZKAI")).toBe(true);
+  });
+
+  /**
+   * The two arms of the canvas drop must not both claim a file, or which
+   * command runs would depend on the order they are asked in.
+   */
+  it("rejects what isNetworkFile accepts, and the reverse", () => {
+    expect(isZkaiFile("network.yaml")).toBe(false);
+    expect(isNetworkFile("interchange.zkai")).toBe(false);
+  });
+
+  it("rejects a name with no extension, and reads only the last one", () => {
+    expect(isZkaiFile("interchange")).toBe(false);
+    expect(isZkaiFile("roads.zkai.bak")).toBe(false);
+    expect(isZkaiFile("roads.v2.zkai")).toBe(true);
+  });
+
+  /** A leading dot is part of the name, as `withExtension` also holds. */
+  it("treats a leading dot as a name rather than an extension", () => {
+    expect(isZkaiFile(".zkai")).toBe(false);
   });
 });
 

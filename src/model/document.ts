@@ -112,8 +112,24 @@ export const NETWORK_EXTENSIONS = ["yaml", "yml"];
  * construction.
  */
 export function isNetworkFile(name: string): boolean {
+  return hasExtension(name, NETWORK_EXTENSIONS);
+}
+
+/**
+ * Whether a filename looks like a Zukai schematic. {@link isNetworkFile}'s twin,
+ * and the other arm of the canvas drop's routing — same extension-only
+ * discipline, for the same reason: neither reader sniffs content, so pointing
+ * the document codec at a `network.yaml` fails on the version probe rather than
+ * half-opening something.
+ */
+export function isZkaiFile(name: string): boolean {
+  return hasExtension(name, [ZKAI_EXTENSION]);
+}
+
+/** The last dot decides, and a leading dot is a name rather than an extension. */
+function hasExtension(name: string, extensions: string[]): boolean {
   const dot = name.lastIndexOf(".");
-  return dot > 0 && NETWORK_EXTENSIONS.includes(name.slice(dot + 1).toLowerCase());
+  return dot > 0 && extensions.includes(name.slice(dot + 1).toLowerCase());
 }
 
 /**

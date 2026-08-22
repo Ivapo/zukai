@@ -32,7 +32,14 @@ import { tauriHost } from "./host-tauri";
 /** Undo an installed listener. This project's own name for `() => void`. */
 export type Unsubscribe = () => void;
 
-/** A document read off disk, and the path it came from. */
+/**
+ * A document read off disk, and the path it came from.
+ *
+ * `path` is **host-opaque**, like `ExportTarget.destination`: an absolute
+ * filesystem path on the desktop, a bare `File.name` in a browser, which is all
+ * a page ever learns about where a file came from. It is produced and consumed
+ * by the same host; nothing else may take it for a location.
+ */
 export interface OpenedDocument {
   doc: RawDocument;
   path: string;
@@ -56,23 +63,26 @@ export interface CloseGuard {
 }
 
 export interface Host {
-  /**
-   * Whether a `.zkai` can be read at all. False in the browser until the
-   * document codec lands (§2.4, Phase 3), and checked *before* the discard
-   * prompt so nobody is asked to throw away work for a command that cannot run.
-   *
-   * It gates `openDocument` and nothing else. Import came off it when the wasm
-   * network reader landed, which is why the flag keeps a name about *documents*.
-   */
-  readonly canOpenDocuments: boolean;
-
   /** Pick a `.zkai` and read it. `null` if the user backed out. */
   open(): Promise<OpenedDocument | null>;
+  /**
+   * Decode a `.zkai` whose **text** is already in hand — a dropped file. The
+   * push-shaped twin of {@link open}, exactly as {@link importNetworkText} is
+   * the twin of {@link importNetwork}, and where the document codec is called.
+   */
+  openDocumentText(text: string): Promise<RawDocument>;
   /** Read a `.zkai` whose path is already known (Open Recent). */
   read(path: string): Promise<RawDocument>;
   /**
    * Write the document. `path` is where it goes; `null` means ask. Returns where
-   * it landed, or `null` if the user backed out of the dialog.
+   * it landed.
+   *
+   * **`null` carries a third meaning here**, on top of the seam's usual
+   * "cancelled": *delivered, but there is nothing to adopt*. A browser download
+   * has no address, so the browser host answers `null` rather than inventing a
+   * path for a file the page cannot address — which is what makes its Save
+   * honestly a Save-a-copy (§OQ-3). Both readings mean the same thing to the
+   * caller, which is why one sentinel still covers them: do not call `adopt`.
    */
   save(doc: Document, path: string | null, name: string): Promise<string | null>;
   /** Pick an Assimilator `network.yaml` and read it. */

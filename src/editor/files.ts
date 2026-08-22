@@ -1,8 +1,9 @@
 /**
  * The New / Open / Save / Save As / Import / Export commands.
  *
- * Import comes in two shapes — one that asks the host for a file and one that
- * is handed a `File` — and the second is what a canvas drop calls.
+ * Open and Import each come in two shapes — one that asks the host for a file
+ * and one that is handed a `File` — and the second of each is what a canvas
+ * drop calls.
  *
  * Every one of them is the same shape: decide what the user wants, ask the
  * *host* to touch the outside world, then dispatch. The host
@@ -47,13 +48,6 @@ export async function openDocument(
   dispatch: Dispatch,
 ): Promise<void> {
   try {
-    // Before the prompt, not after: a host that cannot open anything must not
-    // make the user answer a discard question first. The call throws, and the
-    // catch below turns that into the banner.
-    if (!host().canOpenDocuments) {
-      await host().open();
-      return;
-    }
     if (!(await confirmDiscard(state))) return;
     const opened = await host().open();
     if (opened === null) return;
@@ -70,10 +64,6 @@ export async function openDocument(
  * `loadDocument`): it is a fresh schematic derived from someone else's file, not
  * a Zukai document that lives at that path, so Save must ask where to put it.
  * The network's path is deliberately not pushed to recents for the same reason.
- *
- * No `canOpenDocuments` check, unlike `openDocument`: both hosts can read a
- * network now — the desktop over IPC, the browser through the wasm — and that
- * flag is about `.zkai`.
  */
 export async function importNetwork(
   state: EditorState,
@@ -114,16 +104,39 @@ export async function importNetworkFile(
 }
 
 /**
+ * Open a `.zkai` the user has already handed over — a dropped file.
+ *
+ * The push-shaped twin of {@link openDocument}, and the exact mirror of
+ * {@link importNetworkFile}: the discard prompt is the same, `file.text()` names
+ * no codec, and {@link Host.openDocumentText} is where that lives. The path it
+ * installs is `file.name`, which is all a page ever learns about where a file
+ * came from.
+ */
+export async function openDocumentFile(
+  state: EditorState,
+  dispatch: Dispatch,
+  file: File,
+): Promise<void> {
+  try {
+    if (!(await confirmDiscard(state))) return;
+    const doc = await host().openDocumentText(await file.text());
+    await install(doc, file.name, dispatch);
+  } catch (err) {
+    await report("Couldn't open the file", err);
+  }
+}
+
+/**
  * Say so when something was dropped that this build cannot read.
  *
  * Lives here rather than at the drop site so that `report` — and therefore the
- * banner — keeps exactly one caller-facing home. `.zkai` joins the readable set
- * in Phase 3; until then it lands here with everything else.
+ * banner — keeps exactly one caller-facing home.
  */
 export async function reportUnsupportedDrop(name: string): Promise<void> {
   await report(
     "Couldn't open the dropped file",
-    `${name} is not an Assimilator network. Drop a .yaml or .yml network file.`,
+    `${name} is neither a Zukai schematic nor an Assimilator network. Drop a ` +
+      `.zkai document, or a .yaml or .yml network file.`,
   );
 }
 
