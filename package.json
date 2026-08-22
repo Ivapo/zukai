@@ -9,6 +9,7 @@
     "dev": "vite",
     "prebuild": "bun run wasm",
     "build": "tsc && vite build",
+    "build:web": "bun run build --base=/zukai/",
     "preview": "vite preview",
     "pretest": "bun run wasm",
     "test": "vitest run",

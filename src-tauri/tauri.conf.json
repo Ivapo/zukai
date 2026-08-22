@@ -13,6 +13,7 @@
     "windows": [
       {
         "title": "Zukai",
+        "url": "demo/index.html",
         "width": 800,
         "height": 600
       }

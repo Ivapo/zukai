@@ -4,10 +4,50 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Zukai</title>
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <!--
+      A deliberate placeholder, not the landing page — zk-015 Phase 5 fills it.
+      Phase 4 ships a file here so the second entry is built, deployed and
+      routed one phase before there is content to put in it.
+
+      The link is `demo/` and never `/demo/`: `a[href]` is not in Vite's
+      asset-attribute table, so it never receives the build's `--base`, and the
+      root-absolute form would point at the host root and 404.
+    -->
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+      body {
+        margin: 0;
+        display: grid;
+        place-content: center;
+        min-height: 100vh;
+        padding: 2rem;
+        font-family: system-ui, sans-serif;
+        line-height: 1.5;
+      }
+      main {
+        max-width: 34rem;
+      }
+      h1 {
+        margin: 0 0 0.5rem;
+        font-size: 2rem;
+      }
+      p {
+        margin: 0 0 1.5rem;
+      }
+    </style>
   </head>
 
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <main>
+      <h1>Zukai</h1>
+      <p>
+        A schematic road-network editor — it draws roundabouts, junctions and
+        motorway segments as clean diagrams that are not necessarily to scale.
+      </p>
+      <p><a href="demo/">Try it in your browser →</a></p>
+    </main>
   </body>
 </html>
