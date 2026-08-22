@@ -1,0 +1,70 @@
+# The push to `main` is the deploy (`specs/web_demo_spec.md` zk-015 Phase 4).
+#
+# Two jobs because `actions/deploy-pages` requires an `environment: github-pages`
+# job of its own, and the three `permissions` below are what it authenticates
+# with — neither is optional.
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time, and a queued one is not cancelled: the last push to land
+# should be the site that is serving.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+
+      # `src-tauri/pkg/` is gitignored, so a fresh checkout has no wasm to
+      # dynamically import — `build:web` builds it through `prebuild`, and that
+      # needs the wasm32 target and `wasm-pack`. No `apt-get` step: `tauri` sits
+      # behind a `cfg(not(target_arch = "wasm32"))` table, and the only
+      # host-compiled Tauri crate is `tauri-build`, which needs no webkit2gtk.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: bun install --frozen-lockfile
+
+      # Not `bun run build`: the base has to be `/zukai/` here and `/` everywhere
+      # else. The flag is a passthrough onto `vite build`, so `prebuild` still
+      # fires and the wasm is built.
+      - run: bun run build:web
+
+      - uses: actions/configure-pages@v6
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
