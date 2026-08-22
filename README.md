@@ -8,6 +8,10 @@ network rather than a surveyed one.
 The goal is to represent **parts** of networks (a single interchange, one
 roundabout) legibly, rather than reproduce complete geographic maps.
 
+**[Try it in your browser →](https://ivapo.github.io/zukai/demo/)** — the editor
+runs in a tab, with no install and no server. Drop an Assimilator `network.yaml`
+on the canvas and it draws.
+
 ## Status
 
 Early. What works today:
