@@ -13,17 +13,22 @@ phases:
     shipped: 2026-08-21
     cut: null
     by: null
-  - name: "Phase 2 — The wasm core: import and `.zkai` inside the tab"
+  - name: "Phase 2 — Import in the tab: the wasm core, and a dropped `network.yaml`"
+    reviewed: 2026-08-21
+    shipped: null
+    cut: null
+    by: null
+  - name: "Phase 3 — `.zkai` in the tab: decode, encode, Open and Save"
+    reviewed: 2026-08-21
+    shipped: null
+    cut: null
+    by: null
+  - name: "Phase 4 — The GitHub Pages deploy"
     reviewed: null
     shipped: null
     cut: null
     by: null
-  - name: "Phase 3 — The GitHub Pages deploy"
-    reviewed: null
-    shipped: null
-    cut: null
-    by: null
-  - name: "Phase 4 — The landing page, and the examples it is made of"
+  - name: "Phase 5 — The landing page, and the examples it is made of"
     reviewed: null
     shipped: null
     cut: null
@@ -71,7 +76,9 @@ their downloads folder. Nothing was installed and no server was involved.
 - **Not a replacement for the desktop app.** Tauri stays the primary artifact.
   Where the two hosts differ, the desktop one wins; the web one degrades.
 - **No server, no accounts, no shareable links.** The deploy is static files on
-  GitHub Pages. A document lives in the tab and leaves through Export. Encoding
+  GitHub Pages. A document lives in the tab and leaves as a file the browser
+  downloads — through Export (Phase 1) or, once Phase 3 lands, through Save,
+  which is honestly Save-a-copy (OQ-3). Nothing is stored anywhere. Encoding
   a document into a URL was considered and declined — it bounds document size
   and adds a compression-and-versioning concern to a format that already
   carries a migration (`persist.rs:migrate`).
@@ -98,7 +105,10 @@ they get replaced. What is left over is small, pure, and already isolated.
 | `export.rs`, `recent.rs` | `fs::write`, a recent-files list | **no** — replaced, see §2.5 |
 
 This is verifiable rather than hopeful. **Every non-portable call in the Rust
-that crosses sits in an outermost shell function**, and there are three:
+that crosses sits in an outermost shell function**, and there are three of
+those — with `lib.rs:run` and the template's unused `lib.rs:greet` outside the
+count, being neither file commands nor part of the two native-only modules, and
+gated wholesale (Phase 2). The three:
 `persist::save_document` and `persist::load_document` (one `fs` call each, in
 `persist.rs`) and `network::import::import_network` (`use std::fs` plus the
 `#[tauri::command]` attribute). Inside the `model/` and `network/` trees the
@@ -119,6 +129,14 @@ SVG, and PNG rasterization already runs in the webview through a `<canvas>` in
 precisely so there would be no second renderer (`zk-003` §2.8).
 
 ### 2.2 The seam is `files.ts` and `menu.ts`, and most of it is unguarded
+
+> **CORRECTED 2026-08-21, after Phase 1 shipped.** This section is written in
+> the present tense about the code as it stood *before* Phase 1, and is kept
+> that way because it is the argument that produced the phase. It is no longer a
+> description of the repo: `files.ts` now names no dialog, no `invoke` and no
+> window, the seam is `host.ts` with two implementations, and the toolbar row
+> varies by host. `rules/host-seam.md` is the current-state map. Phases 2 and 3
+> lean on that rule, not on the paragraphs below.
 
 Both modules declare in their own doc comments that they are the only two that
 touch the Tauri runtime. What they do **not** have is a working browser path:
@@ -238,28 +256,56 @@ survives. The download filename comes from `document.ts:withExtension` over
   enough in it to be worth looking at — an interchange, a real roundabout. The
   candidates live in Assimilator, which is **partly private**, so this is a
   permission question before it is a technical one. *(needs-input)* Blocks
-  Phase 4's exit gate; does not block Phases 1–3, which can use the fixtures.
+  Phase 5's exit gate; does not block Phases 1–4, which can use the fixtures.
 - **OQ-2** — Project page (`<user>.github.io/zukai/`) or a custom domain? This
   fixes Vite's `base` and therefore every asset URL, so it wants answering
-  before Phase 3 rather than during it. *(needs-input)*
-- **OQ-3** — Does the browser host use the File System Access API where it
-  exists (Chrome: a real save-in-place, so Cmd-S means what it means on the
-  desktop) or download-only everywhere (universal, but Save silently becomes
-  Save-a-copy)? A hybrid is possible and is the likely answer, at the cost of
-  two code paths through Save. *(design call)* Blocks Phase 2's scope.
+  before Phase 4 rather than during it. *(needs-input)*
+- **OQ-3 — RESOLVED 2026-08-21: download-only everywhere.** ~~Does the browser
+  host use the File System Access API where it exists (Chrome: a real
+  save-in-place, so Cmd-S means what it means on the desktop) or download-only
+  everywhere (universal, but Save silently becomes Save-a-copy)? A hybrid is
+  possible and is the likely answer, at the cost of two code paths through
+  Save.~~ *(design call)* ~~Blocks Phase 2's scope.~~
+
+  One code path, every browser, and **Save is honestly Save-a-copy**: it does
+  not mark the document clean and does not set `currentPath`, so a second Cmd-S
+  downloads again rather than writing in place. That is the reading §1.1 already
+  leans toward — *"a document lives in the tab and leaves through Export"* — and
+  §1's usage narrative ends at Cmd-E with no Save at all.
+
+  It matters more than it looks: `host.ts:Host.save` returns **where the
+  document landed**, and `files.ts:adopt` feeds that to `markSaved`, which sets
+  `currentPath` and clears `dirty`. Download-only means the browser host's
+  `save` returns **`null`** — the value that already means "nothing was
+  adopted" — rather than inventing a path for a file the page cannot address.
+  The hybrid was declined because a `FileSystemFileHandle` is not the `string`
+  that interface returns, so it would have reopened a seam Phase 1 shipped, for
+  a capability two of four browsers lack. Lands in **Phase 3**, which is the
+  phase that owns Save.
 - **OQ-4** — Is there a size budget for the wasm bundle? `serde_yaml` plus the
   model should land in the low hundreds of KB gzipped, which is unremarkable
-  for a demo but worth measuring rather than assuming. *(answerable from code —
-  measure during Phase 2, record the number here.)*
+  for a demo but worth measuring rather than assuming. *(design call.)* It was
+  tagged answerable-from-code, and that was wrong twice: §4 wants such questions
+  answered **during review by reading the source**, and a gzipped bundle size
+  cannot be read from source — it needs the build Phase 2 creates. **No budget
+  is set, so this is a recorded measurement and not a gate item**: nothing about
+  it can turn Phase 2 red. If the number is alarming when it lands, that
+  argues for a *new* question with a threshold, not for a gate written after
+  the fact.
 - **OQ-5** — Does the web build ever become the *only* build? Assume no; the
   non-goal in §1.1 stands until something forces the question. *(deferred by
   evidence)*
 
 ## 4. Implementation phases
 
-Strictly sequential. Phases 1 and 2 each light up a real capability in a plain
-`vite dev` browser with no Tauri present, which is what makes Phase 3 a deploy
-of something that already works rather than a debugging session in CI.
+Strictly sequential. Phases 1, 2 and 3 each light up a real capability in a
+plain `vite dev` browser with no Tauri present, which is what makes Phase 4 a
+deploy of something that already works rather than a debugging session in CI.
+
+Phases 2 and 3 were **one phase** until Phase 1 shipped and the round on it
+measured what a pass in this repo actually costs. Splitting them by *format*
+rather than by language keeps the observable in the first half — an imported
+network is a picture, a saved file is not — and confines OQ-3 to the second.
 
 ### Phase 1 — The host seam, and the file commands working in a browser
 *Produces the observable: **yes** — a diagram leaves a browser tab as an SVG.*
@@ -329,39 +375,229 @@ of something that already works rather than a debugging session in CI.
   pure/DOM/Tauri layering this phase changes. Commit the seam and the browser
   host separately; one push.
 
-### Phase 2 — The wasm core: import and `.zkai` inside the tab
+### Phase 2 — Import in the tab: the wasm core, and a dropped `network.yaml`
 *Produces the observable: **yes** — a real `network.yaml` becomes a drawn
-junction in a browser, which is the most persuasive thing this app does.*
+junction in a browser, which is the most persuasive thing this app does, and is
+§1's usage example verbatim.*
 
-- **Scope:** Move `tauri`, `tauri-plugin-dialog` and `tauri-plugin-opener` in
-  `src-tauri/Cargo.toml` under `[target.'cfg(not(target_arch = "wasm32"))'.dependencies]`,
-  and `#[cfg]`-gate the command shells and the two native-only modules
-  (`export`, `recent`) so the crate builds for `wasm32-unknown-unknown`. Add a
-  `wasm` module exposing three `#[wasm_bindgen]` functions over
-  `serde-wasm-bindgen`: import a `network.yaml` string, decode a `.zkai`
-  string, encode a document to `.zkai`. Each is a thin call onto the pure
-  functions that already exist — `network::parse_network` plus
-  `network::import::network_to_document` for the first, and the bodies of
-  `persist::load_document` and `persist::save_document` minus their `fs` calls
-  for the other two, with `persist::migrate` and the version probe preserved.
-  Build with `wasm-pack build --target web`; load it from the browser host.
-  Open and Import in the browser host become a file input plus drag-and-drop
-  onto the canvas; Save becomes a download, or a real write where OQ-3 lands.
-- **Exit gate:** `cargo check`, `cargo fmt --check`, and
-  `cargo clippy --all-targets -- -D warnings` green for the native target;
-  `wasm-pack build` clean. **An equivalence test is the real gate:** a vitest
-  loads the built wasm, feeds it `tests/fixtures/network/cross-4.yaml`, and
-  asserts the document deep-equals the one the existing Rust import test
-  produces from the same fixture — the two paths share a converter, and this is
-  what proves it. A second asserts a `.zkai` round trip through wasm is
-  byte-identical to the file the Rust path writes. Behavioural: in a plain
-  `vite dev` browser, drag `cross-4.yaml` onto the canvas and get a four-arm
-  junction with painted turn arrows. Record OQ-4's measured bundle size.
-- **Close-out:** updates `rules/network-yaml.md` and `rules/persistence.md`
-  (both now describe two callers of one converter); updates `CLAUDE.md`'s
-  Commands block with the wasm build. One push.
+Split from what was one phase covering both formats. Import alone produces the
+picture; `.zkai` (Phase 3) produces a file. Cutting there also keeps the wasm
+surface to **one** function for its first outing, and leaves Save — the one
+thing OQ-3 governed — out of the phase entirely.
 
-### Phase 3 — The GitHub Pages deploy
+- **Scope, Rust:** make the crate build for `wasm32-unknown-unknown`. Move
+  `tauri`, `tauri-plugin-dialog` and `tauri-plugin-opener` in
+  `src-tauri/Cargo.toml` under
+  `[target.'cfg(not(target_arch = "wasm32"))'.dependencies]`, `#[cfg]`-gate the
+  command shells and the two native-only modules (`export`, `recent`), and gate
+  `lib.rs:run` and `lib.rs:greet` with them.
+
+  **That is not sufficient, and the missing step is the one that bites.**
+  `[build-dependencies]` are host-compiled and a target table does not touch
+  them, so `src-tauri/build.rs` still runs `tauri_build::build()` on a wasm32
+  build and **panics** — measured, applying exactly the recipe above:
+
+  ```
+  error: failed to run custom build command for `zukai v0.1.0`
+    panicked at tauri-build-2.6.3/src/lib.rs:427:6:
+    missing `cargo:dev` instruction, please update tauri to latest
+  ```
+
+  The message misdirects: the fix is not a version bump but gating the call on
+  `std::env::var("CARGO_CFG_TARGET_ARCH")`, after which the lib builds clean.
+  The rest of the tree needs nothing — `serde`, `serde_json` and `serde_yaml`
+  (pure-Rust `unsafe-libyaml`) all cross, there is no C dependency, and
+  `crate-type` needs no change.
+
+  One seam artifact the split creates, worth naming so "`wasm-pack build`
+  clean" is unambiguous: with both its commands gated out and the codec not yet
+  extracted, `persist.rs` still compiles for wasm32 in this phase with
+  `migrate` and `VersionProbe` unreachable, so it will warn `dead_code`. Gate
+  `mod persist` for wasm32 here and un-gate it in Phase 3, rather than leaving
+  the build's cleanliness to interpretation.
+
+  Then a `wasm` module exposing **one** `#[wasm_bindgen]` function: a
+  `network.yaml` string in, a document out. It is a thin call onto
+  `network::parse_network` plus `network::import::network_to_document`, both
+  already `pub` and neither reading a path.
+
+  **Marshalling is the one place it is not thin (decision, recorded).**
+  `serde_wasm_bindgen::to_value` maps a Rust map to an ES `Map`, while
+  `model/layout.rs:Layout` is four `BTreeMap`s and `document.ts:normalizeDocument`
+  indexes plain objects — `layout.nodes ?? {}` passes a `Map` straight through
+  and every lookup then yields `undefined`, i.e. a blank canvas that throws
+  nothing. Use `Serializer::json_compatible()`. This is also the honest answer to
+  what the equivalence gate below is *for*: the two paths share a converter, so
+  it cannot catch converter drift — it catches **marshalling** drift, which is
+  the real hazard and the one §2.4's argument does not cover.
+
+- **Scope, build:** `wasm-pack build --target web`, output to `src-tauri/pkg/`,
+  **gitignored** rather than committed, with a `prewasm`-style script so
+  `bun run dev`, `bun run test` and `bun run build` each build it first. Under
+  vitest's `node` environment the generated `init()` `fetch`es an
+  `import.meta.url`-relative `.wasm`, which fails on `file:` — the test reads
+  the bytes and passes them in (`init({ module_or_path })`). No second
+  `--target nodejs` build, and no jsdom.
+
+- **Scope, frontend:** Import lights up, in two halves that must not be
+  confused with each other.
+
+  **The button keeps the shipped seam untouched.** `Host.importNetwork()` stays
+  exactly as Phase 1 shipped it — no arguments, returns a `RawDocument` — and
+  each host still sources its own file: the Tauri host its dialog plus
+  `invoke`, the browser host a hidden `<input type="file">` plus the wasm. The
+  toolbar's existing `Import…` button already dispatches
+  `files.ts:importNetwork`, which is unchanged. **Nothing about the desktop path
+  moves**, which §1.1's first non-goal requires.
+
+  **The drop needs a second entry point, because Phase 1's seam is
+  pull-shaped**: `host.importNetwork()` sources the file itself, while a drop
+  *arrives* with a `File` already in hand. Three things, and the third is the
+  one that keeps the seam intact:
+
+  1. `files.ts` gains one exported command, `importNetworkFile(state, dispatch,
+     file)`. It runs `confirmDiscard` exactly as the button does, reads the file
+     with `await file.text()` — `File` is a web type both hosts have, and this
+     names no codec — and dispatches `importDocument`.
+  2. `Host` gains one method, `importNetworkText(text: string):
+     Promise<RawDocument>`. **This is where the codec is called**, so
+     `files.ts` still names neither wasm nor `invoke` and no host ever imports
+     `files.ts` — the cycle `host.ts`'s own doc comment forbids does not open.
+  3. **Both hosts honour it**, so the seam carries no method a host refuses.
+     The browser calls the wasm. The desktop gets a new five-line
+     `#[tauri::command] import_network_text(text: String)` onto the same
+     `parse_network` + `network_to_document` pair the path command already
+     uses — registered in `lib.rs:run`'s `generate_handler!` list like the
+     others, and needing no `capabilities/default.json` change, since that file
+     carries only `core:`/`dialog:`/`opener:` permissions and no app-command
+     entries. That is a real addition to the scope and is named here rather than
+     discovered: it is what makes desktop drag-and-drop a later one-liner
+     instead of a redesign of this seam.
+
+  The drop listener lives on `Canvas`, which already receives `state` and
+  `dispatch`, and routes by extension: `.yaml`/`.yml` → `importNetworkFile`;
+  anything else → a `notify`, since `.zkai` is Phase 3. **Browser-only in this
+  phase**, gated on `isTauri()`, because a Tauri webview has its own drag-drop
+  handling to configure — the host method above is honoured on both hosts
+  regardless, which is what makes turning it on later cheap.
+
+  **`canOpenDocuments` needs no rename and no split.** It gates `openDocument`
+  and `importNetwork` today; this phase removes the guard from `importNetwork`
+  only, leaving the flag gating exactly the command its name describes. It
+  retires in Phase 3.
+
+  **`host-browser.ts:notYet` goes partly stale here** and must be reworded: its
+  text says the web build "does not carry the document codec", which stops being
+  true for `open` and `save` the moment this phase lands a codec that simply
+  does not decode `.zkai` yet.
+
+- **Exit gate:** `cargo test` green, and **the 69 that exist today all still
+  run** — this phase adds the golden-writer below, so the total lands at 70.
+  Assert the count rather than eyeballing "ok": this phase edits the modules
+  those tests cover, and a `#[cfg]` gate that excises a module leaves a
+  *smaller* green run, which reads identically to a passing one. `cargo check`
+  never compiles `#[cfg(test)]` code at all, and `clippy --all-targets`
+  compiles it without running it. Plus `cargo check`, `cargo fmt --check`,
+  `cargo clippy --all-targets -- -D warnings` for the native target;
+  `wasm-pack build` clean; `bun run test` and `bun run build` green.
+  - **Deterministic — and the artifact it compares against is created by this
+    phase, because none exists.** There is no committed golden document
+    anywhere in the repo: `import.rs`'s tests build a `Document` in-process and
+    assert *properties*, and `CROSS_4` is a `#[cfg(test)]` const. So add a Rust
+    test over `src-tauri/tests/fixtures/golden/cross-4.document.json`
+    (serde_json, committed) that **asserts by default and rewrites only behind
+    an explicit opt-in** (an env var). That distinction is the whole value: a
+    test that regenerates the file on every run always matches itself and
+    asserts nothing. Then a vitest loads the built wasm, feeds it
+    `src-tauri/tests/fixtures/network/cross-4.yaml`, and asserts the result
+    deep-equals that same committed JSON. Two readers, one file, and the golden
+    cannot rot without the Rust test going red.
+  - **Behavioural:** in a plain `vite dev` browser, drag `cross-4.yaml` onto the
+    canvas and get a four-arm junction with painted turn arrows — the fixture
+    carries 16 movements and the shipped Rust test pins **8** turn-arrow
+    markings on `L1/L1/L4/L4/L5/L5/L8/L8` around node `N5`, so this is
+    eyeball-checkable against a known count. Then export it as SVG, which is
+    Phase 1's capability meeting Phase 2's on one document.
+  - **Recorded, not gated:** OQ-4's measured bundle size.
+- **Close-out:** updates `rules/network-yaml.md` (**313 of `max_lines: 315`** —
+  two lines, so this one needs a bump or a trim, and the phase should say which)
+  and `rules/host-seam.md` (122/150, room), whose capability table, its
+  `canOpenDocuments` paragraph and its "Where each piece lives" table all go
+  partly false here, and whose `sources` gains the wasm loader and the drop
+  handler. Updates `CLAUDE.md`'s Commands block with the wasm build. One push.
+
+### Phase 3 — `.zkai` in the tab: decode, encode, Open and Save
+*Produces the observable: **no** — it produces a file, not a picture, and that
+is precisely why it was split out rather than left riding along with the phase
+that does.*
+
+**So it needs the argument §3 demands, and here it is.** This spec's case is
+**reach**, not capability (§1), and the test is whether a phase gets a real
+figure in front of someone who does not have the app. Phase 3 does that
+indirectly and specifically: Phase 1 shipped Open, Save and Save As as *live
+toolbar buttons that explain they do not work yet*, which is honest for one
+release and untenable as a permanent state — a deployed demo with three dead
+buttons reads as broken software rather than as a deliberate subset. Either this
+phase lands or those buttons come out, and taking them out is worse, because a
+visitor who spends ten minutes schematising an imported network and then cannot
+keep it has been actively misled by the presence of a Save button.
+
+**The honest counter, recorded rather than buried:** §1.1 says the demo is not a
+replacement for the desktop app, and a reader who wants to keep work can install
+one. If that view wins, the right move is not to build this phase badly but to
+**cut it and remove the three buttons from the browser row** — which is a real
+option, and cheaper than it will ever be again, since Phase 2 already carries
+every piece of wasm machinery it would share. The roadmap records two features
+in this project cut *after* shipping for want of exactly this question, so it is
+asked here rather than assumed away.
+
+- **Scope:** two more `#[wasm_bindgen]` functions — decode a `.zkai` string to a
+  document, encode a document to `.zkai`. Both are the bodies of
+  `persist::load_document` and `persist::save_document` minus their one `fs`
+  call each, **with `persist::migrate` and the version probe preserved**. Note
+  that `migrate` and `VersionProbe` are **private today**, so this is an
+  extraction into pure `encode`/`decode` functions that both the native command
+  and the wasm shell call — not a visibility change, and not a copy.
+
+  Then Open (a file input, and `.zkai` joins the canvas drop's routing table)
+  and Save. Per **OQ-3, resolved: download-only**. `browserHost.save` returns
+  **`null`**, so `files.ts:adopt` never runs, the document stays dirty and
+  `currentPath` stays unset — Save is Save-a-copy and the app does not pretend
+  otherwise. `canOpenDocuments` and `host-browser.ts:notYet` retire; note
+  `browserHost.read` (Open Recent) **keeps throwing**, because §2.5 keeps
+  recents empty on this host, so its message must stop citing the codec.
+- **Exit gate:** `cargo test` green, and **every test Phase 2 left behind still
+  runs** — assert the count, for the reason Phase 2 gives; `cargo check`,
+  `cargo fmt --check`,
+  `cargo clippy --all-targets -- -D warnings`; `wasm-pack build` clean;
+  `bun run test` and `bun run build` green.
+  - **Deterministic:** a `.zkai` round trip through wasm is byte-identical to
+    what the Rust path writes for the same document. As in Phase 2 the reference
+    must be created: add a Rust test over a committed
+    `src-tauri/tests/fixtures/golden/cross-4.zkai` written from the imported
+    fixture — asserting by default and rewriting only behind the same explicit
+    opt-in Phase 2 uses — then assert the wasm encoder reproduces those bytes.
+    **Feed that encoder the document its own wasm importer produced from
+    `cross-4.yaml`**, not a `JSON.parse` of Phase 2's golden: chaining the two
+    wasm functions is what the demo actually does, and it is the strictly
+    stronger test. **Not**
+    `tests/fixtures/zkai/t-junction-glyph.zkai` — that one is hand-authored, its
+    README forbids regenerating it from the app, and loading it runs `migrate`,
+    so a round trip through it is guaranteed *not* byte-identical. Byte-identity
+    is achievable across the two targets: `serde_yaml` formats floats through
+    `ryu`, key order is struct field order plus `BTreeMap`, and every
+    `skip_serializing_if` is a pure predicate.
+  - **Behavioural:** in a plain `vite dev` browser, import `cross-4.yaml`, press
+    Save, reopen the downloaded `.zkai` through Open, and get the same drawing.
+- **Close-out:** updates `rules/persistence.md` (**130 of `max_lines: 132`** —
+  bump or trim) and `rules/host-seam.md`, which loses its "throws — needs the
+  wasm codec" row and its `canOpenDocuments` paragraph. That rule also states
+  the seam's cancel/throw contract as two cases — `null` means the user backed
+  out, a throw means failure — and download-only Save adds a **third** reading
+  of `null`: *delivered, but nothing to adopt*. Spell it out there rather than
+  letting the sentinel quietly carry two meanings. One push.
+
+### Phase 4 — The GitHub Pages deploy
 *Produces the observable: **yes** — it is the phase that puts the figures at a
 URL, which is the entire point of the spec.*
 
@@ -369,15 +605,16 @@ URL, which is the entire point of the spec.*
   `/demo/`. A GitHub Actions workflow: Rust toolchain with the
   `wasm32-unknown-unknown` target, `wasm-pack`, Bun, build, `upload-pages-artifact`,
   `deploy-pages`. Repository Pages settings. Nothing about the app changes.
-- **Exit gate:** the public URL serves the demo, and **Phase 1's and Phase 2's
-  behavioural checks are re-run against the deployed site** — import the
-  fixture, export an SVG — in both Chrome and Firefox. A cold load with an
+- **Exit gate:** the public URL serves the demo, and **the behavioural checks
+  from Phases 1, 2 and 3 are re-run against the deployed site** — import the
+  fixture, export an SVG, and save-then-reopen a `.zkai` — in both Chrome and
+  Firefox. A cold load with an
   empty cache completes without console errors, which is where a wrong `base`
   or a mis-served `.wasm` surfaces.
 - **Close-out:** seeds `rules/deploy.md`; adds the demo URL to `README.md`.
   One push, and the push is the deploy.
 
-### Phase 4 — The landing page, and the examples it is made of
+### Phase 5 — The landing page, and the examples it is made of
 *Produces the observable: **yes**, and more directly than any phase above — the
 page is literally made of exported diagrams.*
 
