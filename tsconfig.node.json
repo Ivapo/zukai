@@ -2,9 +2,20 @@
   "compilerOptions": {
     "composite": true,
     "skipLibCheck": true,
+    // `scripts/render-examples.ts` iterates a Map and uses top-level await,
+    // neither of which the default ES5 target allows. Nothing typechecked this
+    // project before it — `vite.config.ts` and `vitest.config.ts` needed
+    // neither — so the omission only surfaced when a real script moved in.
+    "target": "ES2022",
+    // DOM because `page.evaluate` callbacks are browser code living in a node
+    // file — `document.fonts` and `documentElement` are evaluated in Chromium.
+    "lib": ["ES2022", "DOM"],
+    // `composite` forces emit, so send it somewhere ignored: `tsc -b` on this
+    // project otherwise drops `vite.config.js`/`.d.ts` beside their sources.
+    "outDir": "node_modules/.tmp/tsconfig.node",
     "module": "ESNext",
     "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true
   },
-  "include": ["vite.config.ts", "vitest.config.ts"]
+  "include": ["vite.config.ts", "vitest.config.ts", "scripts/render-examples.ts"]
 }

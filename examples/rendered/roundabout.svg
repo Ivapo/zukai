@@ -1,0 +1,504 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="zukai-diagram" width="358" height="358" viewBox="-179 -179 358 358">
+<style>
+/* The drawing itself: the road palette, and every rule that paints a road, a
+   junction glyph, or the paint on either.
+
+   One definition site, two importers — `styles.css` for the live canvas, and
+   `editor/export.tsx`, which embeds this file verbatim in the style element of
+   an exported SVG. A standalone .svg reaches no external stylesheet, so the
+   paint has to travel inside the file; importing the same rules both ways is
+   what stops a file on disk from disagreeing with the picture on screen.
+
+   Two rules about what may live here, both asserted in `editor/export.test.ts`:
+
+   - A rule belongs here if it paints something a FIGURE carries. Click targets,
+     selection outlines, pointer styling, the in-progress link and the canvas
+     backdrop belong in `styles.css`; so does the node dot, which paints and is
+     still an editing mark rather than figure content (ramps 2.11.1). Added
+     here, any of them would ship inside every export.
+   - No angle brackets or ampersands anywhere in this file, not even in a
+     comment: it is embedded raw inside an XML document, where either would end
+     the style element or open an entity. */
+
+/* In a standalone SVG document the root element is the svg itself, so `:root`
+   matches it; the class keeps the markup self-contained when it is pasted
+   inline into an HTML page, where `:root` would be that page's root instead. */
+:root,
+.zukai-diagram {
+  --asphalt: #2b2f36;
+  --asphalt-2: #23272d;
+
+  --paper: #e7ebee;
+  --island: #c9d6c9;
+
+  --paint-white: #f5f7f8;
+  --paint-yellow: #f5c518;
+
+  /* Lane-kind surfaces. Lifted off the asphalt just enough to read as a
+     different surface under the same white paint, never as a highlight. */
+  --tint-bus: #4c382f;
+  --tint-cycle: #2c4536;
+
+  /* The two *sign* colours, and neither is road paint. Red is the prohibition
+     and warning half of the vocabulary: the ring on a speed roundel, the octagon
+     under STOP, the border on a give-way triangle and the no-entry disc. Deeper
+     than the signal head's red above, because a sign is read against light paper
+     rather than against dark asphalt, where the signal head's lighter red is read
+     against the junction pad.
+
+     Green is the *informational* half, and it exists so a destination panel is
+     not the same picture as a free-text plate: shape cannot separate them (both
+     are rectangles as wide as their words), so colour is what carries it. Dark
+     enough to hold white letters at the one type size the drawing sets. */
+  --sign-red: #c8102e;
+  --sign-green: #0b6b3a;
+
+  --ink: #12161b;
+}
+
+/* The opaque sheet an export is drawn on: without it the roundabout's island
+   would float invisibly on a light page. */
+.diagram-bg {
+  fill: var(--paper);
+}
+
+/* ----- roads ----- */
+
+/* The asphalt. It mitres at a corner because the paint on it does: `.road-edge`,
+   `.road-divider` and `.lane-band` declare no join at all and so take SVG's
+   default, which is miter. A rounded casing under mitred paint is the same
+   corner drawn two ways - it leaves a white line hanging off the outside of a
+   bend, over bare paper (link bends spec 2.4).
+
+   The limit is SVG's own default, set explicitly so the number is stated where a
+   reader of this file finds it. It is the same 4 as `MITER_LIMIT` in
+   `editor/geometry.ts`, which clamps where the *centreline* of every painted
+   element turns: SVG bevels a join once `1 / sin` of half the included angle
+   passes this limit, and that is the same quantity the offset clamps on, so the
+   asphalt and the paint change behaviour at one angle rather than two. Written
+   twice because a CSS rule cannot read a constant - the road class's width
+   factor is here for the same reason (road spec 2.3).
+
+   `stroke-linecap` is untouched: that is about a road's *ends*, and
+   `.road-casing--butt` below depends on it. */
+.road-casing {
+  fill: none;
+  stroke: var(--asphalt);
+  stroke-linecap: round;
+  stroke-linejoin: miter;
+  stroke-miterlimit: 4;
+}
+
+/* A road that tapers at either end takes butt caps, because the round one
+   bulges half a road past the node and outside the wedge's own edge line - a
+   half-disc of asphalt spilling past freshly painted paint. No added polygon
+   can remove it, so the cap goes instead. Only a joint that actually draws a
+   wedge gets the class, so a document with no width step paints as it always
+   has (ramps spec 2.4). */
+.road-casing--butt {
+  stroke-linecap: butt;
+}
+
+.road-edge {
+  fill: none;
+  stroke: var(--paint-white);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+/* The wedge that closes a width step: asphalt, in the class of the link it runs
+   along, with the road's own edge line on its hypotenuse. */
+.road-taper {
+  fill: var(--asphalt);
+}
+
+.road-divider {
+  fill: none;
+  stroke: var(--paint-white);
+  stroke-width: 1.4;
+  stroke-dasharray: 7 7;
+  opacity: 0.85;
+}
+
+.road-arrow {
+  fill: var(--paint-white);
+}
+
+/* ----- lane kinds ----- */
+
+/* A band is one lane's slice of the road, drawn as a path stroked at the lane's
+   own width. Butt caps, not the casing's round ones: a band ends where its lane
+   ends, and a rounded cap would bulge past the asphalt it sits on. */
+
+.lane-band {
+  fill: none;
+  stroke-linecap: butt;
+}
+
+.lane-band-bus {
+  stroke: var(--tint-bus);
+}
+
+.lane-band-cycle {
+  stroke: var(--tint-cycle);
+}
+
+/* The shoulder band takes its paint from the hatch pattern, which is markup in
+   `Diagram.tsx` and reaches the band as an inline attribute: a paint-server
+   reference here would fail `export.test.ts`, and the pattern element itself
+   cannot live in a file that may not contain an angle bracket. This is the
+   pattern's own line, which can - an ordinary rule, travelling inside an
+   exported file like every other. */
+.road-hatch-line {
+  stroke: var(--paint-white);
+  stroke-width: 1.1;
+  opacity: 0.5;
+}
+
+/* The line between a hard shoulder and the running lanes. Solid, and wider than
+   the dashed divider it replaces: a dashed line says "same direction, cross
+   freely", which is the one thing a shoulder boundary does not mean. This is
+   also the whole of what makes a motorway read differently from an arterial -
+   the class itself paints alike (road spec 2.3, 2.5). */
+.road-shoulder-line {
+  fill: none;
+  stroke: var(--paint-white);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+/* ----- road markings ----- */
+
+/* A stop line: one solid bar across the lane the marking sits in, or across the
+   whole lane region. Butt caps, because the bar ends exactly at the lane
+   boundary - a round cap would bulge half a stroke past it and read as paint
+   spilling onto the neighbouring lane.
+
+   Same weight as the signalised glyph's `.jn-stopbar`, which is deliberate: the
+   two mean the same thing to a reader even though one is a symbol and the other
+   is paint a human placed. That also leaves `strokeAllowance`'s floor of 2 - half
+   the fattest non-casing stroke in this file - exactly where it was. */
+.marking-bar {
+  fill: none;
+  stroke: var(--paint-white);
+  stroke-width: 4;
+  stroke-linecap: butt;
+}
+
+/* A give-way line: a row of solid triangles whose apexes point back at the
+   driver. Filled, not stroked - a stroked outline would read as a row of little
+   hollow arrows, and the shape is the whole message. Both this and the zebra
+   below are built from polygons in `editor/geometry.ts` and arrive as one path
+   of closed subpaths, so a marking of many pieces is still one element. */
+.marking-teeth {
+  fill: var(--paint-white);
+}
+
+/* A crossing: stripes parallel to travel. Same paint as every other marking -
+   what distinguishes it is that its stripes run along the road while the
+   transverse kinds run across it. */
+.marking-zebra {
+  fill: var(--paint-white);
+}
+
+/* A turn arrow, and the one kind that is two elements rather than one: stroked
+   stems and filled heads. Drawing it as a single filled outline would have to
+   close the u-turn's hook across its own chord and fill the half-disc inside it,
+   and a single stroked path would leave the heads hollow - which reads as an
+   outline drawing, the same reason the give-way teeth above are filled.
+
+   No `stroke-width` here. It is a fraction of the band the arrow is painted in,
+   so it arrives as an attribute from `editor/geometry.ts` the way a lane band's
+   own width does - one derivation, and it still travels inside an exported file.
+
+   Round joins and caps: the hook is a polyline approximation of a semicircle, and
+   a mitre would spike at every one of its twelve steps. */
+.marking-arrow-stem {
+  fill: none;
+  stroke: var(--paint-white);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.marking-arrow-head {
+  fill: var(--paint-white);
+}
+
+/* Text painted flat on the road - the same white as every other marking, because
+   it is the same paint.
+
+   Fill only, and the omissions are the point. Neither the typeface nor the type
+   size is named here: this stylesheet travels verbatim inside *every* exported
+   picture, and most of them carry no letters and embed no typeface, so a rule
+   here would name a face the file has no bytes for. Both arrive as presentation
+   attributes instead, built from the one constant the embedded face rule is also
+   built from - so a picture and the canvas that drew it cannot ask for different
+   faces (signs spec 2.3). Anchoring is absent for a different reason: it is
+   geometry rather than paint, and it is what centres a run on its position.
+
+   Note the words this comment goes out of its way not to spell: an export that
+   carries no letters is asserted to contain neither of those two property names
+   anywhere in the file, comments included. */
+.marking-text {
+  fill: var(--paint-white);
+}
+
+/* The length a link states, set beside the carriageway rather than on it - so it
+   is ink on the paper, not paint on the asphalt, and it is the one run of text
+   here that is not a marking at all.
+
+   The same two omissions as above, for the same reason, and one addition: the
+   label is *derived* from the field rather than placed, so it has no id and
+   nothing selects it. Without this it would still swallow a press, and a drag
+   begun on the characters would select them instead of panning the canvas. */
+.link-length {
+  fill: var(--ink);
+  pointer-events: none;
+}
+
+/* A lane line: the one marking that runs *along* the road rather than across it,
+   for the whole length of the link. It replaces the divider it lands on rather
+   than being drawn over one, which is a rule in `Diagram.tsx` rather than here -
+   CSS cannot suppress an element it is not on.
+
+   Two units wide, the weight `.road-shoulder-line` above already uses for a solid
+   longitudinal line; all three styles take it, so a line does not change weight
+   when it changes meaning. That also leaves `strokeAllowance`'s floor of 2 - half
+   the fattest non-casing stroke in this file, which is the marking bar's 4 -
+   exactly where it was. */
+.marking-line {
+  fill: none;
+  stroke: var(--paint-white);
+  stroke-width: 2;
+}
+
+/* The two modifiers are the same specificity as the rule above, so it is
+   **source order** that lets them win - they follow it, and must keep doing so. */
+
+/* Dashed reads as the divider it replaced, which is the point: it is how a human
+   says "this boundary is ordinary" after painting something else on it. The
+   dasharray is `.road-divider`'s, so the two match. */
+.marking-line-dashed {
+  stroke-dasharray: 7 7;
+}
+
+/* The one marking that is not white. A double line means opposing traffic - it is
+   the undivided two-way road's centreline - and yellow is the road-atlas signal
+   for exactly that, where white would read as one more lane divider drawn twice.
+   The two strokes are `LANE_LINE_GAP` apart, from `editor/geometry.ts`. */
+.marking-line-double {
+  stroke: var(--paint-yellow);
+}
+
+/* ----- road class ----- */
+
+/* Motorway and arterial take the base treatment above; the local pair is the
+   lighter, thinner-lined one. Only paint lives here. The class also carries a
+   modest width factor, and that cannot: a CSS rule can replace a computed
+   stroke-width but not scale one, so it lives in `editor/geometry.ts`, upstream
+   of the casing, the edge inset and the lane dividers alike (road spec 2.3). */
+
+.road-local .road-casing,
+.road-ramp .road-casing {
+  stroke: var(--asphalt-2);
+}
+
+.road-local .road-taper,
+.road-ramp .road-taper {
+  fill: var(--asphalt-2);
+}
+
+.road-local .road-edge,
+.road-ramp .road-edge {
+  stroke-width: 1.2;
+}
+
+.road-local .road-shoulder-line,
+.road-ramp .road-shoulder-line {
+  stroke-width: 1.5;
+}
+
+/* The node's own dot is NOT here, though it paints: it is an editing mark rather
+   than something the road does, so it is chrome and lives in `styles.css`
+   (ramps 2.11.1). */
+
+/* ----- junction glyphs ----- */
+
+/* The junction's asphalt: one band per approach road, emitted as subpaths of one
+   path and read as a single area by the default nonzero fill rule. Do not set
+   fill-rule here - evenodd would punch a hole out of every place two bands
+   overlap, which is exactly where the roads meet (junction glyphs 2.2). */
+.jn-pad {
+  fill: var(--asphalt);
+}
+
+.jn-ring {
+  fill: none;
+  stroke: var(--asphalt);
+}
+
+.jn-island {
+  fill: var(--island);
+}
+
+.jn-edge {
+  fill: none;
+  stroke: var(--paint-white);
+  stroke-width: 1.5;
+}
+
+/* The gore's surface - the asphalt the chevrons are painted on. A shoulder band
+   needs no equivalent because the road casing is already under the band, whereas
+   a gore widens out past both roads onto bare paper (ramps spec 2.5). */
+.jn-gore {
+  fill: var(--asphalt);
+}
+
+/* The chevrons inside a gore, which say to go round it and which side the driver
+   is on - the thing the borrowed shoulder hatch could not say (ramps spec 2.9).
+   Round joins because a chevron's tip is a corner, and a miter spikes there.
+
+   Nothing here holds the stroke at a constant screen width, deliberately: this is
+   paint on the drawing, so it scales with the drawing, which is what makes a
+   canvas and an exported file paint the same picture. The width may not even be
+   *named* in this file - every export assertion matches it as a substring. */
+.jn-gore-chevrons {
+  fill: none;
+  stroke: var(--paint-white);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.jn-stopbar {
+  stroke: var(--paint-white);
+  stroke-width: 4;
+  stroke-linecap: butt;
+}
+
+.jn-priority {
+  fill: var(--paint-yellow);
+  stroke: var(--ink);
+  stroke-width: 1.5;
+}
+
+.jn-signal-body {
+  fill: #16191e;
+  stroke: var(--paint-white);
+  stroke-width: 1;
+}
+
+.jn-red {
+  fill: #e5484d;
+}
+
+.jn-amber {
+  fill: var(--paint-yellow);
+}
+
+.jn-green {
+  fill: #46a758;
+}
+
+/* ----- signs ----- */
+
+/* A roadside sign: the plate, the label on it, and the six shapes that carry a
+   meaning of their own.
+
+   Light plate, dark ink - the inverse of the road, which is dark asphalt under
+   white paint. That inversion is most of what makes a sign read as an object
+   standing beside the road rather than as paint on it.
+
+   Paint only. How big the plate is and where the label's baseline sits are
+   geometry (`editor/geometry.ts`); the label's typeface and its type size arrive
+   as presentation attributes, for the reason the painted road text's do - see
+   `.marking-text` above, whose comment goes out of its way not to spell either
+   property name, as this one does. */
+.sign-plate {
+  fill: var(--paint-white);
+  stroke: var(--ink);
+  stroke-width: 1;
+}
+
+.sign-label {
+  fill: var(--ink);
+}
+
+/* A destination panel, and the one place in this vocabulary where colour carries
+   the meaning on its own rather than confirming a shape. A direction sign and a
+   custom one are both plates as wide as their words, so nothing about their
+   geometry can tell them apart - which is why these two rules ride the group's own
+   kind token, the way `.sign-stop .sign-label` recolours the octagon's letters.
+   The dark outline above stays: it is what holds any plate against light paper. */
+.sign-direction .sign-plate {
+  fill: var(--sign-green);
+}
+
+.sign-direction .sign-label {
+  fill: var(--paint-white);
+}
+
+/* Shape carries the meaning and colour confirms it (signs spec 2.7), so every
+   rule below is one fill and at most one stroke - an octagon reads as "stop" in
+   grey, and a red disc without the white bar is not a no-entry.
+
+   No rule here says how wide the ring is stroked: that is the roundel's own
+   proportion and it arrives from `editor/geometry.ts` as an attribute, the way a
+   turn arrow's stem width does. */
+
+.sign-roundel {
+  fill: var(--paint-white);
+}
+
+.sign-roundel-ring {
+  fill: none;
+  stroke: var(--sign-red);
+}
+
+.sign-octagon {
+  fill: var(--sign-red);
+}
+
+/* White letters on red - the one place a label is not ink, and it rides on the
+   group's own kind token, the way `.road-local .road-casing` recolours a road. */
+.sign-stop .sign-label {
+  fill: var(--paint-white);
+}
+
+/* Give-way and warning share it: what tells them apart is which way the triangle
+   points, which is geometry. Round joins, because a mitre at a 60-degree corner
+   spikes about twice as far as the stroke is wide. */
+.sign-triangle {
+  fill: var(--paint-white);
+  stroke: var(--sign-red);
+  stroke-width: 3;
+  stroke-linejoin: round;
+}
+
+/* The priority sign is two polygons rather than one stroked shape: its outer edge
+   is white, which needs the plate's own dark outline to hold against light paper,
+   and one path cannot carry two strokes. */
+.sign-diamond-border {
+  fill: var(--paint-white);
+  stroke: var(--ink);
+  stroke-width: 1;
+}
+
+.sign-diamond {
+  fill: var(--paint-yellow);
+}
+
+.sign-disc {
+  fill: var(--sign-red);
+}
+
+.sign-bar {
+  fill: var(--paint-white);
+}
+</style>
+<!-- Overpass Mono is embedded below as a data URI. Copyright 2021 The Overpass Project Authors (https://github.com/RedHatOfficial/Overpass). Licensed under the SIL Open Font License 1.1, https://openfontlicense.org -->
+<style>
+@font-face{font-family:"Overpass Mono";font-style:normal;font-weight:400;src:url(data:font/woff2;base64,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) format("woff2")}</style>
+<rect class="diagram-bg" x="-179" y="-179" width="358" height="358"/>
+<g class="diagram"><g class="road road-arterial"><path class="road-casing" d="M -13.5 -144 L -13.5 0" stroke-width="21"></path><path class="road-edge" d="M -22.5 -144 L -22.5 0"></path><path class="road-edge" d="M -4.5 -144 L -4.5 0"></path><path class="road-divider" d="M -13.5 -144 L -13.5 0"></path><polygon class="road-arrow" points="-13.5,-19.549999999999997 -19.17,-29 -7.829999999999999,-29"></polygon></g><g class="road road-arterial"><path class="road-casing" d="M 13.5 0 L 13.5 -144" stroke-width="21"></path><path class="road-edge" d="M 22.5 0 L 22.5 -144"></path><path class="road-edge" d="M 4.5 0 L 4.5 -144"></path><path class="road-divider" d="M 13.5 0 L 13.5 -144"></path><polygon class="road-arrow" points="13.5,-124.45 19.17,-115 7.829999999999999,-115"></polygon></g><g class="road road-arterial"><path class="road-casing" d="M 144 -13.5 L 0 -13.5" stroke-width="21"></path><path class="road-edge" d="M 144 -22.5 L 0 -22.5"></path><path class="road-edge" d="M 144 -4.5 L 0 -4.5"></path><path class="road-divider" d="M 144 -13.5 L 0 -13.5"></path><polygon class="road-arrow" points="19.549999999999997,-13.5 29,-19.17 29,-7.829999999999999"></polygon></g><g class="road road-arterial"><path class="road-casing" d="M 0 13.5 L 144 13.5" stroke-width="21"></path><path class="road-edge" d="M 0 22.5 L 144 22.5"></path><path class="road-edge" d="M 0 4.5 L 144 4.5"></path><path class="road-divider" d="M 0 13.5 L 144 13.5"></path><polygon class="road-arrow" points="124.45,13.5 115,19.17 115,7.829999999999999"></polygon></g><g class="road road-arterial"><path class="road-casing" d="M 13.5 144 L 13.5 0" stroke-width="21"></path><path class="road-edge" d="M 22.5 144 L 22.5 0"></path><path class="road-edge" d="M 4.5 144 L 4.5 0"></path><path class="road-divider" d="M 13.5 144 L 13.5 0"></path><polygon class="road-arrow" points="13.5,19.549999999999997 19.17,29 7.829999999999999,29"></polygon></g><g class="road road-arterial"><path class="road-casing" d="M -13.5 0 L -13.5 144" stroke-width="21"></path><path class="road-edge" d="M -22.5 0 L -22.5 144"></path><path class="road-edge" d="M -4.5 0 L -4.5 144"></path><path class="road-divider" d="M -13.5 0 L -13.5 144"></path><polygon class="road-arrow" points="-13.5,124.45 -19.17,115 -7.829999999999999,115"></polygon></g><g class="road road-arterial"><path class="road-casing" d="M -144 13.5 L 0 13.5" stroke-width="21"></path><path class="road-edge" d="M -144 22.5 L 0 22.5"></path><path class="road-edge" d="M -144 4.5 L 0 4.5"></path><path class="road-divider" d="M -144 13.5 L 0 13.5"></path><polygon class="road-arrow" points="-19.549999999999997,13.5 -29,19.17 -29,7.829999999999999"></polygon></g><g class="road road-arterial"><path class="road-casing" d="M 0 -13.5 L -144 -13.5" stroke-width="21"></path><path class="road-edge" d="M 0 -22.5 L -144 -22.5"></path><path class="road-edge" d="M 0 -4.5 L -144 -4.5"></path><path class="road-divider" d="M 0 -13.5 L -144 -13.5"></path><polygon class="road-arrow" points="-124.45,-13.5 -115,-19.17 -115,-7.829999999999999"></polygon></g><g class="marking marking-give-way-line"><path class="marking-teeth" d="M -6 -32.57220731489332 L -4.949999999999999 -27.57220731489332 L -7.05 -27.57220731489332 Z M -9 -32.57220731489332 L -7.95 -27.57220731489332 L -10.05 -27.57220731489332 Z M -12 -32.57220731489332 L -10.95 -27.57220731489332 L -13.05 -27.57220731489332 Z M -15 -32.57220731489332 L -13.95 -27.57220731489332 L -16.05 -27.57220731489332 Z M -18 -32.57220731489332 L -16.95 -27.57220731489332 L -19.05 -27.57220731489332 Z M -21 -32.57220731489332 L -19.95 -27.57220731489332 L -22.05 -27.57220731489332 Z"></path></g><g class="marking marking-give-way-line"><path class="marking-teeth" d="M 32.57220731489332 -6 L 27.57220731489332 -4.949999999999999 L 27.57220731489332 -7.05 Z M 32.57220731489332 -9 L 27.57220731489332 -7.95 L 27.57220731489332 -10.05 Z M 32.57220731489332 -12 L 27.57220731489332 -10.95 L 27.57220731489332 -13.05 Z M 32.57220731489332 -15 L 27.57220731489332 -13.95 L 27.57220731489332 -16.05 Z M 32.57220731489332 -18 L 27.57220731489332 -16.95 L 27.57220731489332 -19.05 Z M 32.57220731489332 -21 L 27.57220731489332 -19.95 L 27.57220731489332 -22.05 Z"></path></g><g class="marking marking-give-way-line"><path class="marking-teeth" d="M 6 32.57220731489332 L 4.949999999999999 27.57220731489332 L 7.05 27.57220731489332 Z M 9 32.57220731489332 L 7.95 27.57220731489332 L 10.05 27.57220731489332 Z M 12 32.57220731489332 L 10.95 27.57220731489332 L 13.05 27.57220731489332 Z M 15 32.57220731489332 L 13.95 27.57220731489332 L 16.05 27.57220731489332 Z M 18 32.57220731489332 L 16.95 27.57220731489332 L 19.05 27.57220731489332 Z M 21 32.57220731489332 L 19.95 27.57220731489332 L 22.05 27.57220731489332 Z"></path></g><g class="marking marking-give-way-line"><path class="marking-teeth" d="M -32.57220731489332 6 L -27.57220731489332 4.949999999999999 L -27.57220731489332 7.05 Z M -32.57220731489332 9 L -27.57220731489332 7.95 L -27.57220731489332 10.05 Z M -32.57220731489332 12 L -27.57220731489332 10.95 L -27.57220731489332 13.05 Z M -32.57220731489332 15 L -27.57220731489332 13.95 L -27.57220731489332 16.05 Z M -32.57220731489332 18 L -27.57220731489332 16.95 L -27.57220731489332 19.05 Z M -32.57220731489332 21 L -27.57220731489332 19.95 L -27.57220731489332 22.05 Z"></path></g><g class="junction" transform="translate(0 0)"><circle class="jn-ring" r="22.396500000000003" stroke-width="11.907"></circle><circle class="jn-island" r="16.443"></circle><circle class="jn-edge" r="28.35"></circle><circle class="jn-edge" r="16.443"></circle></g><g class="node node-endpoint" transform="translate(0 -144)"></g><g class="node node-endpoint" transform="translate(144 0)"></g><g class="node node-endpoint" transform="translate(0 144)"></g><g class="node node-endpoint" transform="translate(-144 0)"></g><text class="link-length" x="34.1" y="-72" font-family="Overpass Mono" font-size="6" text-anchor="middle" transform="rotate(-90 34.1 -72)">320m</text><text class="link-length" x="72" y="34.1" font-family="Overpass Mono" font-size="6" text-anchor="middle" transform="rotate(0 72 34.1)">450m</text><text class="link-length" x="-72" y="-29.9" font-family="Overpass Mono" font-size="6" text-anchor="middle" transform="rotate(0 -72 -29.9)">380m</text></g>
+</svg>

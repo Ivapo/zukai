@@ -11,6 +11,8 @@
     "build": "tsc && vite build",
     "build:web": "bun run build --base=/zukai/",
     "preview": "vite preview",
+    "prerender-examples": "bun run build",
+    "render-examples": "bun run scripts/render-examples.ts",
     "pretest": "bun run wasm",
     "test": "vitest run",
     "tauri": "tauri"
@@ -30,6 +32,7 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
+    "playwright": "^1.62.1",
     "typescript": "~5.8.3",
     "vite": "^7.0.4",
     "vitest": "^4.1.10"
