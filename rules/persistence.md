@@ -19,8 +19,8 @@ covers: >
   the version probe and the one migration arm, reducer, the
   normalize-at-one-boundary rule, the close guard — plus the JS-built native
   menu, how recents are stored and pruned, and which of it survives in a browser
-max_lines: 132
-generated: 2026-08-21
+max_lines: 133
+generated: 2026-08-22
 ---
 
 # Persistence (save / open)
@@ -148,7 +148,9 @@ one.
 Save and open both need the serde codec that defines the on-disk shape, and a
 second JavaScript encoder would drift from it — so on the browser host `open`,
 `read` and `save` throw "not available yet" and surface as an in-page banner
-(`rules/host-seam.md`). **Recents are absent by decision**, not by omission:
+(`rules/host-seam.md`). **Import is the exception**, and for the same reason
+read the other way: it needs a *different* codec, and the browser has that one
+compiled to wasm (`rules/network-yaml.md`). **Recents are absent by decision**, not by omission:
 `recents()` answers `[]`, `state.recents` stays empty, and no Open Recent surface
 appears. Dirty tracking, the close guard and `newDocument` all work — the guard
 through `beforeunload` rather than `onCloseRequested`.

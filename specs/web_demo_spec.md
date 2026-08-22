@@ -15,7 +15,7 @@ phases:
     by: null
   - name: "Phase 2 — Import in the tab: the wasm core, and a dropped `network.yaml`"
     reviewed: 2026-08-21
-    shipped: null
+    shipped: 2026-08-21
     cut: null
     by: null
   - name: "Phase 3 — `.zkai` in the tab: decode, encode, Open and Save"
@@ -282,7 +282,8 @@ survives. The download filename comes from `document.ts:withExtension` over
   that interface returns, so it would have reopened a seam Phase 1 shipped, for
   a capability two of four browsers lack. Lands in **Phase 3**, which is the
   phase that owns Save.
-- **OQ-4** — Is there a size budget for the wasm bundle? `serde_yaml` plus the
+- **OQ-4 — MEASURED 2026-08-21: 118 kB gzipped, 314 kB raw.** ~~Is there a size
+  budget for the wasm bundle?~~ `serde_yaml` plus the
   model should land in the low hundreds of KB gzipped, which is unremarkable
   for a demo but worth measuring rather than assuming. *(design call.)* It was
   tagged answerable-from-code, and that was wrong twice: §4 wants such questions
@@ -292,6 +293,14 @@ survives. The download filename comes from `document.ts:withExtension` over
   it can turn Phase 2 red. If the number is alarming when it lands, that
   argues for a *new* question with a threshold, not for a gate written after
   the fact.
+
+  It is not alarming: `zukai_lib_bg.wasm` is **313.7 kB raw, 118 kB gzipped**,
+  at the low end of the prediction, and Vite emits it as its own chunk behind a
+  dynamic import — so it is fetched on the first Import and not on page load.
+  For scale, the app's own JS chunk is 170 kB gzipped and the embedded Overpass
+  Mono face is ~18 kB. No threshold is proposed on the strength of one
+  measurement; the number is here so a later one has something to be compared
+  against.
 - **OQ-5** — Does the web build ever become the *only* build? Assume no; the
   non-goal in §1.1 stands until something forces the question. *(deferred by
   evidence)*

@@ -4,17 +4,21 @@ sources:
   - src-tauri/src/network/mod.rs
   - src-tauri/src/network/import.rs
   - src-tauri/src/lib.rs
+  - src-tauri/src/wasm.rs
   - src/editor/files.ts
+  - src/editor/host.ts
   - src/editor/menu.ts
+  - src/editor/network-wasm.ts
   - src/editor/state.ts
 covers: >
   reading Assimilator's network.yaml: the serde mirror and what earns a place in
   it, the header and version probe, the scale and the fitted factor that places
   nodes, the two lane-numbering conventions, what import throws away, the one
-  number it keeps off the polyline, and the turn arrows it mints, and why there is
-  no writer
-max_lines: 315
-generated: 2026-08-10
+  number it keeps off the polyline, the turn arrows it mints, the four ways in
+  over one converter and the golden that pins two of them, and why there is no
+  writer
+max_lines: 345
+generated: 2026-08-22
 ---
 
 # `network.yaml`
@@ -25,7 +29,7 @@ here moves `SCHEMA_VERSION` (still **2**). Not `rules/persistence.md`, which is
 per-field reasoning; this is the map. Rationale: `specs/network_yaml_spec.md`.
 
 **Read-only, and permanently so.** A serde mirror, a version probe,
-`network_to_document`, the `import_network` command, a File ▸ Import network… item.
+`network_to_document`, three shells over it, and the surfaces that reach them.
 **There is no writer and there will not be one** — `document_to_network` and an
 Export network… item shipped and were **reverted** (`979a60d`). They synthesized
 placeholder geometry, so all they bought was simulating one junction in isolation,
@@ -285,10 +289,32 @@ shape is what put five dead fields on `Movement` for two specs.
 
 ## How a network reaches the editor
 
-The Open path of `rules/persistence.md`, one format over: File ▸ Import network…
-(`menu.ts`, **menu only** — no toolbar button, no accelerator) → `importNetwork`
-(`files.ts`, `.yaml`/`.yml` filter, Open's unsaved-changes guard) → `import_network`
-(`network/import.rs`, registered in `lib.rs`) → the `importDocument` reducer case.
+The Open path of `rules/persistence.md`, one format over, ending at the
+`importDocument` reducer case. **Four ways in and one converter**, which is the
+shape to hold on to — `import_network_str` (`network/import.rs`) is
+`parse_network` then `network_to_document`, and everything below is a shell over
+it that decides only where the bytes came from:
+
+| Entry | Host | Shell |
+|---|---|---|
+| File ▸ Import network… (`menu.ts`, no accelerator) | desktop | `import_network(path)` |
+| `Import…` toolbar button (browser row only) | browser | `<input type="file">` → the wasm |
+| A file dropped on the canvas (gated on `isTauri()`) | browser | `Host.importNetworkText` → the wasm |
+| *(none yet — the desktop's webview drop is not wired)* | desktop | `import_network_text(text)` |
+
+The first three reach `files.ts` (`importNetwork` for the pickers,
+`importNetworkFile` for the drop); the fourth is honoured so the seam carries no
+method a host refuses. The **wasm** shell is `src-tauri/src/wasm.rs`, loaded by
+`src/editor/network-wasm.ts`, and it exists so the browser gets no second,
+JavaScript reader — the lane-numbering reconciliation below is exactly what a
+re-implementation gets subtly wrong.
+
+`tests/fixtures/golden/cross-4.document.json` keeps the two readers honest — one
+file, read from Rust and from vitest. It cannot catch converter drift, both
+calling `network_to_document`; it catches **marshalling** drift, which fails
+silently (`rules/host-seam.md`). It **asserts by default**;
+`ZUKAI_UPDATE_GOLDEN=1` is the only thing that rewrites it.
+
 Two deliberate differences, both following from the file belonging to another
 program:
 
@@ -299,16 +325,24 @@ program:
   which reads `.zkai`, so a `network.yaml` there could only ever fail.
 
 Everything else it inherits, history reset included (`rules/history.md`). The
-**extension filter is the only guard** against crossing Import and Open: neither
-reader sniffs content, and the fallback is an error rather than a half-formed
-document, carrying the version probe's message because `.zkai` is at schema 2
-against Assimilator's 1. No new Tauri permission — `dialog:default` grants `open`.
+**extension is the only guard** against crossing Import and Open: neither reader
+sniffs content, and the fallback is an error rather than a half-formed document,
+carrying the version probe's message because `.zkai` is at schema 2 against
+Assimilator's 1. One predicate serves every entry — `document.ts:isNetworkFile`,
+read by the desktop dialog's filter and by the canvas drop, so the two cannot
+disagree. No new Tauri permission for any of it: `dialog:default` grants `open`,
+and `capabilities/default.json` carries no app-command entries at all.
 
-`mod network;` in `lib.rs` is **private**. Phase 1 needed `pub` only because nothing
+`mod network;` in `lib.rs` is **private**, and it is the only module that is *not*
+`cfg`-gated for `wasm32` — `export`, `recent` and (until Phase 3) `persist` are,
+along with `run` and every command shell. Phase 1 needed `pub` only because nothing
 in the binary called into it, which failed `clippy --all-targets` on `dead_code`;
 `import_network` is that caller. **A registered Tauri command is what keeps
 `dead_code` quiet**, so removing a module's last caller breaks the lint rather than
-merely leaving dead code. `network_to_document` takes a parsed `NetworkFile` and
+merely leaving dead code — and on wasm32, where no command exists, `wasm.rs` is
+what plays that part. `build.rs` gates `tauri_build::build()` on
+`CARGO_CFG_TARGET_ARCH` because `[build-dependencies]` are host-compiled and no
+target table reaches them. `network_to_document` takes a parsed `NetworkFile` and
 touches no filesystem, so every test reaches it with a `&str`. The two fixtures
 under `src-tauri/tests/fixtures/network/` are the repo's **first checked-in test
 data**, loaded with `include_str!` from inline `#[cfg(test)]` modules — a

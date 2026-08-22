@@ -3,6 +3,7 @@ title: host-seam
 sources:
   - src/App.tsx
   - src/components/Banner.tsx
+  - src/components/Canvas.tsx
   - src/components/Toolbar.tsx
   - src/editor/export-target.ts
   - src/editor/files.ts
@@ -10,14 +11,17 @@ sources:
   - src/editor/host-browser.ts
   - src/editor/host-tauri.ts
   - src/editor/menu.ts
+  - src/editor/network-wasm.ts
   - src/editor/notices.ts
+  - src/model/document.ts
 covers: >
   how the file commands reach the outside world on two hosts — the Host
   interface and its cancel/throw contract, which capabilities the browser has
-  and which wait for wasm, how a host is chosen and which surfaces vary by it,
-  where an export's filename and MIME are decided, and the in-page error banner
-max_lines: 150
-generated: 2026-08-21
+  and which still wait for the .zkai codec, the two shapes of Import and where
+  the codec is called, how a host is chosen and which surfaces vary by it, where
+  an export's filename and MIME are decided, and the in-page error banner
+max_lines: 165
+generated: 2026-08-22
 ---
 
 # The host seam
@@ -30,10 +34,11 @@ written down. The *why* lives in `specs/web_demo_spec.md`.
 
 | Layer | Where | May name Tauri? |
 |---|---|---|
-| Commands | `src/editor/files.ts` — the nine exported commands | **no** |
+| Commands | `src/editor/files.ts` — the eleven exported commands | **no** |
 | Interface | `src/editor/host.ts` — `Host`, `Unsubscribe`, `CloseGuard`, `OpenedDocument` | `isTauri()` only |
 | Desktop | `src/editor/host-tauri.ts` — `invoke`, `ask`, `message`, `open`, `save`, `getCurrentWindow` | yes |
-| Browser | `src/editor/host-browser.ts` — `Blob`, `window.confirm`, `beforeunload` | **no** |
+| Browser | `src/editor/host-browser.ts` — `Blob`, `<input type="file">`, `window.confirm`, `beforeunload` | **no** |
+| Network codec | `src/editor/network-wasm.ts` — the crate, built for wasm32 | **no** |
 | Export target | `src/editor/export-target.ts` — filename, format, MIME | **no** |
 | Error surface | `src/editor/notices.ts` + `src/components/Banner.tsx` | **no** |
 
@@ -63,7 +68,9 @@ a leaf is also what lets it be tested with no DOM.
 
 | Capability | Desktop | Browser |
 |---|---|---|
-| `open` / `read` / `save` / `importNetwork` | dialogs + IPC | **throws** — needs the wasm codec |
+| `open` / `read` / `save` | dialogs + IPC | **throws** — needs the `.zkai` codec |
+| `importNetwork` | open dialog → `import_network` | hidden `<input type="file">` → the wasm |
+| `importNetworkText` | `import_network_text` | the wasm |
 | `exportTarget` / `deliverExport` | save dialog → `write_text_file` / `write_binary_file` | pure decision → `Blob` download |
 | `recents` / `rememberRecent` | `recent_files` / `push_recent_file` | `[]` — no Open Recent surface exists |
 | `confirm` | the dialog plugin's `ask` | `window.confirm` |
@@ -72,8 +79,40 @@ a leaf is also what lets it be tested with no DOM.
 
 `canOpenDocuments` is `false` on the browser and **checked before the discard
 prompt**, so a dirty document is never asked to throw away work for a command
-that is about to refuse. It is the one capability flag; when Phase 2 lands the
-codec it goes away.
+that is about to refuse. It is the one capability flag, and it gates
+`openDocument` alone: Import came off it when the wasm network reader landed, so
+the flag now means exactly what its name says — `.zkai`, not any file. It goes
+away when Phase 3 lands that codec.
+
+## Import has two shapes, and the split is what keeps the seam intact
+
+`importNetwork()` is **pull**-shaped — it takes no arguments and each host
+sources its own file, which is what let the desktop path stay byte-identical
+when the browser gained one. A dropped file is **push**-shaped: it arrives
+already in hand. So there are two entry points, and the second one is where the
+line is drawn.
+
+- `files.ts:importNetworkFile(state, dispatch, file)` reads `file.text()` and
+  nothing else. `File` is a web type both hosts have and `text()` names no
+  codec, so the commands module stays free of both `invoke` and wasm.
+- `Host.importNetworkText(text)` is **the one seam method that names a codec**,
+  and **both hosts honour it** — the browser through `network-wasm.ts`, the
+  desktop through `import_network_text`. A method one host refused would be a
+  hole in the interface; a five-line Rust command is cheaper than the hole.
+
+Neither host may call into `files.ts` to reach the banner: that edge closes the
+ESM cycle above. The drop's own error path is `files.ts:reportUnsupportedDrop`.
+
+The canvas drop is gated on `isTauri()` and is browser-only for now, because a
+Tauri webview intercepts file drops itself and wants its own configuration. It
+routes on `document.ts:isNetworkFile`, which the desktop's dialog filter also
+reads, so the two hosts cannot disagree about what a network is.
+
+Two things about the wasm that are easy to get wrong and fail *silently*: the
+Rust must serialize through `Serializer::json_compatible()`, or a `BTreeMap`
+crosses as an ES `Map` and `normalizeDocument` indexes it as an empty object —
+a blank canvas that throws nothing; and the module loads on first import rather
+than at startup, so a visitor who never imports never fetches the `.wasm`.
 
 `CloseGuard` carries two methods and each host uses exactly one. That is not
 unfinished: a desktop window can be held open across an `await`, so it gets
@@ -139,5 +178,8 @@ survives a broken notice surface.
 | `browserHost`, `notYet` | `src/editor/host-browser.ts` | `bun run dev` in a browser |
 | notice store | `src/editor/notices.ts` | `src/editor/notices.test.ts` |
 | `Banner` | `src/components/Banner.tsx` | `bun run dev` |
-| the nine commands | `src/editor/files.ts` | `bun run dev` / `tauri dev` |
+| the eleven commands | `src/editor/files.ts` | `bun run dev` / `tauri dev` |
+| `importNetworkYaml` (the wasm loader) | `src/editor/network-wasm.ts` | `src/editor/network-wasm.test.ts` |
+| `isNetworkFile`, `NETWORK_EXTENSIONS` | `src/model/document.ts` | `src/model/document.test.ts` |
+| the canvas drop | `src/components/Canvas.tsx` | `bun run dev` in a browser |
 | `FileActions`, `fileCommands` | `src/components/Toolbar.tsx` | `bun run dev` |
