@@ -1,0 +1,178 @@
+schema_version: 2
+metadata:
+  name: Four-arm roundabout
+nodes:
+- id: R
+  type: junction
+- id: N
+  type: endpoint
+- id: E
+  type: endpoint
+- id: S
+  type: endpoint
+- id: W
+  type: endpoint
+links:
+- id: N_in
+  from_node: N
+  to_node: R
+  lanes:
+  - id: 0
+    width: 3.5
+    speed_limit: 13.88888888888889
+  - id: 1
+    width: 3.5
+    speed_limit: 13.88888888888889
+  median_gap: 0.5
+- id: N_out
+  from_node: R
+  to_node: N
+  lanes:
+  - id: 0
+    width: 3.5
+    speed_limit: 13.88888888888889
+  - id: 1
+    width: 3.5
+    speed_limit: 13.88888888888889
+  median_gap: 0.5
+  length: 320.0
+- id: E_in
+  from_node: E
+  to_node: R
+  lanes:
+  - id: 0
+    width: 3.5
+    speed_limit: 13.88888888888889
+  - id: 1
+    width: 3.5
+    speed_limit: 13.88888888888889
+  median_gap: 0.5
+- id: E_out
+  from_node: R
+  to_node: E
+  lanes:
+  - id: 0
+    width: 3.5
+    speed_limit: 13.88888888888889
+  - id: 1
+    width: 3.5
+    speed_limit: 13.88888888888889
+  median_gap: 0.5
+  length: 450.0
+- id: S_in
+  from_node: S
+  to_node: R
+  lanes:
+  - id: 0
+    width: 3.5
+    speed_limit: 13.88888888888889
+  - id: 1
+    width: 3.5
+    speed_limit: 13.88888888888889
+  median_gap: 0.5
+- id: S_out
+  from_node: R
+  to_node: S
+  lanes:
+  - id: 0
+    width: 3.5
+    speed_limit: 13.88888888888889
+  - id: 1
+    width: 3.5
+    speed_limit: 13.88888888888889
+  median_gap: 0.5
+- id: W_in
+  from_node: W
+  to_node: R
+  lanes:
+  - id: 0
+    width: 3.5
+    speed_limit: 13.88888888888889
+  - id: 1
+    width: 3.5
+    speed_limit: 13.88888888888889
+  median_gap: 0.5
+- id: W_out
+  from_node: R
+  to_node: W
+  lanes:
+  - id: 0
+    width: 3.5
+    speed_limit: 13.88888888888889
+  - id: 1
+    width: 3.5
+    speed_limit: 13.88888888888889
+  median_gap: 0.5
+  length: 380.0
+junctions:
+- node_id: R
+  control: unsignalized
+  rule: priority
+layout:
+  nodes:
+    E:
+      pos:
+        x: 144.0
+        y: 0.0
+    N:
+      pos:
+        x: 0.0
+        y: -144.0
+    R:
+      pos:
+        x: 0.0
+        y: 0.0
+    S:
+      pos:
+        x: 0.0
+        y: 144.0
+    W:
+      pos:
+        x: -144.0
+        y: 0.0
+  links:
+    E_in:
+      style: arterial
+    E_out:
+      style: arterial
+    N_in:
+      style: arterial
+    N_out:
+      style: arterial
+    S_in:
+      style: arterial
+    S_out:
+      style: arterial
+    W_in:
+      style: arterial
+    W_out:
+      style: arterial
+  junctions:
+    R:
+      glyph: roundabout
+      scale: 1.0
+markings:
+- id: GW_N
+  link: N_in
+  position: 2.0
+  anchor: end
+  kind:
+    type: give_way_line
+- id: GW_E
+  link: E_in
+  position: 2.0
+  anchor: end
+  kind:
+    type: give_way_line
+- id: GW_S
+  link: S_in
+  position: 2.0
+  anchor: end
+  kind:
+    type: give_way_line
+- id: GW_W
+  link: W_in
+  position: 2.0
+  anchor: end
+  kind:
+    type: give_way_line

@@ -1,0 +1,103 @@
+schema_version: 2
+metadata:
+  name: Motorway offramp
+nodes:
+- id: G
+  type: junction
+- id: MW
+  type: endpoint
+- id: ME
+  type: endpoint
+- id: RP
+  type: endpoint
+links:
+- id: MAIN_W
+  from_node: MW
+  to_node: G
+  lanes:
+  - id: 0
+    width: 3.0
+    speed_limit: 31.29
+    kind: shoulder
+  - id: 1
+    width: 3.65
+    speed_limit: 31.29
+  - id: 2
+    width: 3.65
+    speed_limit: 31.29
+  - id: 3
+    width: 3.65
+    speed_limit: 31.29
+  median_gap: 0.5
+  length: 1800.0
+- id: MAIN_E
+  from_node: G
+  to_node: ME
+  lanes:
+  - id: 0
+    width: 3.0
+    speed_limit: 31.29
+    kind: shoulder
+  - id: 1
+    width: 3.65
+    speed_limit: 31.29
+  - id: 2
+    width: 3.65
+    speed_limit: 31.29
+  - id: 3
+    width: 3.65
+    speed_limit: 31.29
+  median_gap: 0.5
+  length: 2400.0
+- id: RAMP
+  from_node: G
+  to_node: RP
+  lanes:
+  - id: 0
+    width: 3.65
+    speed_limit: 22.22
+  median_gap: 0.5
+  length: 350.0
+junctions:
+- node_id: G
+  control: unsignalized
+  rule: priority
+layout:
+  nodes:
+    G:
+      pos:
+        x: 0.0
+        y: 0.0
+    ME:
+      pos:
+        x: 252.0
+        y: 0.0
+    MW:
+      pos:
+        x: -288.0
+        y: 0.0
+    RP:
+      pos:
+        x: 216.0
+        y: 144.0
+  links:
+    MAIN_E:
+      style: motorway
+    MAIN_W:
+      style: motorway
+    RAMP:
+      style: ramp
+  junctions:
+    G:
+      glyph: gore
+      scale: 1.0
+  signs:
+    SG_RAMP:
+      x: -72.0
+      y: -54.0
+signs:
+- id: SG_RAMP
+  kind:
+    type: direction
+    text: Airport
+  associated_link: RAMP
