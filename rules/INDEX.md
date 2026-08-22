@@ -4,10 +4,10 @@
 
 - **[canvas-interaction](canvas-interaction.md)** — generated 2026-08-10 · 6 sources · 190/190 lines
   what the pointer and the keyboard do on the drawing surface: the five tools and what each claims, the five Selection arms and the one with no id, the four drags and the one threshold, how a click becomes a document coordinate, the grid it lands on, and the chrome that exists only here
-- **[deploy](deploy.md)** — generated 2026-08-22 · 7 sources · 125/130 lines
-  how one Vite build serves two hosts — the two entries and which is which, where the deploy's `base` lives and why never in the config, the one line in `tauri.conf.json` that keeps the desktop window on the editor and the two neighbouring edits that break it, the favicon that has to exist, and the workflow that makes a push to `main` the deploy
-- **[diagram-export](diagram-export.md)** — generated 2026-08-21 · 15 sources · 286/292 lines
-  the SVG/PNG export path: the one render tree and its two consumers, which paint travels inside the file, the pure/DOM/host layers, how bounds and the margin are derived, and the self-contained-file constraints that fail silently
+- **[deploy](deploy.md)** — generated 2026-08-22 · 9 sources · 179/185 lines
+  how one Vite build serves two hosts — the two entries and which is which, where the deploy's `base` lives and why never in the config, the one line in `tauri.conf.json` that keeps the desktop window on the editor and the two neighbouring edits that break it, the favicon that has to exist, where the landing page's figures come from and what keeps them honest, and the workflow that makes a push to `main` the deploy
+- **[diagram-export](diagram-export.md)** — generated 2026-08-22 · 16 sources · 298/305 lines
+  the SVG/PNG export path: the one render tree and its two consumers, which paint travels inside the file, the pure/DOM/host layers, how bounds and the margin are derived, the self-contained-file constraints that fail silently, and the fourth consumer that reaches this path through a browser
 - **[document-model](document-model.md)** — generated 2026-08-09 · 7 sources · 135/135 lines
   the three parts of a Document and what separates them, the invariants, the Rust-TypeScript mirror discipline and its one instructive exception, and what does and does not move SCHEMA_VERSION
 - **[history](history.md)** — generated 2026-08-10 · 5 sources · 160/160 lines

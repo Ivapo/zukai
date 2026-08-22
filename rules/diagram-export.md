@@ -1,6 +1,7 @@
 ---
 title: diagram-export
 sources:
+  - scripts/render-examples.ts
   - src/App.tsx
   - src/components/Canvas.tsx
   - src/components/Diagram.tsx
@@ -19,9 +20,10 @@ sources:
 covers: >
   the SVG/PNG export path: the one render tree and its two consumers, which
   paint travels inside the file, the pure/DOM/host layers, how bounds and the
-  margin are derived, and the self-contained-file constraints that fail silently
-max_lines: 292
-generated: 2026-08-21
+  margin are derived, the self-contained-file constraints that fail silently, and
+  the fourth consumer that reaches this path through a browser
+max_lines: 305
+generated: 2026-08-22
 ---
 
 # Diagram export (SVG, PNG)
@@ -227,6 +229,18 @@ Same three surfaces as save/open and undo/redo: `Export…` in the toolbar's
 `.file-actions`; the File submenu below Save As at `CmdOrCtrl+E` (`menu.ts`); and
 `App.tsx`'s keydown `case "e"` — **browser path only**, since the handler returns
 early on every chord once `menuInstalled`.
+
+## A fourth consumer: the landing page's figures
+
+`scripts/render-examples.ts` reaches `diagramSvg` the long way round — it drives
+the **built demo** in headless Chromium and presses its Export SVG button, rather
+than calling the module. That is not indirection for its own sake: `bounds` has
+exactly one producer, `measureDiagram`, and this repo has no headless DOM, so a
+build step would silently pass `bounds = null` and frame the drawing outside its
+own `viewBox`. The script must also force the Overpass Mono face before pressing
+Export, for the reason "Bounds are measured" gives above. The output is committed
+under `examples/rendered/` and inlined into `index.html`; `rules/deploy.md` owns
+the mechanism.
 
 ## Standing constraints (they stop being true silently)
 

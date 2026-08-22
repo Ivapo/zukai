@@ -46,11 +46,13 @@ Zukai is developed fully independently from `../assimilator` (a separate, partly
 bun install                    # install frontend deps
 bun run tauri dev              # run the app (desktop window, hot reload)
 bun run dev                    # frontend only (Vite dev server, no native shell) —
-                               # the landing placeholder at /, the editor at /demo/
+                               # the landing page at /, the editor at /demo/
 bun run build                  # tsc typecheck + vite build (frontend), base `/`
 bun run build:web              # the same build at `--base=/zukai/`, for GitHub Pages
 bun run test                   # vitest (frontend)
 bun run wasm                   # build the crate for the browser (→ src-tauri/pkg/)
+bun run render-examples        # check the landing page's figures still match what
+                               # the app draws (ZUKAI_UPDATE_GOLDEN=1 regenerates)
 cd src-tauri && cargo check    # type-check the Rust backend
 cd src-tauri && cargo test     # run the Rust tests
 cd src-tauri && cargo build    # build the Rust backend
@@ -59,8 +61,9 @@ cd src-tauri && cargo build    # build the Rust backend
 `dev`, `build`, `build:web` and `test` each run `wasm` first, so the browser
 build is never stale; `src-tauri/pkg/` is generated and gitignored. The crate
 builds for `wasm32-unknown-unknown` with the desktop-only modules `cfg`-gated
-out — see `rules/network-yaml.md`. How the two entries and the Pages deploy fit
-together is `rules/deploy.md`.
+out — see `rules/network-yaml.md`. `render-examples` builds and serves `dist`
+first, then drives the demo in headless Chromium; how the two entries, the
+figures and the Pages deploy fit together is `rules/deploy.md`.
 
 ## Conventions
 

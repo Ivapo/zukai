@@ -7,14 +7,17 @@ sources:
   - index.html
   - demo/index.html
   - public/mark.svg
+  - scripts/render-examples.ts
+  - examples/README.md
   - src-tauri/tauri.conf.json
 covers: >
   how one Vite build serves two hosts — the two entries and which is which,
   where the deploy's `base` lives and why never in the config, the one line in
   `tauri.conf.json` that keeps the desktop window on the editor and the two
-  neighbouring edits that break it, the favicon that has to exist, and the
+  neighbouring edits that break it, the favicon that has to exist, where
+  the landing page's figures come from and what keeps them honest, and the
   workflow that makes a push to `main` the deploy
-max_lines: 130
+max_lines: 185
 generated: 2026-08-22
 ---
 
@@ -41,9 +44,12 @@ root-absolute `src` still resolves, because Vite resolves it from the project
 root and `script[src]` is in Vite's asset-attribute table, so it is rewritten
 under whatever `base` the build was given.
 
-The root `index.html` is a **deliberate placeholder** — a title, one sentence and
-a link — not the landing page. zk-015 Phase 5 fills it. It mounts no React and
-must not reach `src/styles.css`, which is the editor's chrome.
+The root `index.html` is the **landing page**: what Zukai draws, what it
+deliberately is not, the one-way Assimilator relationship, and three diagrams.
+**It mounts no React and must not reach `src/styles.css`** — that file is the
+editor's chrome. Both are standing rules rather than facts about a placeholder:
+this entry is static markup plus one inline stylesheet, and reaching for either
+would put the editor's bundle on a page that needs neither.
 
 **Its link is `href="demo/"` and never `href="/demo/"`.** `a[href]` is *not* in
 Vite's asset-attribute table, so it never receives the base; the root-absolute
@@ -105,6 +111,56 @@ even in the nested entry, so one file serves both hosts. Without it a browser
 requests `/favicon.ico` against the **host** root, which on a project page is
 `ivapo.github.io/favicon.ico` and 404s no matter how right `base` is.
 
+## The landing page's figures are drawn by the app
+
+Every diagram on `index.html` is an SVG the demo itself exported, inlined
+**byte for byte** between a marker pair:
+
+```html
+<!-- zukai:diagram roundabout -->  …the export…  <!-- /zukai:diagram -->
+```
+
+`scripts/render-examples.ts` owns the bytes between those markers. It builds and
+serves `dist` (a `prerender-examples` hook plus `vite preview`, so the demo is at
+`/demo/`), then for each `.zkai` in `examples/` drives headless Chromium: click
+**Open…** and take the `filechooser` event — `host-browser.ts:pickFile` never
+adds its `<input>` to the document — then click **Export SVG** and take the
+`download` event, `host-browser.ts:download` delivering through an
+`<a download>` over an object URL.
+
+**It asserts by default; `ZUKAI_UPDATE_GOLDEN=1` is the only thing that writes**
+— the discipline `src-tauri/tests/fixtures/golden/README.md` established, since a
+script that rewrites its own reference every run always matches itself. The
+default pass checks five things: each `examples/rendered/*.svg` still equals what
+the app just drew; at least one carries text, so the embedded `@font-face` block
+is exercised; those bytes are present in `index.html` **and** in
+`dist/index.html`; the page has no other `<svg>` element; and at 380px
+`document.documentElement` has `scrollWidth <= clientWidth` with no console
+error.
+
+**Why a browser and not a build step.** `export.tsx:diagramSvg(doc, bounds)` is
+pure, but `bounds` come from `measureDiagram`, which needs `document.fonts`, a
+rendered `document.body` host and `getBBox`. Getting it wrong is silent:
+`bounds = null` does not throw, it collapses the frame to the margin around the
+origin and lands the drawing outside its own `viewBox`. For the same reason the
+script forces `document.fonts.load('400 16px "Overpass Mono"')` before pressing
+Export — `measureDiagram` awaits `fonts.ready` *before* mounting its host, so it
+guarantees a resolved face only if one was already requested, and measuring the
+fallback writes a **stably** wrong frame that an assert-by-default diff cannot
+tell from a right one.
+
+**Two consequences of inlining.** Vite extracts every inline `<style>`, the two
+inside each exported `<svg>` included, but re-inserts them **unminified** (the
+CSS-post plugin returns early for an HTML proxy, and `url(data:…)` is skipped by
+the URL replacer) — which is why byte-presence holds in the built page and not
+only in the source. And each text-bearing diagram carries its own ~18 kB base64
+Overpass Mono and its own copy of `diagram.css`: real page weight, accepted
+deliberately. `public/mark.svg` stays an `img[src]`, keeping it out of the "no
+other `<svg>`" check.
+
+Byte-identity is scoped to headless Chromium at the pinned Playwright version;
+across engines it is **not** claimed, `getBBox` and `fonts.ready` differing.
+
 ## The push is the deploy
 
 `.github/workflows/pages.yml`, `on: push` to `main` plus `workflow_dispatch`,
@@ -141,4 +197,5 @@ than an error.
 | the root base | `vite.config.ts` (no `base`) | `/assets/…` in the same file after `bun run build` |
 | the desktop window's page | `src-tauri/tauri.conf.json` `app.windows[0].url` | `bun run tauri dev` opens the editor |
 | the mark | `public/mark.svg` → `public/favicon.png`, `src-tauri/icons/` | a cold load raises no error from the site's own assets |
+| the page's figures | `examples/*.zkai` → `examples/rendered/*.svg` → `index.html` | `bun run render-examples`, which asserts all of it |
 | the deploy | `.github/workflows/pages.yml` | a push to `main` serves both URLs |
