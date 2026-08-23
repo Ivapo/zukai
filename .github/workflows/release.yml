@@ -1,0 +1,213 @@
+# A tag cuts the release (`specs/web_demo_spec.md` zk-015 Phase 7). The sibling,
+# `pages.yml`, is the *deploy*; this one is the desktop app the landing page's
+# "get the desktop app" link points at.
+#
+# Two triggers, and the second is what makes the pipeline checkable. A `v*` tag
+# builds and publishes. A `workflow_dispatch` builds all three platforms and
+# uploads to the Actions run, publishing nothing — so the pipeline can be proven
+# without cutting a release, and `index.html`'s "no build has been cut yet"
+# stays true. A pipeline whose first execution is the owner's real `v0.1.0`
+# asserts nothing.
+#
+# Exactly three things are tag-conditional: the version assert below, and the
+# notes body and the publish, which sit in a `publish` job carrying the same
+# condition. No *build* step carries one — an unconditional version assert reads
+# perfectly and fails every dispatch run, because a dispatch has no tag and
+# `github.ref_name` is the branch it was launched from.
+#
+# `permissions` inverts the sibling's first key. Creating a release needs
+# `contents: write`, and this repository's default workflow permission is read.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    strategy:
+      # Every leg is a platform a reader might be on, so one failing must not
+      # cancel the other two: a platform quietly never offered is the failure
+      # this matrix exists to make visible.
+      fail-fast: false
+      matrix:
+        include:
+          # `macos-latest` is arm64, and `bundle.targets: "all"` selects bundle
+          # *formats* rather than architectures — so a single arm64 leg hands
+          # every Intel reader a download that will not launch. One universal
+          # binary instead of two legs: one artifact, one name on the release
+          # page, and no reader has to know which Mac they own. It needs both
+          # Rust targets, and it moves the bundle under `target/<triple>/`.
+          - platform: macos-latest
+            artifact: zukai-macos-universal
+            targets: aarch64-apple-darwin,x86_64-apple-darwin,wasm32-unknown-unknown
+            args: --target universal-apple-darwin
+            bundle: src-tauri/target/universal-apple-darwin/release/bundle
+          - platform: ubuntu-latest
+            artifact: zukai-linux-x86_64
+            targets: wasm32-unknown-unknown
+            args: ""
+            bundle: src-tauri/target/release/bundle
+          - platform: windows-latest
+            artifact: zukai-windows-x86_64
+            targets: wasm32-unknown-unknown
+            args: ""
+            bundle: src-tauri/target/release/bundle
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # Tauri names its bundles from `tauri.conf.json`'s version, not from the
+      # tag — so a `v0.2.0` tag over an unbumped config publishes a `v0.2.0`
+      # release full of `0.1.0` files: green, wrong, and nobody looks.
+      - name: Assert the tag matches tauri.conf.json's version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          conf=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          tag="${GITHUB_REF_NAME#v}"
+          echo "tag $tag, tauri.conf.json $conf"
+          if [ "$tag" != "$conf" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match tauri.conf.json version $conf"
+            exit 1
+          fi
+
+      - uses: oven-sh/setup-bun@v2
+
+      # The wasm32 target and `wasm-pack` are needed on *every* leg, macOS and
+      # Windows included, which no Tauri release example mentions:
+      # `beforeBuildCommand` is `bun run build`, whose `prebuild` hook is
+      # `bun run wasm`, and `src-tauri/pkg/` is gitignored — so a fresh checkout
+      # has no wasm and `tauri build` never reaches `cargo` without them.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.targets }}
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # `pages.yml`'s "No `apt-get` step" comment is true of *that* build and
+      # false here, and copying the sibling is the obvious wrong move. It
+      # compiles the crate for wasm32, where `tauri` sits behind a
+      # `cfg(not(target_arch = "wasm32"))` table and the only host-compiled Tauri
+      # crate is `tauri-build`. This leg compiles the real `tauri` crate, which
+      # needs webkit2gtk; the AppImage needs `patchelf` and librsvg.
+      - name: Linux build dependencies
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libxdo-dev \
+            libssl-dev \
+            build-essential \
+            curl wget file
+
+      - run: bun install --frozen-lockfile
+
+      - run: bun run tauri build ${{ matrix.args }}
+
+      # One list serves all three legs: a pattern matching nothing contributes
+      # nothing, so the format set is whatever `bundle.targets: "all"` produced
+      # rather than something this file predicts. `if-no-files-found: error` is
+      # the assertion that does the work — this leg produced *something* a
+      # reader can download.
+      #
+      # The macOS `.app` is deliberately absent. It is a directory, and an
+      # artifact zip does not carry the executable bit, so it would arrive
+      # unlaunchable; the `.dmg` is one file and does.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          if-no-files-found: error
+          path: |
+            ${{ matrix.bundle }}/dmg/*.dmg
+            ${{ matrix.bundle }}/deb/*.deb
+            ${{ matrix.bundle }}/rpm/*.rpm
+            ${{ matrix.bundle }}/appimage/*.AppImage
+            ${{ matrix.bundle }}/msi/*.msi
+            ${{ matrix.bundle }}/nsis/*.exe
+
+  # Tag only, and the condition is on the job so the download is skipped with
+  # it: a dispatch run cannot cut a stray release, which is what keeps the
+  # landing page's "no build has been cut yet" honest while the pipeline is
+  # being proven.
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+
+      # Unsigned, deliberately: signing and notarization carry their own secrets
+      # and their own cost, and are deferred. That defers the *work*; it does not
+      # decide what a reader hits, which is Gatekeeper on macOS and SmartScreen
+      # on Windows. So the bypass ships with the download, or a link that
+      # resolves is the second dead button.
+      - name: Compose the release notes
+        run: |
+          cat > notes.md <<'EOF'
+          Unsigned builds — no code signing or notarization yet, so each platform
+          will warn before it runs this the first time.
+
+          **macOS** — one universal `.dmg`, Apple silicon and Intel. Drag `zukai`
+          to Applications, then run once:
+
+          ```
+          xattr -dr com.apple.quarantine /Applications/zukai.app
+          ```
+
+          **Windows** — SmartScreen says "Windows protected your PC". Choose
+          **More info**, then **Run anyway**.
+
+          **Linux** — the `.AppImage` needs `chmod +x` before it will run; the
+          `.deb` and `.rpm` install normally.
+
+          No install at all: the same editor runs in a browser tab at
+          <https://ivapo.github.io/zukai/demo/>.
+          EOF
+
+      # Published and not a prerelease, spelled rather than defaulted: GitHub
+      # resolves `/releases/latest` to the newest non-draft, non-prerelease
+      # release, and a draft is invisible to anonymous visitors entirely — so a
+      # green run that fills the owner's Releases tab and leaves the landing
+      # page byte-identical is the failure this line exists to rule out.
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          files=()
+          while IFS= read -r -d '' f; do files+=("$f"); done \
+            < <(find artifacts -type f -print0)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "::error::no bundles were downloaded — nothing to publish"
+            exit 1
+          fi
+          printf 'attaching %s\n' "${files[@]}"
+          gh release create "$GITHUB_REF_NAME" \
+            --title "zukai $GITHUB_REF_NAME" \
+            --notes-file notes.md \
+            --draft=false \
+            --prerelease=false \
+            --latest \
+            "${files[@]}"
