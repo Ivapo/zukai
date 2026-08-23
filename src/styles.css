@@ -121,6 +121,33 @@ body {
   color: var(--chrome-text);
 }
 
+/* Browser-only, beside the file row: the one way to get a drawing onto the
+   canvas with no checkout. A native control, so it inherits the platform's
+   keyboard and screen-reader behaviour; it only has to look like the buttons. */
+.example-select {
+  padding: 5px 8px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--chrome-dim);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.example-select:hover {
+  background: var(--desk-2);
+  color: var(--chrome-text);
+}
+
+/* The dropdown itself is painted by the platform, which does not inherit the
+   toolbar's dark ground — name it, or the options land black-on-black. */
+.example-select option {
+  background: var(--desk-2);
+  color: var(--chrome-text);
+}
+
 /* Undo/redo and the tool group share the header's middle slot, so the toolbar
    keeps its three-way space-between layout. */
 .toolbar-center {

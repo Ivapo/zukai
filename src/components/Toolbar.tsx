@@ -2,6 +2,7 @@
 
 import { isTauri } from "@tauri-apps/api/core";
 import type { ReactNode } from "react";
+import { EXAMPLES, exampleLabel } from "../editor/examples";
 import { clampZoom } from "../editor/geometry";
 import { Action, EditorState, Tool } from "../editor/state";
 import { fileLabel } from "../model/document";
@@ -30,6 +31,15 @@ interface ToolbarProps {
   state: EditorState;
   dispatch: (action: Action) => void;
   files: FileActions;
+  /**
+   * Open one of the bundled examples, by stem.
+   *
+   * Deliberately **not** a member of {@link FileActions}: the row renders
+   * `onClick={files[c.key]}` against `keyof FileActions`, so a
+   * `(stem: string) => void` in that interface widens the union and fails to
+   * assign — and `menu.ts` shares it, while the native menu wants nothing here.
+   */
+  onOpenExample: (stem: string) => void;
 }
 
 const TOOLS: { tool: Tool; label: string; hint: string; icon: ReactNode }[] = [
@@ -89,7 +99,12 @@ function fileCommands(): FileCommand[] {
   return isTauri() ? DESKTOP_COMMANDS : BROWSER_COMMANDS;
 }
 
-export function Toolbar({ state, dispatch, files }: ToolbarProps) {
+export function Toolbar({
+  state,
+  dispatch,
+  files,
+  onOpenExample,
+}: ToolbarProps) {
   const { tool, view } = state;
   return (
     <header className="toolbar">
@@ -120,6 +135,8 @@ export function Toolbar({ state, dispatch, files }: ToolbarProps) {
             </button>
           ))}
         </div>
+
+        {!isTauri() && <ExampleSelect onOpen={onOpenExample} />}
       </div>
 
       <div className="toolbar-center">
@@ -179,6 +196,49 @@ export function Toolbar({ state, dispatch, files }: ToolbarProps) {
         </button>
       </div>
     </header>
+  );
+}
+
+/**
+ * The browser's Examples menu: the one way to get a drawing onto the canvas
+ * without a repo checkout.
+ *
+ * **Browser-only**, gated on the synchronous `isTauri()` at the call site for
+ * the reason {@link fileCommands} gives — a desktop user has Open and a
+ * filesystem, and a surface keyed to `App`'s `menuInstalled` would flash the
+ * browser's shape for the first frames of a desktop launch.
+ *
+ * A native `<select>` rather than a bespoke dropdown: the toolbar is
+ * provisional, and this is keyboard- and screen-reader-reachable for free.
+ *
+ * **It is controlled at `""` and never moves off its placeholder**, which is
+ * what makes re-choosing the same example work at all. Left displaying its last
+ * pick, choosing that entry again fires no `change` event and the document
+ * becomes unreachable until the visitor picks a different one first — so React's
+ * controlled-state restore, which resets the element after the change event even
+ * with no re-render, is load-bearing rather than tidiness. It also keeps the
+ * control from claiming to show which document is open; `.doc-name` has that
+ * job, and after a *declined* discard the open document is not the one just
+ * chosen.
+ */
+function ExampleSelect({ onOpen }: { onOpen: (stem: string) => void }) {
+  return (
+    <select
+      className="example-select"
+      aria-label="Open an example"
+      title="Open an example schematic"
+      value=""
+      onChange={(e) => onOpen(e.target.value)}
+    >
+      <option value="" disabled>
+        Examples…
+      </option>
+      {Object.keys(EXAMPLES).map((stem) => (
+        <option key={stem} value={stem}>
+          {exampleLabel(stem)}
+        </option>
+      ))}
+    </select>
   );
 }
 

@@ -10,6 +10,7 @@ import {
   installCloseGuard,
   newDocument,
   openDocument,
+  openExample,
   openRecentDocument,
   refreshRecents,
   saveDocument,
@@ -157,7 +158,16 @@ function App() {
 
   return (
     <div className="app">
-      <Toolbar state={state} dispatch={dispatch} files={files} />
+      <Toolbar
+        state={state}
+        dispatch={dispatch}
+        files={files}
+        // Not a `FileActions` member: that interface is a button surface the
+        // native menu shares, and this takes an argument (`Toolbar.tsx`).
+        onOpenExample={(stem) =>
+          void openExample(stateRef.current, dispatch, stem)
+        }
+      />
       <Banner />
       <div className="workspace">
         <Canvas state={state} dispatch={dispatch} />
