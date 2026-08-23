@@ -1,9 +1,9 @@
 /**
  * The New / Open / Save / Save As / Import / Export commands.
  *
- * Open and Import each come in two shapes — one that asks the host for a file
- * and one that is handed a `File` — and the second of each is what a canvas
- * drop calls.
+ * Import comes in two shapes and Open in three — one that asks the host for a
+ * file, one that is handed a `File`, which is what a canvas drop calls, and one
+ * that names a document the build already carries (`openExample`).
  *
  * Every one of them is the same shape: decide what the user wants, ask the
  * *host* to touch the outside world, then dispatch. The host
@@ -17,7 +17,8 @@
  * and nothing is wrong, while a **throw** is a failure and lands in `report`.
  */
 
-import { RawDocument } from "../model/document";
+import { RawDocument, ZKAI_EXTENSION } from "../model/document";
+import { EXAMPLES } from "./examples";
 import {
   diagramSvg,
   ExportFormat,
@@ -123,6 +124,37 @@ export async function openDocumentFile(
     await install(doc, file.name, dispatch);
   } catch (err) {
     await report("Couldn't open the file", err);
+  }
+}
+
+/**
+ * Open one of the example schematics the build carries (`examples.ts`).
+ *
+ * The third shape of Open, and the one a visitor with no checkout can reach:
+ * `stem` is the bare filename (`"roundabout"`), the text comes out of a chunk
+ * Vite emitted at build time, and `Host.openDocumentText` — Phase 3's shipped
+ * seam — decodes it. So there is no new host method, no synthesized `File` and
+ * no second codec call site.
+ *
+ * It installs under `<stem>.zkai`, so the title, the toolbar's name and a later
+ * Save all read as that file, and the document lands **clean** — which is what
+ * `loadDocument` means, and what an example nobody has edited yet is.
+ */
+export async function openExample(
+  state: EditorState,
+  dispatch: Dispatch,
+  stem: string,
+): Promise<void> {
+  try {
+    if (!(await confirmDiscard(state))) return;
+    const load = EXAMPLES[stem];
+    // Unreachable from the menu, which is built from these same keys — but the
+    // alternative is `undefined()` and a stack trace instead of a banner.
+    if (load === undefined) throw new Error(`There is no example called ${stem}.`);
+    const doc = await host().openDocumentText(await load());
+    await install(doc, `${stem}.${ZKAI_EXTENSION}`, dispatch);
+  } catch (err) {
+    await report("Couldn't open the example", err);
   }
 }
 
