@@ -3,6 +3,7 @@ title: persistence
 sources:
   - src/App.tsx
   - src/components/Toolbar.tsx
+  - src/editor/examples.ts
   - src/editor/files.ts
   - src/editor/host.ts
   - src/editor/host-browser.ts
@@ -33,7 +34,7 @@ design rationale lives in `specs/save_load_spec.md`.
 
 | Step | Where |
 |------|-------|
-| Trigger | Toolbar `.file-actions` buttons (`src/components/Toolbar.tsx`), the native File menu (`src/editor/menu.ts`), and Cmd/Ctrl+N/O/S, Shift for Save As (`src/App.tsx` keydown) — the same three surfaces undo/redo use (`rules/history.md`) |
+| Trigger | Toolbar `.file-actions` buttons (`src/components/Toolbar.tsx`), the native File menu (`src/editor/menu.ts`), and Cmd/Ctrl+N/O/S, Shift for Save As (`src/App.tsx` keydown) — the same three surfaces undo/redo use (`rules/history.md`); plus, on the browser only, a canvas drop and the Examples `<select>` |
 | Dialog + IPC | `src/editor/host-tauri.ts`, reached through the `Host` interface — `files.ts` itself names no Tauri (`rules/host-seam.md`) |
 | Codec | `persist::encode` / `persist::decode` (`src-tauri/src/persist.rs`) — no path in either |
 | Commands | `save_document` / `load_document` / `load_document_text` (`src-tauri/src/persist.rs`), `recent_files` / `push_recent_file` (`src-tauri/src/recent.rs`), all registered in `src-tauri/src/lib.rs` — whose handler list also still carries the Tauri template's unused `greet` |
@@ -164,12 +165,16 @@ committed golden holds it to. Three things still differ, all by decision:
 - **Recents are absent**, not omitted: `recents()` answers `[]`, `state.recents`
   stays empty, no Open Recent surface appears, and `browserHost.read` is
   therefore unreachable and throws.
-- **There is no native menu**, so the toolbar row is the whole command surface
-  and gains an Import button; `installMenu` resolves `false` and `App` keeps the
-  Cmd/Ctrl chords.
+- **There is no native menu**, so the toolbar row gains an Import button;
+  `installMenu` resolves `false` and `App` keeps the Cmd/Ctrl chords. The row is
+  not quite the whole command surface, though: an Examples `<select>` sits beside
+  it, and it is the only way to open a document with no checkout.
 
 Dirty tracking, the close guard and `newDocument` all work — the guard through
-`beforeunload` rather than `onCloseRequested`. A `.zkai` also arrives by being
-dropped on the canvas, through `files.ts:openDocumentFile` and
-`Host.openDocumentText`; the desktop honours that method too (`load_document_text`)
-even though nothing dispatches to it there yet.
+`beforeunload` rather than `onCloseRequested`. A `.zkai` also arrives two other
+ways, both through `Host.openDocumentText`: dropped on the canvas
+(`files.ts:openDocumentFile`), or chosen from the Examples menu
+(`files.ts:openExample`, whose text is a build-time chunk of an `examples/*.zkai`
+— see `rules/host-seam.md`). Both install **clean**, and the desktop honours that
+same method (`load_document_text`) even though nothing dispatches to it there
+yet.

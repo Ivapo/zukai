@@ -35,7 +35,7 @@ phases:
     by: null
   - name: "Phase 6 — \"Open an example\" in the demo"
     reviewed: 2026-08-22
-    shipped: null
+    shipped: 2026-08-22
     cut: null
     by: null
   - name: "Phase 7 — The release pipeline, and a download link that resolves"

@@ -5,6 +5,7 @@ sources:
   - src/components/Banner.tsx
   - src/components/Canvas.tsx
   - src/components/Toolbar.tsx
+  - src/editor/examples.ts
   - src/editor/export-target.ts
   - src/editor/files.ts
   - src/editor/host.ts
@@ -17,11 +18,12 @@ sources:
 covers: >
   how the file commands reach the outside world on two hosts — the Host
   interface and its cancel/throw contract, which capabilities the browser has
-  and which it answers differently, the two shapes of Open and Import and where
-  the codecs are called, the three readings of a null return, how a host is
-  chosen and which surfaces vary by it, where an export's filename and MIME are
-  decided, and the in-page error banner
-max_lines: 200
+  and which it answers differently, the three shapes of Open and the two of
+  Import and where the codecs are called, the three readings of a null return,
+  how a host is chosen and which surfaces vary by it, where an export's filename
+  and MIME are decided, where the bundled examples come from, and the in-page
+  error banner
+max_lines: 225
 generated: 2026-08-22
 ---
 
@@ -35,12 +37,13 @@ written down. The *why* lives in `specs/web_demo_spec.md`.
 
 | Layer | Where | May name Tauri? |
 |---|---|---|
-| Commands | `src/editor/files.ts` — the twelve exported commands | **no** |
+| Commands | `src/editor/files.ts` — the thirteen exported commands | **no** |
 | Interface | `src/editor/host.ts` — `Host`, `Unsubscribe`, `CloseGuard`, `OpenedDocument` | `isTauri()` only |
 | Desktop | `src/editor/host-tauri.ts` — `invoke`, `ask`, `message`, `open`, `save`, `getCurrentWindow` | yes |
 | Browser | `src/editor/host-browser.ts` — `Blob`, `<input type="file">`, `window.confirm`, `beforeunload` | **no** |
 | Codecs | `src/editor/wasm.ts` — the crate, built for wasm32 | **no** |
 | Export target | `src/editor/export-target.ts` — filename, format, MIME | **no** |
+| Examples | `src/editor/examples.ts` — the `examples/*.zkai` glob, and a label | **no** |
 | Error surface | `src/editor/notices.ts` + `src/components/Banner.tsx` | **no** |
 
 `src/editor/menu.ts` is the *other* module that touches the Tauri runtime, and it
@@ -60,10 +63,10 @@ is not behind the seam: a native menu has no browser counterpart, so
   instead. The two are structurally identical (`() => void`), so **`tsc` cannot
   catch a regression here** — it is a convention, not a check.
 
-`export-target.ts` is a leaf for the same reason in miniature: `host.ts` imports
+`export-target.ts` and `examples.ts` are leaves for the same reason in miniature: `host.ts` imports
 both implementations at runtime to choose between them, so a pure function
 living there and called by `host-browser.ts` would close a real ESM cycle. Being
-a leaf is also what lets it be tested with no DOM.
+a leaf is also what lets both be tested with no DOM.
 
 ## What each host can do
 
@@ -98,7 +101,7 @@ One sentinel still covers all three because the caller does the same thing with
 each: `files.ts:adopt` does not run. Only `markSaved` would have been wrong, and
 none of the three wants it.
 
-## Open and Import each have two shapes, and the split keeps the seam intact
+## Open has three shapes and Import two, and the split keeps the seam intact
 
 `open()` and `importNetwork()` are **pull**-shaped — they take no arguments and
 each host sources its own file, which is what let the desktop paths stay
@@ -116,6 +119,24 @@ and that second one is where the line is drawn.
   `import_network_text`. A method one host refused would be a hole in the
   interface; a five-line Rust command is cheaper than the hole, and it is what
   makes wiring the Tauri webview's own file drop a later one-liner.
+
+`files.ts:openExample(state, dispatch, stem)` is Open's **third** shape and needed
+nothing new in the seam: the text comes out of `examples.ts` and goes to that same
+`openDocumentText`. `stem` is a bare filename (`"roundabout"`), never a glob key,
+and the document installs as `<stem>.zkai` through `install`, so it lands
+**clean** — which is what an unedited example is.
+
+`examples.ts` holds `examples/*.zkai` as a lazy `import.meta.glob`, so Vite emits
+each document as its own chunk at build time: nothing reads
+`import.meta.env.BASE_URL`, nothing calls `fetch`, there is no second copy to
+drift from `examples/`, and no runtime 404 arm exists, the key set being fixed
+when the build runs. The silent failure is the other one — a glob matching
+*nothing* yields `{}` and an empty menu, so `examples.test.ts` holds the key set
+against a `readdirSync` and requires both non-empty. Labels come off the stems
+rather than each document's `metadata.name`, which would mean decoding every
+example at page load: fetching the wasm the loader keeps behind a dynamic import,
+for a visitor who may never open one. The menu can therefore disagree with a
+document's own name, and does.
 
 `OpenedDocument.path` is **host-opaque**, like `ExportTarget.destination`: an
 absolute path on the desktop, a bare `File.name` in a browser, which is all a
@@ -187,6 +208,12 @@ the browser's shape for the first frames of a desktop launch.
   seven (Export splits, Import gains a button because there is no menu).
 - `App.tsx`'s `Cmd/Ctrl+E` — the desktop's one dialog command, or SVG with PNG
   on Shift.
+- `Toolbar.tsx:ExampleSelect` — browser only, and **controlled at `""`, pinned to
+  a disabled placeholder after a load *and* after a declined discard**: left
+  showing its last pick, re-choosing that entry fires no `change` and the document
+  is unreachable. Not a `FileCommand`, and its handler is a prop rather than a
+  `FileActions` member — that interface is a button surface `menu.ts` shares, and
+  a member taking an argument does not assign against `keyof FileActions`.
 
 `FileActions` is the shared command surface and carries all of them; each host
 shows a subset. `menuInstalled` remains only what decides whether `App` handles
@@ -214,8 +241,9 @@ survives a broken notice surface.
 | `browserHost`, `pickFile`, `download` | `src/editor/host-browser.ts` | `bun run dev` in a browser |
 | notice store | `src/editor/notices.ts` | `src/editor/notices.test.ts` |
 | `Banner` | `src/components/Banner.tsx` | `bun run dev` |
-| the twelve commands | `src/editor/files.ts` | `bun run dev` / `tauri dev` |
+| the thirteen commands | `src/editor/files.ts` | `bun run dev` / `tauri dev` |
+| `EXAMPLES`, `exampleLabel` | `src/editor/examples.ts` | `src/editor/examples.test.ts` |
 | `importNetworkYaml`, `decodeZkai`, `encodeZkai` | `src/editor/wasm.ts` | `src/editor/wasm.test.ts` |
 | `isNetworkFile`, `isZkaiFile`, the extension consts | `src/model/document.ts` | `src/model/document.test.ts` |
 | the canvas drop | `src/components/Canvas.tsx` | `bun run dev` in a browser |
-| `FileActions`, `fileCommands` | `src/components/Toolbar.tsx` | `bun run dev` |
+| `FileActions`, `fileCommands`, `ExampleSelect` | `src/components/Toolbar.tsx` | `bun run dev` |

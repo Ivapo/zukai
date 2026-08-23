@@ -13,6 +13,14 @@ holds hand-authored records of Zukai's *past*, `golden/` holds one conversion's
 | `signalized-cross.zkai` | signal control, stop lines, per-lane turn arrows, a direction plate |
 | `motorway-ramp.zkai` | motorway class, hard-shoulder hatching, a gore diverge, a ramp |
 
+**The filename is user-visible.** The demo's Examples menu labels each entry from
+the stem — hyphens become spaces and the first letter is capitalised — because
+reading a document's own `metadata.name` would mean decoding all of them at page
+load. So name a file so its stem reads, and expect the menu to disagree with the
+name inside (`roundabout.zkai` is `Four-arm roundabout`). Renaming one also
+renames its `rendered/` picture and the marker on the landing page, so regenerate
+after.
+
 Each one is a **fixed point of the app's own codec** — opened in the demo and
 saved again, the bytes do not move. Keep it that way: edit a document by opening
 it in Zukai and saving, not by hand, or the next `.zkai` round trip will rewrite
@@ -42,6 +50,14 @@ the same disclaimer zk-015 Phase 1 makes about the desktop and browser exports.
 
 ## These are read, not served
 
-Nothing fetches this directory. The landing page carries the pictures inline and
-the deployed site ships neither the documents nor `rendered/`. Serving them is
-zk-015 Phase 6's job, and that is why they live here rather than in `public/`.
+Nothing fetches this directory, and that is still true now that the demo can open
+them. It does not fetch them either: `src/editor/examples.ts` holds
+`examples/*.zkai` as a lazy `import.meta.glob`, so Vite resolves the pattern at
+build time and emits each document as its own chunk. That is the whole reason
+they live here rather than in `public/` — a copy under `public/` would be a
+second set of bytes to drift from these, fetched by URL against a base that
+changes with the deploy.
+
+So this directory has two consumers and neither is a runtime read: the landing
+page carries `rendered/`'s pictures inline, and the demo carries the documents
+compiled in. The deployed site ships neither as a file.

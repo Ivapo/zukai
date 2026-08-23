@@ -17,7 +17,7 @@ covers: >
   neighbouring edits that break it, the favicon that has to exist, where
   the landing page's figures come from and what keeps them honest, and the
   workflow that makes a push to `main` the deploy
-max_lines: 185
+max_lines: 190
 generated: 2026-08-22
 ---
 
@@ -128,6 +128,13 @@ adds its `<input>` to the document — then click **Export SVG** and take the
 `download` event, `host-browser.ts:download` delivering through an
 `<a download>` over an object URL.
 
+`examples/*.zkai` has a **second** consumer, and it is a build input rather than a
+script's: `src/editor/examples.ts` globs the directory, so the build emits each
+document as its own chunk (~8 kB for the three) behind the demo's Examples menu —
+which the desktop artifact carries and never loads. The directory is still not
+*served*: nothing fetches it, and `examples/rendered/` reaches the deploy only as
+bytes inlined in `index.html`.
+
 **It asserts by default; `ZUKAI_UPDATE_GOLDEN=1` is the only thing that writes**
 — the discipline `src-tauri/tests/fixtures/golden/README.md` established, since a
 script that rewrites its own reference every run always matches itself. The
@@ -198,4 +205,5 @@ than an error.
 | the desktop window's page | `src-tauri/tauri.conf.json` `app.windows[0].url` | `bun run tauri dev` opens the editor |
 | the mark | `public/mark.svg` → `public/favicon.png`, `src-tauri/icons/` | a cold load raises no error from the site's own assets |
 | the page's figures | `examples/*.zkai` → `examples/rendered/*.svg` → `index.html` | `bun run render-examples`, which asserts all of it |
+| the demo's examples | the same `examples/*.zkai`, globbed into per-document chunks | choosing one in the demo's Examples menu draws it |
 | the deploy | `.github/workflows/pages.yml` | a push to `main` serves both URLs |

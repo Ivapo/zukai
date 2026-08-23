@@ -10,8 +10,8 @@ roundabout) legibly, rather than reproduce complete geographic maps.
 
 **[See what it draws →](https://ivapo.github.io/zukai/)** · **[Try it in your
 browser →](https://ivapo.github.io/zukai/demo/)** — the editor runs in a tab,
-with no install and no server. Drop an Assimilator `network.yaml` on the canvas
-and it draws.
+with no install and no server. Open one of the bundled examples, or drop an
+Assimilator `network.yaml` on the canvas and it draws.
 
 ## Status
 
@@ -34,10 +34,12 @@ Early, but it draws. What works today:
 - **Export** — the schematic leaves as a standalone SVG or PNG, chrome-free and
   carrying its own lettering.
 - **Import** — read an Assimilator `network.yaml` and draw it.
+- **Examples in the demo** — the browser build carries the schematics the
+  landing page is made of, so a visitor can open one and edit it with no
+  checkout and nothing installed.
 
 Planned:
 
-- An "open an example" menu in the browser demo, so a visitor needs no checkout.
 - Downloadable desktop builds — the pipeline is not built yet, so
   [releases](https://github.com/Ivapo/zukai/releases/latest) is empty for now.
 
