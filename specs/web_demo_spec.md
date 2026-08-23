@@ -38,8 +38,8 @@ phases:
     shipped: 2026-08-22
     cut: null
     by: null
-  - name: "Phase 7 — The release pipeline, and a download link that resolves"
-    reviewed: null
+  - name: "Phase 7 — The release pipeline, and the first build a reader can run"
+    reviewed: 2026-08-22
     shipped: null
     cut: null
     by: null
@@ -1207,11 +1207,9 @@ them, this phase consumes them.
   they are still not *served* as files, they are compiled into chunks, and that
   distinction is the delivery decision above. Updates the roadmap. One push.
 
-### Phase 7 — The release pipeline, and a download link that resolves
+### Phase 7 — The release pipeline, and the first build a reader can run
 *Produces the observable: **no** — it produces a binary, so it owes the argument
 §3 demands, and here it is.*
-
-**Unreviewed, and it needs its own review episode (§7.0) before it is planned.**
 
 Phase 5's page carries a "get the desktop app" link because §1.1's first
 non-goal is that Tauri stays the primary artifact and the web build does not
@@ -1219,13 +1217,202 @@ replace it — and a page that describes a desktop app while offering no way to
 get it is the dead-button problem Phase 3 argued about Save, on a page far more
 people will read. The repo has **no release, no tag, and no workflow that runs
 `tauri build`**; `bundle.targets: "all"` in `tauri.conf.json` is configuration
-nothing invokes. So that link resolves to an empty page until this lands.
+nothing invokes.
 
-- **Scope:** a workflow triggered on a `v*` tag that runs `tauri build` across a
-  macOS/Windows/Linux matrix and publishes the artifacts to a GitHub release —
-  so tagging `v0.1.0` is what cuts the release, and `releases/latest` is what
-  the page can point at. **Unsigned:** code signing and notarization carry their
-  own secrets and their own cost, and are deferred explicitly here rather than
-  assumed into scope.
-- **Deliberately dormant.** This phase tags nothing. The pipeline exists so that
-  `v0.1.0` produces a release whenever the repo owner decides it is ready.
+**"Resolves" was the wrong word, and measuring it is what renamed this phase.**
+`https://github.com/Ivapo/zukai/releases/latest` answers **200** today,
+redirecting to an empty `/releases` — so the link resolves already, Phase 5's
+gate was right to say so, and a title promising that promised nothing. The REST
+endpoint is the one that 404s. What is missing is not a URL that answers but a
+**published, non-prerelease release carrying a file somebody can download**, and
+every decision below is keyed to that sentence rather than to the link.
+
+- **Scope, the workflow.** `.github/workflows/release.yml`, reusing the versions
+  `pages.yml` already pins — `actions/checkout@v7`, `oven-sh/setup-bun@v2`,
+  `dtolnay/rust-toolchain@stable`, `taiki-e/install-action@v2` for `wasm-pack`,
+  `Swatinem/rust-cache@v2` with `workspaces: src-tauri`. **One action has no pin
+  to reuse**: the dispatch leg's upload needs `actions/upload-artifact`, and
+  `pages.yml` carries only `upload-pages-artifact`, which is a different action.
+  It needs `permissions: contents: write`, which **inverts** the sibling's first
+  key; Phase 4 spelled its three out for this reason and this is the same
+  sentence.
+
+- **Scope, two triggers, and the second is what makes the phase checkable
+  (decision, recorded).** `on: push: tags: ["v*"]` **and `workflow_dispatch`**,
+  as `pages.yml` already carries. The dispatch leg **builds and uploads to the
+  Actions run; it does not publish a release.** That is the whole reconciliation
+  of a dormant pipeline with a real gate: the first execution of this workflow
+  must not be the owner's `v0.1.0`, because a pipeline nobody has ever run is the
+  same defect this spec's record has now rejected three times one level down — a
+  thing that asserts nothing, silently. Dormancy means *not cutting a release*,
+  never *not observing a run*, and the two are only incompatible if the tag is
+  the sole trigger.
+
+  **One workflow, two behaviours, and three steps carry the difference**: the
+  publish step, the version assert below, and the release-notes body are each
+  conditional on `startsWith(github.ref, 'refs/tags/v')`. Naming the mechanism is
+  not decoration — an *unconditional* version assert reads perfectly and fails
+  the dispatch run at that step, because a dispatch carries no tag and
+  `github.ref_name` is the branch it was launched from. That run is this phase's
+  entire ship condition, so the obvious spelling breaks the gate rather than the
+  release.
+
+- **Scope, the release is published and not a prerelease (decision, recorded).**
+  GitHub resolves `/releases/latest` to the newest **non-draft, non-prerelease**
+  release, and a draft is invisible to anonymous visitors entirely.
+  `tauri-apps/tauri-action`'s canonical example sets `releaseDraft: true`, so the
+  likeliest implementation is one that goes green, fills the owner's Releases tab
+  and leaves the page byte-identical to today. Whichever tooling is chosen, the
+  published non-prerelease state is the requirement.
+
+  **And the gate has to assert it off the workflow file, because the dispatch leg
+  does not publish.** This is worth spelling out because the first draft of this
+  phase got it wrong in its own cure: it declared the requirement and then put
+  the only check — `gh api … releases/latest` — behind the owner's later tag,
+  which is an event this phase declines to perform. A decision whose only
+  verification is deferred to an unscheduled future event is the *asserts
+  nothing* shape this record has now rejected four times. So the check is
+  **static**: read `release.yml` and confirm the publish step sets draft and
+  prerelease false. It needs no tag, no throwaway release and no run, and a
+  default cannot satisfy it.
+
+- **Scope, every leg needs three tools no Tauri release example mentions.**
+  `tauri.conf.json`'s `beforeBuildCommand` is `bun run build`, whose `prebuild`
+  hook is `bun run wasm`, and **`src-tauri/pkg/` is gitignored** — so a fresh
+  checkout has no wasm and `tauri build` will not reach `cargo` without **bun,
+  `wasm-pack` and the `wasm32-unknown-unknown` target** on macOS and Windows too,
+  not only on the Linux leg that resembles `pages.yml`.
+
+  **And `pages.yml`'s own comment argues the opposite in the reader's face.** It
+  states there is no `apt-get` step because "`tauri` sits behind a
+  `cfg(not(target_arch = "wasm32"))` table, and the only host-compiled Tauri
+  crate is `tauri-build`, which needs no webkit2gtk". That is **true of the Pages
+  build and false of `tauri build`**: the Linux leg compiles the real `tauri`
+  crate and needs webkit2gtk, librsvg and `patchelf`. Copying the sibling
+  workflow is the obvious move and it is the wrong one, which is why the trap is
+  named here rather than discovered — the shape §2.6's `devUrl` truth table and
+  Phase 2's `build.rs` panic already take in this document.
+
+- **Scope, the matrix names an architecture, not just an OS.** `macos-latest` is
+  arm64, and `bundle.targets: "all"` selects bundle *formats* rather than
+  architectures — so a single macOS leg hands every Intel reader a download that
+  will not launch, which is the dead-button problem one layer inside the fix for
+  it. **`--target universal-apple-darwin`, with both Rust targets installed**,
+  rather than two macOS legs: one artifact, one name on the release page, and no
+  reader has to know which Mac they own.
+
+  **A macOS-only first phase was considered and declined.** It is genuinely
+  cheaper, and nothing in the other two legs is needed to make one published
+  release exist — the cheapest form of this phase needs no workflow at all, just
+  `tauri build` locally once and `gh release create`. Declined because the page
+  says "get the desktop app" to every reader, and because a matrix leg that fails
+  fails *visibly*, in a workflow run, where a platform quietly never offered is
+  invisible. The risk it carries is bounded by the artifact-set assertion below.
+
+- **Scope, the tag and the three `0.1.0`s.** `package.json`, `src-tauri/Cargo.toml`
+  and `src-tauri/tauri.conf.json` all read `0.1.0` today, and Tauri names its
+  bundles from the **config's** version. So a later `v0.2.0` tag over an unbumped
+  config publishes a `v0.2.0` release full of `0.1.0` files — green, wrong, and
+  nobody looks. A step asserting the tag equals `tauri.conf.json`'s version, and
+  failing the run when it does not, is one line and closes it.
+
+- **Unsigned, and the deferral has a user-visible half.** Code signing and
+  notarization carry their own secrets and their own cost and are deferred. That
+  defers the *work*; it does not decide what a reader hits, which is Gatekeeper
+  on macOS and SmartScreen on Windows. **The release notes carry the one-line
+  bypass instruction**, so a resolved link is a working download rather than the
+  second dead button.
+
+- **What this phase deliberately does not do.** It **tags nothing**: cutting
+  `v0.1.0` stays the repo owner's call, and this phase ships when the pipeline is
+  proven by a dispatch run. It therefore does **not** touch `index.html`'s "no
+  build has been cut yet", which stays true — but the close-out records what that
+  sentence becomes when a tag is cut, so the page is not left to rot on a
+  condition nothing is watching.
+
+- **Exit gate.** In four parts. The fourth is the largest, because two of the
+  three legs and one of the two triggers cannot be exercised by the person
+  building this — and saying which is the point of having it.
+
+  1. **Build, plus the one static assertion that does real work.** The suites —
+     `bun run test`, `bun run build`, `cargo test` — are named as the standing
+     precondition rather than as evidence: this phase adds one YAML file and
+     touches no TypeScript and no Rust, so none of them can go red from it, and
+     a clause that cannot fail is not a gate (Phase 5 anticipated this objection
+     about its own build clause and answered it with a linking argument; there is
+     no such argument here, so this says so instead). Two clauses do work.
+     `$SDD/bin/spec-lint .` reports **zero errors** — not "no warnings", there
+     being a standing baseline of **10**, one of them inside this spec — which is
+     what catches a rule pushed over its cap by the close-out. And, read straight
+     off `.github/workflows/release.yml` with no run at all: **the publish step
+     sets draft and prerelease false** (with `tauri-action`, `releaseDraft` false
+     rather than absent, since its documented default is `true`), and **all
+     three** tag-conditional steps — the publish, the version assert and the
+     notes body — are conditional on the tag ref while the build steps are not.
+     The publish step's own conditionality is the item no other part can catch:
+     part 2 would pass a dispatch run that *also* cut a stray release, and a
+     stray release is exactly what falsifies this phase's promise that
+     `index.html`'s "no build has been cut yet" stays true.
+  2. **Deterministic — one `workflow_dispatch` run, and what it asserts.**
+     GitHub offers the dispatch button only for workflows already on the default
+     branch, so **this part is necessarily evaluated after the phase's one
+     push** — the shape Phase 4 already ships with, where the push is the thing
+     being gated rather than the last step before it. All three legs go green and
+     upload, and the macOS artifact's filename carries **`universal`**. Those two are the assertions, and they are what catch the
+     failures that matter: a platform quietly never offered, and a Mac download
+     half the audience cannot run.
+
+     The **format set is a prediction, not an assertion**, and the difference is
+     stated because the clause would otherwise look like a check: `bundle.targets:
+     "all"` should give `.app` and `.dmg` on macOS, `.msi` and `.exe` on Windows
+     (the `.exe` from the `nsis` target, indirectly), and `.deb`, `.rpm` and
+     `.AppImage` on Linux. Exact filenames are read off that first run rather
+     than predicted here — a gate keyed to a literal no stated method reproduces
+     passes for the wrong reason — and a run that produces a different set means
+     this list was wrong, not the run.
+  3. **Behavioural, on the one platform the builder has.** Download the macOS
+     artifact from that dispatch run — `actions/upload-artifact` delivers a zip,
+     so there is an unzip before there is a `.dmg` — mount it, launch the app past Gatekeeper using the
+     bypass instruction **the workflow will publish** — the dispatch run
+     publishes no release and therefore no notes, so the instruction is read out
+     of `release.yml` rather than off a release page — and get **the editor**:
+     the toolbar, the canvas, the grid, with **no** Examples control. That is
+     Phase 6's desktop clause arriving on a packaged build rather than on
+     `tauri dev`.
+  4. **Explicitly not claimed**, in the idiom Phase 1 uses for byte-identity
+     across the two hosts. Three things, and the third is the one this phase's
+     own review record put here:
+     - **That the Windows and Linux artifacts launch.** Neither platform has ever
+       compiled this app natively — `pages.yml` does build the crate on
+       `ubuntu-latest`, but for `wasm32-unknown-unknown` through `wasm-pack`, so
+       there is no native `cargo build` in CI and never has been. What bounds the
+       risk is that **no `#[cfg]` in `src-tauri/src/` names a platform** — every
+       one is `target_arch = "wasm32"` or `test`, and the lone `cfg_attr(mobile,
+       …)` on `lib.rs:run` gates nothing out on any desktop leg. Those bundles
+       wrap a binary compiled from source identical to the macOS one, so what is unverified is Tauri's bundling rather than this app's
+       behaviour. A reader who reports a broken Linux build is the next phase's
+       evidence, not this one's regression.
+     - **That the publish path has been executed end to end.** The dispatch leg
+       skips it by design, so at ship time the `contents: write` publish, the
+       tag-conditional version assert and the notes body have been *read* (part 1)
+       and not *run*. That is the residue of the dormancy decision, and it is
+       written here rather than left to be noticed.
+     - **Recorded, not gated** — Phase 2's own label for this: when the owner
+       chooses to tag, `gh api repos/Ivapo/zukai/releases/latest` should answer
+       **200** rather than today's 404, with `draft` and `prerelease` both
+       `false`. It is the confirmation that the static assertion in part 1 was
+       about the right thing. **Nothing about it can turn this phase red**, because
+       the phase declines to perform the event it depends on.
+
+- **Close-out, and one item of it is forced by a predicate Phase 5 shipped.**
+  Shipping this makes **all seven phases `shipped` with none `cut`, so zk-015's
+  rollup flips `partial` → `done`** (§1.1 rule 5) — and Phase 5's documentation
+  predicate 1 is *"no bullet under Planned names a spec `specs/INDEX.md` marks
+  `done`"*, which `README.md`'s "Downloadable desktop builds — the pipeline is
+  not built yet" then breaks. So that bullet **moves to Status and is reworded to
+  what actually shipped**: the pipeline exists and a tag cuts the release, which
+  is a different claim from a binary being downloadable today. Also updates
+  `rules/deploy.md`: of its nine `sources` exactly one is a workflow, and its
+  `covers` ends "the workflow that makes a push to `main` the deploy" — a second
+  workflow is squarely inside that, and at **187 of `max_lines: 190`** it takes a
+  bump. And the roadmap. One push.
