@@ -34,7 +34,7 @@ phases:
     cut: null
     by: null
   - name: "Phase 6 — \"Open an example\" in the demo"
-    reviewed: null
+    reviewed: 2026-08-22
     shipped: null
     cut: null
     by: null
@@ -1027,12 +1027,30 @@ them, this phase consumes them.
   exists and both hosts honour it — Phase 3's shipped work — so an example
   arriving as text needs no third seam shape and no synthesized `File`. What
   `files.ts` gains is **one exported command**, beside the `File`-shaped
-  `openDocumentFile` it mirrors: `openExample(state, dispatch, key)` runs
-  `confirmDiscard`, resolves the document's text, calls `host().openDocumentText`
-  and hands the result to the private `install` under the name `<stem>.zkai` — so
-  `currentPath`, the window title and a later Save all read as that file, and the
-  document lands **clean**, which is what `loadDocument` means and what an
-  unedited example is. No new host method and no new codec call site.
+  `openDocumentFile` it mirrors: `openExample(state, dispatch, stem)`, where
+  **`stem` is the bare filename without extension** (`"roundabout"`), not the
+  glob key. It runs `confirmDiscard`, resolves the document's text, calls
+  `host().openDocumentText` and hands the result to the private `install` under
+  the name `<stem>.zkai` — so `currentPath`, the window title and a later Save
+  all read as that file, and the document lands **clean**, which is what
+  `loadDocument` means and what an unedited example is. No new host method and no
+  new codec call site.
+
+  **The guard is `if (!(await confirmDiscard(state))) return;`**, spelled exactly
+  as the five commands that replace a document spell it — `openDocument`,
+  `importNetwork`, `importNetworkFile`, `openDocumentFile` and
+  `openRecentDocument`; `newDocument` is the one that inverts it. Naming the
+  spelling is not pedantry: a
+  bare `await confirmDiscard(state)` shows the prompt and then discards the
+  visitor's work anyway, which is why the gate below checks the *answer* rather
+  than the prompt's appearance.
+
+- **Scope, the new module.** `src/editor/examples.ts` — a **leaf**, importing
+  nothing from `files.ts`, `host.ts` or any component, so the two vitests below
+  run in the `node` environment with no DOM and no `@tauri-apps` in the graph.
+  This is `export-target.ts`'s precedent (Phase 1 extracted it for exactly that
+  reason). It owns two things and no more: the glob, and the pure
+  `exampleLabel(stem: string): string`.
 
 - **Scope, delivery (decision, recorded): a lazy `import.meta.glob`, never a
   `fetch`.** The obvious route — copy the documents into `public/examples/` and
@@ -1040,11 +1058,17 @@ them, this phase consumes them.
   resolves a root-relative glob itself and emits each match as its own chunk:
 
   ```ts
-  const EXAMPLES = import.meta.glob("/examples/*.zkai", {
+  const EXAMPLES = import.meta.glob<string>("/examples/*.zkai", {
     query: "?raw",
     import: "default",
   });
   ```
+
+  **The explicit `<string>` is load-bearing**, and the obvious spelling is wrong:
+  `import.meta.glob`'s first overload infers the module type from the deprecated
+  `as` option, not from `query`, so omitting the type parameter yields
+  `Record<string, () => Promise<unknown>>` and `tsc` rejects the value at
+  `openDocumentText(text: string)`.
 
   **Measured on this repo, not assumed.** Under `bun run build:web` that emits
   `roundabout-*.js`, `signalized-cross-*.js` and `motorway-ramp-*.js` (1.5–4 kB
@@ -1053,34 +1077,57 @@ them, this phase consumes them.
   they are why this beats the `fetch`: **nothing reads `import.meta.env.BASE_URL`
   and nothing calls `fetch`** — the two capabilities the split's original note
   assumed this phase would have to introduce, and neither appears anywhere under
-  `src/` today; there is **no second copy** of a document to drift
-  from `examples/`; and there is **no 404 arm** to design, because a missing chunk
-  is a build error rather than a runtime one. `src/vite-env.d.ts` already carries
-  `/// <reference types="vite/client" />`, so the glob and `?raw` are typed. It
-  also mirrors the shape `wasm.ts` already uses: a dynamic import, paid for on
-  first use, so a visitor who never opens an example never fetches one.
+  `src/` today; there is **no second copy** of a document to drift from
+  `examples/`; and **no runtime 404 arm exists to design**, because the key set is
+  fixed at build time. That last is the accurate form of the claim: a glob that
+  matches *nothing* yields `{}` silently rather than failing the build, which is
+  what the `readdirSync` gate item below is for.
+
+  `src/vite-env.d.ts` already carries `/// <reference types="vite/client" />`, so
+  the glob and `?raw` are typed. It also mirrors the shape `wasm.ts` already uses:
+  a dynamic import, paid for on first use, so a visitor who never opens an example
+  never fetches one.
+
+  **The desktop artifact gains the three chunks and never loads them**, ~8 kB
+  behind a loader only the browser-only control can trigger. Recorded rather than
+  discovered: `demo/index.html` is a `rollupOptions.input` of the same build
+  `tauri.conf.json` runs, base `/` emits `/assets/…`, and that resolves under
+  `tauri://localhost` exactly as the demo entry's own script already does. §1.1 is
+  not threatened.
 
 - **Scope, the labels come off the filenames (decision, recorded).** A document's
   own `metadata.name` is inside the YAML, so labelling the menu from it would mean
   **decoding every example at page load** — which means fetching the wasm OQ-4
   deliberately keeps behind a dynamic import, charged to a visitor who may never
-  open one. So a label is derived from the file stem by a pure function
-  (`signalized-cross` → `Signalized cross`), which needs no manifest and therefore
-  has no second source of truth to drift. The cost is named rather than hidden:
-  the menu can disagree with the document's own `metadata.name`, and the answer is
-  to name the files so their stems read, not to add a manifest.
+  open one. So a label is derived from the file stem by `exampleLabel`, which
+  needs no manifest and therefore has no second source of truth to drift. The cost
+  is named rather than hidden: the menu can disagree with the document's own
+  `metadata.name` — and it does, `roundabout.zkai` being named
+  `Four-arm roundabout` inside — and the answer is to name the files so their
+  stems read, not to add a manifest.
 
 - **Scope, the surface.** `Toolbar.tsx:fileCommands()` returns `FileCommand[]`
   (`{label, hint?, key: keyof FileActions}`), which is a **button** shape and
   cannot carry a list — so the examples are deliberately *not* a `FileCommand`.
-  They are one `<select>` rendered beside `.file-actions`, **browser-only**, gated
-  on the same synchronous `isTauri()` the row already uses (never on
+  **Nor can the handler join `FileActions`**: the row renders
+  `onClick={files[c.key]}` against `keyof FileActions`, so adding a
+  `(stem: string) => void` member widens that union and fails to assign. The
+  handler is a separate prop on `Toolbar`, and `menu.ts` — which shares
+  `FileActions` — is left untouched.
+
+  The control is one `<select>` rendered beside `.file-actions`, **browser-only**,
+  gated on the same synchronous `isTauri()` the row already uses (never on
   `menuInstalled`, which flashes for the first frames of a desktop launch). A
-  native `<select>` rather than a bespoke dropdown: the toolbar is provisional,
-  and a native control is keyboard- and screen-reader-reachable for free. Its
-  first `<option>` is a disabled placeholder and the control resets to it after a
-  load, so it never claims to be showing which document is open — the document
-  name already has a home in `.doc-name`.
+  native `<select>` rather than a bespoke dropdown: the toolbar is provisional, and
+  a native control is keyboard- and screen-reader-reachable for free.
+
+  **It is a controlled input whose value is pinned to a disabled placeholder
+  `<option>`, on both arms** — after a load *and* after a declined discard. Pinning
+  it is what makes re-choosing the same example work at all: left showing its last
+  pick, choosing that entry again fires no `change` event and the document becomes
+  unreachable until the visitor picks a different one first. It also keeps the
+  control from claiming to show which document is open; that name already has a
+  home in `.doc-name`.
 
 - **What this phase deliberately does not do.** No desktop surface: the examples
   are a demo affordance, and a desktop user has Open and a filesystem. No new
@@ -1090,38 +1137,75 @@ them, this phase consumes them.
 
 - **Exit gate.** Keyed to **the deployed site with no repo checkout**, which is
   the whole point of the phase and the one thing Phase 4's gate could not claim.
-  - **Build:** `bun run test` and `bun run build` green; `bun run tauri dev` still
-    opens the editor, and its toolbar shows **no** Examples control.
+  - **Build:** `bun run test` and `bun run build` green;
+    `$SDD/bin/spec-lint .` reporting **zero errors** — not "no warnings", there
+    being a standing baseline of those, one of them inside this spec — which is
+    what catches a rule pushed over its cap by the close-out; and `bun run tauri
+    dev` still opening the editor, with **no** Examples control in its toolbar.
   - **Deterministic:**
-    - a vitest asserting the glob resolves **exactly** the `.zkai` files in
-      `examples/` — compared against a `readdirSync` of the directory, so adding a
-      document cannot silently fail to appear — and that each loads as a string
-      starting `schema_version:`. This runs in vitest's `node` environment;
-      measured, it does.
-    - a vitest over the pure stem→label function, covering a single word, a
-      hyphenated stem and a stem that is already capitalised.
+    - a vitest asserting the glob's key set equals the `.zkai` files a
+      `readdirSync` of `examples/` returns **and that both are non-empty** — the
+      second half is not padding: on an empty directory the equality holds while
+      the menu is empty, which is the assert-nothing shape this record has now
+      rejected three times. Each entry loads as a string starting
+      `schema_version:`. Runs in vitest's `node` environment; measured, it does.
+    - a vitest over `exampleLabel` pinning three mappings **with their expected
+      values**, because the transformation is under-determined by one example:
+      `"roundabout"` → `"Roundabout"`, `"signalized-cross"` → `"Signalized
+      cross"`, and `"ROUNDABOUT"` → `"ROUNDABOUT"` — interior case is preserved,
+      so the implementation is `s[0].toUpperCase() + s.slice(1)` over
+      hyphens-to-spaces and not a lowercase-then-capitalise.
     - `bun run render-examples` still green: `examples/` now has two consumers,
       and this is what catches a document renamed for the menu's benefit without
       the page's figures being regenerated.
-  - **Behavioural, on `https://ivapo.github.io/zukai/demo/` with no checkout:**
-    - choose **Roundabout**; the canvas draws the four-arm roundabout, and
-      `document.title` reads `roundabout.zkai — Zukai` with **no** leading `• `,
-      which is the assertion that it landed clean rather than dirty;
-    - Export SVG, and the file carries **4** `class="marking-teeth"` and **3**
-      `class="link-length"` — the counts `examples/roundabout.zkai` pins, and
-      matched **on the full `class="…"` form** because the embedded `diagram.css`
-      spells every one of those names too (Phase 4 recorded that trap after
-      counting `marking-arrow-stem` and getting 9);
-    - move a node, then choose **Signalized cross**, and the discard prompt
-      appears — `confirmDiscard` runs for every command that replaces the
-      document, and this is the one arm a menu makes easy to forget.
+  - **Behavioural, on `https://ivapo.github.io/zukai/demo/` with no checkout.**
+    Four steps, and steps 3 and 4 are each written so that the *wrong*
+    implementation is the one that cannot pass:
+    1. choose **Roundabout**; the canvas draws the four-arm roundabout,
+       `document.title` reads `roundabout.zkai — Zukai` with **no** leading `• `,
+       which is the assertion that it landed clean rather than dirty, and the
+       control shows its placeholder rather than "Roundabout";
+    2. Export SVG, and the file carries **4 occurrences** of
+       `class="marking-teeth"` and **3 occurrences** of `class="link-length"`.
+       Two things about the method, both measured on
+       `examples/rendered/roundabout.svg` rather than assumed: match the **full
+       `class="…"` form**, because the bare names give 5 and 4 — the extra one
+       being the embedded `diagram.css` spelling the selector; and count
+       *occurrences* (`grep -o … | wc -l`), because `diagramSvg` emits the whole
+       drawing on one line and `grep -c` answers 1. Neither count depends on
+       `getBBox` or on the font, so this clause is engine-independent where the
+       `viewBox` is not;
+    3. **the reset, on the arm that discriminates.** Move a node — the title
+       gains its `• ` — then choose **Roundabout again**, the entry step 1 loaded,
+       and accept the discard: the node returns to where the document puts it and
+       the title loses its `• `. That can only happen if the control reset to its
+       placeholder in step 1; left displaying "Roundabout", re-choosing it fires
+       no `change` event, nothing loads, and the node stays moved. Re-choosing an
+       entry the control has *not* just loaded — Signalized cross, say — would
+       fire a `change` either way and check nothing;
+    4. **the declined discard.** Move a node again, choose **Signalized cross**,
+       and **decline**: the roundabout is still on the canvas with the node still
+       moved, the title reads **`• roundabout.zkai — Zukai`** — the dot is
+       correct and is the evidence, being the unsaved change that survived — and
+       the control shows its placeholder. Then choose **Signalized cross** again
+       and accept, and it loads, which is step 3's discrimination applied to the
+       declined arm. Asserting only that the prompt *appears* would pass an
+       implementation that ignores the answer, which is the silent failure these
+       two steps exist for.
 
-- **Close-out:** updates `rules/host-seam.md`, whose "two shapes of Open" becomes
-  three and whose "which surfaces vary by host" table gains the control; and
-  `examples/README.md`, whose "Nothing fetches this directory … Serving them is
-  zk-015 Phase 6's job" is half-false afterwards — they are still not *served* as
-  files, they are compiled into chunks, and the distinction is the delivery
-  decision above. Updates the roadmap. One push.
+- **Close-out:** updates **`README.md`**, whose "Planned" list names this feature
+  verbatim ("An 'open an example' menu in the browser demo, so a visitor needs no
+  checkout") and which no predicate catches, since zk-015's rollup reads `partial`
+  whether or not this ships — the bullet moves to Status. Updates
+  `rules/host-seam.md` (**195 of `max_lines: 200`** — a third shape of Open, a new
+  entry under the host-varying surfaces, and twelve exported commands becoming
+  thirteen will not fit in five lines, so bump or trim) and `rules/persistence.md`
+  (**150 of 160**, room), whose Trigger row names three surfaces and whose "How a
+  browser host differs" section says the toolbar row is the whole browser command
+  surface — both false afterwards. Also `examples/README.md`, whose "Nothing
+  fetches this directory … Serving them is zk-015 Phase 6's job" is half-false:
+  they are still not *served* as files, they are compiled into chunks, and that
+  distinction is the delivery decision above. Updates the roadmap. One push.
 
 ### Phase 7 — The release pipeline, and a download link that resolves
 *Produces the observable: **no** — it produces a binary, so it owes the argument
