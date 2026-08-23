@@ -5,7 +5,7 @@ note: >
   Publish Zukai on the web — the editor running in a browser tab with no Rust
   toolchain, and a landing page made of the diagrams it draws.
 status: accepted
-last_updated: 2026-08-22
+last_updated: 2026-08-23
 
 phases:
   - name: "Phase 1 — The host seam, and the file commands working in a browser"
@@ -40,7 +40,7 @@ phases:
     by: null
   - name: "Phase 7 — The release pipeline, and the first build a reader can run"
     reviewed: 2026-08-22
-    shipped: null
+    shipped: 2026-08-23
     cut: null
     by: null
 

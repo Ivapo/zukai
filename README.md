@@ -37,11 +37,10 @@ Early, but it draws. What works today:
 - **Examples in the demo** — the browser build carries the schematics the
   landing page is made of, so a visitor can open one and edit it with no
   checkout and nothing installed.
-
-Planned:
-
-- Downloadable desktop builds — the pipeline is not built yet, so
-  [releases](https://github.com/Ivapo/zukai/releases/latest) is empty for now.
+- **Release pipeline** — a `v*` tag builds the desktop app for macOS (one
+  universal binary), Windows and Linux, and publishes it to
+  [releases](https://github.com/Ivapo/zukai/releases/latest). No tag has been
+  cut yet, so that page is empty for now.
 
 ## Relationship to Assimilator
 

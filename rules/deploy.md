@@ -2,6 +2,7 @@
 title: deploy
 sources:
   - .github/workflows/pages.yml
+  - .github/workflows/release.yml
   - vite.config.ts
   - package.json
   - index.html
@@ -15,10 +16,11 @@ covers: >
   where the deploy's `base` lives and why never in the config, the one line in
   `tauri.conf.json` that keeps the desktop window on the editor and the two
   neighbouring edits that break it, the favicon that has to exist, where
-  the landing page's figures come from and what keeps them honest, and the
-  workflow that makes a push to `main` the deploy
-max_lines: 190
-generated: 2026-08-22
+  the landing page's figures come from and what keeps them honest, the
+  workflow that makes a push to `main` the deploy, and the second one that
+  turns a `v*` tag into a published desktop release
+max_lines: 250
+generated: 2026-08-23
 ---
 
 # Deploy
@@ -182,7 +184,7 @@ carrying `environment: github-pages` and running `deploy-pages`.
 optional. **The repository's own Pages source must be set to GitHub Actions**;
 that is a settings change, not a step a commit can make.
 
-No `apt-get` step is needed: `tauri`, `tauri-plugin-dialog` and
+No `apt-get` step is needed **in this workflow**: `tauri`, `tauri-plugin-dialog` and
 `tauri-plugin-opener` sit behind a `cfg(not(target_arch = "wasm32"))` table in
 `src-tauri/Cargo.toml`, and the only host-compiled Tauri crate is the
 `tauri-build` build-dependency, which needs no webkit2gtk.
@@ -193,6 +195,64 @@ uses threads or `SharedArrayBuffer`. Pages does serve `.wasm` as
 falls back from `instantiateStreaming` to `arrayBuffer()` +
 `WebAssembly.instantiate` on a wrong content type, with a `console.warn` rather
 than an error.
+
+## A tag is the release
+
+`.github/workflows/release.yml`, `on: push` to tags matching `v*` plus
+`workflow_dispatch`, under `concurrency: {group: release-<ref>,
+cancel-in-progress: false}`. `permissions: contents: write` — the **inverse** of
+the sibling's first key, and not optional: the repository's own default workflow
+permission is read.
+
+Two jobs. `build` is a `fail-fast: false` matrix over `macos-latest`,
+`ubuntu-latest` and `windows-latest` — checkout, bun, `dtolnay/rust-toolchain`,
+`wasm-pack`, `Swatinem/rust-cache`, `bun install --frozen-lockfile`,
+`bun run tauri build`, `actions/upload-artifact`. `publish` carries
+`if: startsWith(github.ref, 'refs/tags/v')` and is the only thing that creates a
+release, so **a dispatch run builds all three platforms and publishes nothing**.
+That is what lets the pipeline be proven without cutting a release.
+
+**Exactly three things are tag-conditional**: the version assert (step-level),
+and the notes body and the publish (both by the `publish` job's own `if`). No
+build step is. Written unconditionally the version assert reads perfectly and
+fails every dispatch run — a dispatch carries no tag, and `github.ref_name` is
+then the branch it was launched from.
+
+**Every leg needs bun, `wasm-pack` and `wasm32-unknown-unknown`**, macOS and
+Windows included, which no Tauri release example mentions: `beforeBuildCommand`
+is `bun run build`, whose `prebuild` hook is `bun run wasm`, and `src-tauri/pkg/`
+is gitignored. **The Linux leg additionally needs `apt-get`** — webkit2gtk,
+librsvg, `patchelf` — because unlike the Pages build it compiles the real `tauri`
+crate rather than the wasm32 one. The paragraph above is scoped to that workflow;
+copying it here is the obvious move and the wrong one.
+
+**macOS is one leg, not two.** `macos-latest` is arm64 and `bundle.targets:
+"all"` selects bundle *formats* rather than architectures, so a plain build hands
+every Intel reader a download that will not launch. `--target
+universal-apple-darwin` with both Rust targets installed: one artifact, one name
+on the release page — and the bundle moves under
+`src-tauri/target/universal-apple-darwin/`.
+
+One `path` list serves all three legs, and a pattern matching nothing contributes
+nothing, so the format set is whatever `bundle.targets: "all"` produced rather
+than something the file predicts; `if-no-files-found: error` is the assertion
+that does the work. The macOS `.app` is deliberately absent — it is a directory,
+and an artifact zip drops the executable bit.
+
+**Tauri names bundles from `tauri.conf.json`, not from the tag.** The assert
+compares `${GITHUB_REF_NAME#v}` against that file's `version`; without it a
+`v0.2.0` tag over an unbumped config publishes a `v0.2.0` release full of `0.1.0`
+files. **The release is published and not a prerelease, spelled rather than
+defaulted** (`--draft=false --prerelease=false --latest`), because
+`/releases/latest` resolves to the newest non-draft, non-prerelease release and a
+draft is invisible to anonymous visitors entirely. **The builds are unsigned**;
+the notes carry the Gatekeeper and SmartScreen bypasses, so a link that resolves
+is a download that runs.
+
+**No tag has been cut, and two sentences are waiting on one.** `index.html`'s
+"Get the desktop app" section says "**no build has been cut yet**, so that page
+is empty for now", and `README.md`'s Release pipeline bullet says the same. Both
+go false the moment a `v*` tag lands, and nothing watches them.
 
 ## Where each piece lives
 
@@ -207,3 +267,4 @@ than an error.
 | the page's figures | `examples/*.zkai` → `examples/rendered/*.svg` → `index.html` | `bun run render-examples`, which asserts all of it |
 | the demo's examples | the same `examples/*.zkai`, globbed into per-document chunks | choosing one in the demo's Examples menu draws it |
 | the deploy | `.github/workflows/pages.yml` | a push to `main` serves both URLs |
+| the desktop release | `.github/workflows/release.yml` | a `workflow_dispatch` run builds all three platforms |
