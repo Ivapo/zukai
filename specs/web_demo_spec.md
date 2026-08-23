@@ -1015,27 +1015,113 @@ half makes the artifact the second half uses.
 ### Phase 6 — "Open an example" in the demo
 *Produces the observable: **yes** — it is what lets a visitor with no repo
 checkout get a figure onto the canvas at all, which Phase 4's own gate had to
-work around by requiring one.*
+work around by requiring one, and which Phase 5's landing page sharpens: a
+visitor now sees three figures they cannot open.*
 
-**Unreviewed, and it needs its own review episode (§7.0) before it is planned.**
 Split out of Phase 5 during that phase's round 1, on the panel's converging
 finding that the two halves share no file and that this one had no gate clause
-whatsoever.
+whatsoever. The example **documents** are the shared artifact: Phase 5 created
+them, this phase consumes them.
 
-- **Scope:** a menu in the demo listing the `examples/` documents Phase 5
-  committed, opening one onto the canvas. The seam needs **no new method** —
-  `host.ts:Host.openDocumentText(text)` already exists and both hosts honour it,
-  which is Phase 3's shipped work. What it needs is a text-shaped command in
-  `files.ts` beside the `File`-shaped `openDocumentFile`; a delivery decision,
-  because the documents must be reachable from the deployed site under
-  `--base=/zukai/` and nothing in `src/` today calls `fetch` or reads
-  `import.meta.env.BASE_URL`; and a surface decision in
-  `Toolbar.tsx:fileCommands`, which branches `isTauri()` between
-  `DESKTOP_COMMANDS` and `BROWSER_COMMANDS`. `confirmDiscard` runs, as it does
-  for every command that replaces the document.
-- **Exit gate:** written by that phase's own review round. It must be keyed to
-  **the deployed site with no repo checkout**, which is the whole point of the
-  phase and the one thing Phase 4's gate could not claim.
+- **Scope, the seam: nothing new.** `host.ts:Host.openDocumentText(text)` already
+  exists and both hosts honour it — Phase 3's shipped work — so an example
+  arriving as text needs no third seam shape and no synthesized `File`. What
+  `files.ts` gains is **one exported command**, beside the `File`-shaped
+  `openDocumentFile` it mirrors: `openExample(state, dispatch, key)` runs
+  `confirmDiscard`, resolves the document's text, calls `host().openDocumentText`
+  and hands the result to the private `install` under the name `<stem>.zkai` — so
+  `currentPath`, the window title and a later Save all read as that file, and the
+  document lands **clean**, which is what `loadDocument` means and what an
+  unedited example is. No new host method and no new codec call site.
+
+- **Scope, delivery (decision, recorded): a lazy `import.meta.glob`, never a
+  `fetch`.** The obvious route — copy the documents into `public/examples/` and
+  `fetch(import.meta.env.BASE_URL + "examples/…")` — is **declined**. Vite
+  resolves a root-relative glob itself and emits each match as its own chunk:
+
+  ```ts
+  const EXAMPLES = import.meta.glob("/examples/*.zkai", {
+    query: "?raw",
+    import: "default",
+  });
+  ```
+
+  **Measured on this repo, not assumed.** Under `bun run build:web` that emits
+  `roundabout-*.js`, `signalized-cross-*.js` and `motorway-ramp-*.js` (1.5–4 kB
+  each) as separate lazily-imported chunks, while the demo entry's own assets are
+  base-prefixed to `/zukai/assets/…` by the same build. Three things follow, and
+  they are why this beats the `fetch`: **nothing reads `import.meta.env.BASE_URL`
+  and nothing calls `fetch`** — the two capabilities the split's original note
+  assumed this phase would have to introduce, and neither appears anywhere under
+  `src/` today; there is **no second copy** of a document to drift
+  from `examples/`; and there is **no 404 arm** to design, because a missing chunk
+  is a build error rather than a runtime one. `src/vite-env.d.ts` already carries
+  `/// <reference types="vite/client" />`, so the glob and `?raw` are typed. It
+  also mirrors the shape `wasm.ts` already uses: a dynamic import, paid for on
+  first use, so a visitor who never opens an example never fetches one.
+
+- **Scope, the labels come off the filenames (decision, recorded).** A document's
+  own `metadata.name` is inside the YAML, so labelling the menu from it would mean
+  **decoding every example at page load** — which means fetching the wasm OQ-4
+  deliberately keeps behind a dynamic import, charged to a visitor who may never
+  open one. So a label is derived from the file stem by a pure function
+  (`signalized-cross` → `Signalized cross`), which needs no manifest and therefore
+  has no second source of truth to drift. The cost is named rather than hidden:
+  the menu can disagree with the document's own `metadata.name`, and the answer is
+  to name the files so their stems read, not to add a manifest.
+
+- **Scope, the surface.** `Toolbar.tsx:fileCommands()` returns `FileCommand[]`
+  (`{label, hint?, key: keyof FileActions}`), which is a **button** shape and
+  cannot carry a list — so the examples are deliberately *not* a `FileCommand`.
+  They are one `<select>` rendered beside `.file-actions`, **browser-only**, gated
+  on the same synchronous `isTauri()` the row already uses (never on
+  `menuInstalled`, which flashes for the first frames of a desktop launch). A
+  native `<select>` rather than a bespoke dropdown: the toolbar is provisional,
+  and a native control is keyboard- and screen-reader-reachable for free. Its
+  first `<option>` is a disabled placeholder and the control resets to it after a
+  load, so it never claims to be showing which document is open — the document
+  name already has a home in `.doc-name`.
+
+- **What this phase deliberately does not do.** No desktop surface: the examples
+  are a demo affordance, and a desktop user has Open and a filesystem. No new
+  drop-target routing — `Canvas.tsx` already routes `.zkai`. No thumbnail, no
+  preview, no description text: the picture appears on the canvas, which is the
+  preview.
+
+- **Exit gate.** Keyed to **the deployed site with no repo checkout**, which is
+  the whole point of the phase and the one thing Phase 4's gate could not claim.
+  - **Build:** `bun run test` and `bun run build` green; `bun run tauri dev` still
+    opens the editor, and its toolbar shows **no** Examples control.
+  - **Deterministic:**
+    - a vitest asserting the glob resolves **exactly** the `.zkai` files in
+      `examples/` — compared against a `readdirSync` of the directory, so adding a
+      document cannot silently fail to appear — and that each loads as a string
+      starting `schema_version:`. This runs in vitest's `node` environment;
+      measured, it does.
+    - a vitest over the pure stem→label function, covering a single word, a
+      hyphenated stem and a stem that is already capitalised.
+    - `bun run render-examples` still green: `examples/` now has two consumers,
+      and this is what catches a document renamed for the menu's benefit without
+      the page's figures being regenerated.
+  - **Behavioural, on `https://ivapo.github.io/zukai/demo/` with no checkout:**
+    - choose **Roundabout**; the canvas draws the four-arm roundabout, and
+      `document.title` reads `roundabout.zkai — Zukai` with **no** leading `• `,
+      which is the assertion that it landed clean rather than dirty;
+    - Export SVG, and the file carries **4** `class="marking-teeth"` and **3**
+      `class="link-length"` — the counts `examples/roundabout.zkai` pins, and
+      matched **on the full `class="…"` form** because the embedded `diagram.css`
+      spells every one of those names too (Phase 4 recorded that trap after
+      counting `marking-arrow-stem` and getting 9);
+    - move a node, then choose **Signalized cross**, and the discard prompt
+      appears — `confirmDiscard` runs for every command that replaces the
+      document, and this is the one arm a menu makes easy to forget.
+
+- **Close-out:** updates `rules/host-seam.md`, whose "two shapes of Open" becomes
+  three and whose "which surfaces vary by host" table gains the control; and
+  `examples/README.md`, whose "Nothing fetches this directory … Serving them is
+  zk-015 Phase 6's job" is half-false afterwards — they are still not *served* as
+  files, they are compiled into chunks, and the distinction is the delivery
+  decision above. Updates the roadmap. One push.
 
 ### Phase 7 — The release pipeline, and a download link that resolves
 *Produces the observable: **no** — it produces a binary, so it owes the argument
