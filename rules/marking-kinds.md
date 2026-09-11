@@ -12,7 +12,8 @@ covers: >
   what each of the eight marking kinds paints: the marking layer and its order,
   the per-kind shapes and their chrome, the turn arrow with its staggered forks
   and its second head, the lane line and the boundary it replaces, the bus stop's
-  box and the stretch it is cut from, and text and the font it cost
+  box, the stretch it is cut from and the bay it moves into, and text and the font
+  it cost
 max_lines: 250
 generated: 2026-08-10
 ---
@@ -58,9 +59,9 @@ the same `boundaryOffset` finds the same nothing.
 
 ## The marking layer is a sibling, never a child of the road
 
-`MarkingShape`s render **after every road and taper, before the nodes** — above
-all asphalt, below the glyphs, since a pad is the intersection's own surface and
-paint under one is genuinely covered. Nesting inside `RoadShape`'s `<g>` is wrong
+`MarkingShape`s render **after every road, taper and bay, before the nodes** —
+above all asphalt, below the glyphs, since a pad is the intersection's own surface
+and paint under one is genuinely covered. Nesting inside `RoadShape`'s `<g>` is wrong
 **twice over**: that group carries `onLinkPointerDown`, routing a marking's clicks
 to link selection, and a road drawn after its neighbour would paint over that
 neighbour's markings. The class token comes from the model
@@ -123,19 +124,15 @@ under the right-hand traffic `laneBands` assumes.
 every head the same `reach` from one point, across a band only `2 * ARROW_REACH`
 wide; each direction now forks its own share of the way upstream, separating the
 heads **along** the road, the axis with room. Measured: no two heads intersect at
-any direction set, minimum 0.487 units of asphalt between them on a default lane;
-the suite asserts disjointness to three branches and containment at all six.
+any direction set, minimum 0.487 units apart on a default lane.
 
 - **A table, not a formula on the bearing** — the slights are equally hard, so a
   formula gives them one fork, and two ±30° heads share no fork without meeting.
-- **A fraction of the stagger budget**, `TURN_ARROW_LENGTH - 2 * reach` (twice the
-  fork), not of the band: `s ≤ 1` is then **both** the footprint bound and the
-  fork-stays-on-the-shaft bound at every width, by construction. A band with no
-  budget floors to `0` — the old shared fork, never a downstream one.
+- **A fraction of the stagger budget**, `TURN_ARROW_LENGTH - 2 * reach`, not of the
+  band: `s ≤ 1` is then **both** the footprint bound and the fork-stays-on-the-shaft
+  bound at every width. A band with no budget floors to `0` — the old shared fork.
 - **Per-direction, not per-count**, so toggling one direction cannot move another
-  head. The price: every arrow but a lone `through` changed shape.
-- **Only the pair that needs it is split** — `left`/`right` are across-disjoint at
-  a shared fork and share one, the symmetric barbs a painted arrow has.
+  head; and only `left`/`right`, across-disjoint at a shared fork, still share one.
 
 #### The second head, and the one frame flip that keeps it honest
 
@@ -203,16 +200,19 @@ undivided two-way road is a `lane_line { style: double }` with `lane` absent.
 ### The bus stop: a box the road's own lines close
 
 `busStop` draws a **stretch**: `BUS_STOP_LENGTH` of the drawn polyline — a drawn
-length, not a measured one — centred on the anchor's `distance` and **slid** half a
-box in from either end, so a stop at a road's end stays whole with its word
-centred, `position` untouched. It is cut by `polylineStretch`, which shares
+length, not a measured one — centred on the anchor's `distance` and **slid** in by
+its own reach at either end, so a stop at a road's end stays whole with its word
+centred, `position` untouched. `stopFootprint` is the one place that slides, and
+the bay shares it. It is cut by `polylineStretch`, which shares
 `pointAlongPolyline`'s walk, and only then offset: offsetting first moves a bend's
 corner along the road. **It paints two end bars and `BUS`, and no long side** —
-those are the kerb edge line and the divider, and a solid side on the dashed one
-says "do not cross" over the line a bus crosses. The word is `markingRun`, the
-element a `text` marking emits, so `needsText` counts every stop. **Its hit target
-and halo are the box** — band 0's centre along the stretch, stroked band 0's width,
-the halo `+ 6` — not the anchor's bar. Both forms draw in the lane until a bay is.
+those are the road's own lines (the kerb edge line and the divider in the lane; the
+bay's outer edge line and its dashed mouth in a bay), and a solid side on the
+dashed one says "do not cross" over the line a bus crosses. The word is
+`markingRun`, the element a `text` marking emits, so `needsText` counts every stop.
+**Its hit target and halo are the box** — the strip's centre, stroked its width,
+the halo `+ 6`. **A `bay` moves the box a lane outward**, reaching a `TAPER_LENGTH`
+further each way; its asphalt is the wedge layer's (`rules/road-rendering.md`).
 
 ### Text is the seventh kind, and it cost a font
 
@@ -263,6 +263,7 @@ under `geometry.test.ts`. `Diagram.tsx` holds `MarkingShape`, `markingPaint`,
 `markingRun`, `haloWidth` and the exported `needsText`. Paint is `diagram.css`; the
 chrome (`.marking-hit`, `.marking-halo`) is `styles.css`, the split that keeps an
 export carrying the first and not the second. `strokeAllowance` (`export.tsx`)
-needed **no** change for any kind: every marking paints inside its own road, no
-marking stroke exceeds `.jn-stopbar`'s 4 that its `2` floor was sized for, and
-teeth, zebra and text are *fill*, which `getBBox` measures with no allowance.
+needed **no** change for any kind, a bay included: it reads only `doc.links`, so
+nothing a marking carries can move it at all; no marking stroke exceeds
+`.jn-stopbar`'s 4 that its `2` floor was sized for; and teeth, zebra, text and a
+bay's asphalt are *fill*, which `getBBox` measures with no allowance.

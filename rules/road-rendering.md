@@ -16,8 +16,8 @@ covers: >
   how a link becomes a picture of a road: the one lane-width derivation
   everything descends from, class as a token, two-way carriageways, alignment,
   the route a road turns through, lane kinds and the hatch, the painted
-  centreline, and the length a link states
-max_lines: 272
+  centreline, the kerb edge line a bus bay cuts, and the length a link states
+max_lines: 284
 generated: 2026-08-14
 ---
 
@@ -233,13 +233,25 @@ stands. Its remedy was the error: it called this a **modelling** gap wanting a f
 and the fix needed none. An undivided two-way road is a `lane_line { style: double }`
 marking with no lane — the *human* says the road is two-way by painting the line, the
 posture the junction glyphs take, and ramps OQ-6 closed the same way. Two
-consequences. **`RoadShape` gained one input, `replaced`** (`laneLineOffsets`,
-`boundaryTaken`), and such a boundary derives no line at all, because a painted line
+consequences. **`RoadShape` gained `replaced`** (`laneLineOffsets`,
+`boundaryTaken`), the first of its two inputs — `cuts` below is the other — and
+such a boundary derives no line at all, because a painted line
 **replaces** the divider or shoulder line it lands on; overpainting leaves a dashed
 line under a solid one, visible at every dash gap. And the lane line's own offset
 runs *character-for-character* the divider derivation's expression: compared as
 numbers, an equivalent-but-different one differs in the last bit and the divider
 survives under it. The rest is `rules/marking-kinds.md`.
+
+### The kerb edge line can be cut, and a bay is what cuts it
+
+`RoadShape` has a second input, `cuts`: stretches of this link's **kerb-side** edge
+line (`leftEdge`, the positive offset) a bus bay opened. `busBays` builds and merges
+them, `Diagram` computes them once, and `keptPieces` leaves one
+`<path class="road-edge">` per surviving piece, dropping any of no length. Cut the
+drawn polyline and offset **after** (else a bend's corner moves along the road), and
+draw an **uncut** edge from `points` (else a re-walk shifts its far end a float
+slack and rewrites the markup of every road that has no bay). Cut, not covered: a
+hairline's world width grows as the view zooms out (bus stops §2.9).
 
 ## The length a link states, and the invariant under it
 

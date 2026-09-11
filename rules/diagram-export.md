@@ -147,13 +147,16 @@ clipping this function exists to prevent. `.jn-ring` is the one stroke not
 modelled and needs none — it is centred so its outer edge lands on the coincident
 `.jn-edge` circle, pure geometry `getBBox` already has.
 
-**A taper wedge, a gore, painted text, a sign plate and a length label need no
-allowance either, and that is a conclusion rather than luck.** `getBBox` excludes
-stroke but *includes* fill, and all five are fill inside the measured `<g>`. A
-wedge's corners sit on the casing rim the allowance is derived from; a gore's sit
-inside the lane region; a plate is fill with a 1-unit outline, half of which is
-under the `2` floor; a length label sits beside the road with no stroke at all.
-`export.test.ts` pins the unchanged allowance for every one of them,
+**A taper wedge, a gore, a bus bay, painted text, a sign plate and a length label
+need no allowance either, and that is a conclusion rather than luck.** `getBBox`
+excludes stroke but *includes* fill, and all six are fill inside the measured
+`<g>`. A wedge's corners sit on the casing rim the allowance is derived from; a
+gore's sit inside the lane region; a plate is fill with a 1-unit outline, half of
+which is under the `2` floor; a length label sits beside the road with no stroke
+at all. **A bay is the one that reaches outside its road**, a lane past the casing
+rim, and needs none for a different reason: `strokeAllowance` reads only
+`doc.links`, so nothing a marking carries can move it, and the bay's own lines sit
+inside its fill. `export.test.ts` pins the unchanged allowance for the rest,
 including a 19-character destination — the only element whose extent is unbounded
 by a build constant.
 

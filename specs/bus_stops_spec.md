@@ -16,7 +16,7 @@ phases:
     by: null
   - name: "Phase 2 — A bus stop in a bay"
     reviewed: 2026-09-11
-    shipped: null
+    shipped: 2026-09-11
     cut: null
     by: null
 

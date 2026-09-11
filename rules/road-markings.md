@@ -161,14 +161,14 @@ Under the select tool a marking is grabbed and slid along its road
   `moveNode` and `moveSign` do not: many neighbouring pixels project to one
   `(position, lane)`, and without it the document dirties for nothing.
 
-## Editing: seven controls, all kind-aware
+## Editing: eight controls, all kind-aware
 
 Three that every marking has — the kind picker, labelled **Paint**
 (`setMarkingKind`), a **Span** control (`setMarkingLane`), an **Anchor** row
-(`setMarkingAnchor`) — and **four payload controls**: **Directions** for a
+(`setMarkingAnchor`) — and **five payload controls**: **Directions** for a
 `turn_arrow`, **Oncoming** beside it (the same component reading `back`), **Style**
-for a `lane_line`, **Words** for a `text`. A `bus_stop` gets **no Span**, since it
-ignores `lane`, and no Form control until a bay is drawn.
+for a `lane_line`, **Words** for a `text`, **Form** for a `bus_stop` (in the kerb
+lane, or in a bay). A `bus_stop` gets **no Span**, since it ignores `lane`.
 
 `Road` and `Position` stay readouts. `Position` reads **"Whole link"** for a lane
 line and names its frame otherwise (`81.7 m from end`), because a bare distance
@@ -184,7 +184,7 @@ re-clicking Start dirties the document for a click that changed nothing.
 `setMarkingKind` carries the **whole tagged `MarkingKind`**, so payloads need no
 action of their own and the *caller* owns the default a fresh pick starts from. It
 never names `lane`, which is how a carriageway-wide marking stays that way across
-a repaint. **The four payload controls are that decision paying off** — each is
+a repaint. **The five payload controls are that decision paying off** — each is
 one more dispatcher of the same action, and none can move the marking.
 
 **Four rules live in the controls, not the reducer**, because each depends on a

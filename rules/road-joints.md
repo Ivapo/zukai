@@ -85,23 +85,19 @@ rather than in the median, and an aligned link's dot steps off with the road.
 `moveNode` with the node's own position. `junctionArms`' name understates it — it
 filters on nothing but the links touching a node, so it answers here too.
 
-- **No angle, no mean, no grouping**, so the answer cannot depend on the order of
-  `doc.links`. A divided waypoint at a lane drop draws **four** dots, two
-  overlapping `4.5` apart per side: two road ends at two places. Merging them needs
-  clustering, which is not transitive and changes the *count* under a permutation.
+- **No angle, no mean, no grouping**, so the answer cannot depend on `doc.links`'
+  order. A divided waypoint at a lane drop draws **four** dots, two overlapping
+  `4.5` apart per side; merging needs clustering, which is not transitive.
 - **The epsilon is float slack, not a tolerance** — worst measured parting
   `2.84e-14`, against a smallest distinct design step of `0.45`. Its own constant,
   not `SAME_EDGE`'s: same magnitude, different question. A link-less node keeps its
-  dot at the node — the path every node takes before it is joined; no layout entry
-  returns nothing.
+  dot at the node; no layout entry returns nothing.
 - **One `<g>` holds every dot and halo**, so `onNodePointerDown` stays on one
-  element and either dot grabs the node. A zero displacement emits no `cx`/`cy`, so
-  a centred undivided document's markup is unchanged character for character.
-- **A figure carries none of them** (ramps §2.11.1) — a bead on a road that runs
-  off the frame says the road stops there, which is false of every fragment. The
-  circles are gated on `interaction` and `.node-dot` lives in `styles.css`, so
-  every rule above is a *canvas* fact and a node no road touches exports as an
-  empty `<g>`.
+  element and either dot grabs the node; a zero displacement emits no `cx`/`cy`.
+- **A figure carries none of them** (ramps §2.11.1) — a bead on a road running off
+  the frame says the road stops there, false of every fragment. They are gated on
+  `interaction` and `.node-dot` lives in `styles.css`, so every rule above is a
+  *canvas* fact.
 
 ## The pad is the roads, not a disc — and it stays inside the rim
 
@@ -191,9 +187,9 @@ addition and either alignment fall out of that alone. Four things it pins:
 - **A wedge forces butt caps** on **both** links; the gore below is the other owner.
   `stroke-linecap` is a whole-path property, so a capped link is flat at its
   **other** end too — under the pad at a junction, better schematic reading at a free one.
-- **8° is derived, not picked.** Butt caps notch the outside of a bend by
-  `(roadWidth/2)·tan(θ/2)` — 1.36 units at 8° on a 4-lane road, no deeper than the
-  1.33-unit overhang they remove. 15° would invert the trade at ≈2.6.
+- **8° is derived, not picked.** Butt caps notch a bend's outside by
+  `(roadWidth/2)·tan(θ/2)` — 1.36 units at 8°, against the 1.33 they remove; 15°
+  inverts the trade at ≈2.6.
 
 The wedge is a `<polygon class="road-taper">` in `<g class="taper road-{style}">`,
 taking the **inset** link's class token, so `.road-local .road-taper` and the
@@ -201,6 +197,10 @@ class-scoped `.road-edge` width apply with no rule of their own. Only a joint
 drawing one is touched, so a document with no width step emits byte-identical
 markup. **A divided road's lane drop does not taper** — four links on the node is
 not a through joint, a named non-goal.
+
+**A bus bay's two tapers are not joints.** They share `taperEdge` and the
+`.road-taper` token and nothing else: no node, no `taperWedges` test, no butt cap.
+They belong to one marking on one link — `rules/marking-kinds.md`.
 
 ## Gores: the paint between two arms that separate
 
