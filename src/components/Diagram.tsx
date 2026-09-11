@@ -27,6 +27,7 @@ import {
 import {
   Arm,
   BASELINE_DROP,
+  BusBay,
   GORE_LENGTH,
   GoreArm,
   JointEnd,
@@ -38,6 +39,7 @@ import {
   TAPER_LENGTH,
   TEXT_SIZE,
   boundaryTaken,
+  busBays,
   carriageways,
   drawnPolyline,
   formatLength,
@@ -46,6 +48,7 @@ import {
   goreFlow,
   gorePair,
   junctionArms,
+  keptPieces,
   laneBands,
   laneLineOffsets,
   lateralShift,
@@ -144,6 +147,11 @@ export function Diagram({
   // this too: a lane line *replaces* the divider it lands on rather than being
   // drawn over it, or the dashes show through the gaps (markings OQ-3).
   const replaced = laneLineOffsets(doc);
+  // Where a bus pulls out of the running lane. The roads have to know this as
+  // well: a bay *opens* the kerb-side edge line rather than being painted over
+  // it, since that line is a hairline on the canvas and shows through any cover
+  // at some zoom (bus stops §2.9).
+  const { bays, cuts } = busBays(doc, offsets);
 
   return (
     <g className="diagram">
@@ -160,6 +168,7 @@ export function Diagram({
             points={pts}
             butt={butt.has(link.id)}
             replaced={replaced[link.id]}
+            cuts={cuts[link.id]}
             interaction={interaction}
           />
         );
@@ -169,7 +178,14 @@ export function Diagram({
         <TaperShape key={i} wedge={w} interaction={interaction} />
       ))}
 
-      {/* Paint, so it goes above every road and wedge; below the junction
+      {/* Asphalt as well, so with the wedges: after every road, before every
+          marking. Drawn beside its stop in the marking layer, a bay would cover
+          any marking of a neighbouring road listed before it (bus stops §2.8). */}
+      {bays.map((bay, i) => (
+        <BayShape key={i} bay={bay} interaction={interaction} />
+      ))}
+
+      {/* Paint, so it goes above every road, wedge and bay; below the junction
           glyphs, because a pad is the intersection's own surface and paint under
           one is genuinely covered (§2.7). A **sibling** layer, never a child of
           `RoadShape`'s group: that group carries `onLinkPointerDown`, and a road
@@ -617,6 +633,51 @@ function TaperShape({
 }
 
 /**
+ * A bus bay: the asphalt beside the road where a bus pulls out of the running
+ * lane, its edge lines, and the dashed mouth it opens in the road's own kerb-side
+ * edge line (bus stops spec §2.8).
+ *
+ * **In the wedge layer rather than the marking layer**, because it is asphalt:
+ * drawn beside its own stop, a bay would cover any marking of a neighbouring road
+ * listed before it. Like {@link TaperShape} it takes the road class as a token on
+ * its group, so `.road-local .road-taper` and the class-scoped `.road-edge` width
+ * reach it with no rule of its own, and a second token on each element names it in
+ * the markup and for tests. The mouth paints as a **divider** because that is what
+ * it is — the boundary between the running lane and the bay (OQ-8).
+ *
+ * No pointer handler, and no `pointer-events` rule: along the box the stop's own
+ * hit strip lies above the bay, and what the tapers overlap is the outer few units
+ * of the road's hit path, exactly as a taper wedge has always overlapped it.
+ */
+function BayShape({
+  bay,
+  interaction,
+}: {
+  bay: BusBay;
+  interaction?: Interaction;
+}) {
+  const nse = hairline(interaction);
+  return (
+    <g className={`bay road-${bay.style}`}>
+      <polygon
+        className="road-taper road-bay"
+        points={bay.polygon.map((p) => `${p.x},${p.y}`).join(" ")}
+      />
+      <path
+        className="road-edge road-bay-edge"
+        d={polylinesPath(bay.edges)}
+        vectorEffect={nse}
+      />
+      <path
+        className="road-divider road-bay-mouth"
+        d={polylinePath(bay.mouth)}
+        vectorEffect={nse}
+      />
+    </g>
+  );
+}
+
+/**
  * The `Selection` arms that name their target by id — every one but `bend`,
  * which is named by its link and its position in that link's route because a
  * `Vec2[]` entry has no identity to give it (link bends §2.2).
@@ -664,8 +725,9 @@ function isBendSelected(sel: Selection | null, link: LinkId, index: number) {
  * narrower strokes, because a 12-unit hit strip running the length of a link is a
  * dead zone for every click on the road under it. A `bus_stop` is a box, and a
  * bar across its middle would leave most of it unclickable: its spine runs the
- * box's stretch down the lane's centre, stroked the lane's width — a rectangle,
- * on the lane line's model (bus stops spec §2.7).
+ * box's stretch down the centre of whichever strip the box sits in — the kerb
+ * lane, or the bay beside it — stroked that strip's width, a rectangle on the
+ * lane line's model (bus stops spec §2.7, §2.8).
  *
  * **No `vector-effect`**, unlike the glyph's bar and the roads' hairlines. Those
  * are symbol and hairline respectively, and want to hold their weight as the
@@ -752,8 +814,9 @@ function MarkingShape({
  * margin**, the rule `.road-halo`'s `w + 6` already follows.
  *
  * A transverse kind is drawn inside its 4-unit bar, so one number covers every
- * one of them. A bus stop's box fills its lane, so its halo is the lane's width
- * plus the margin — tested first, or a stop falls through to a bar's 9. A
+ * one of them. A bus stop's box fills the strip it sits in — the kerb lane, or
+ * the bay beside it — so its halo is that strip's width plus the margin, tested
+ * first, or a stop falls through to a bar's 9. A
  * `double` lane line is the one shape whose paint is wider than
  * the line it is centred on: its two strokes sit `LANE_LINE_GAP` apart, and a
  * halo that ignored that would be exactly as wide as the paint and read as no
@@ -887,6 +950,7 @@ function RoadShape({
   points,
   butt,
   replaced,
+  cuts,
   interaction,
 }: {
   link: Link;
@@ -895,13 +959,28 @@ function RoadShape({
   butt?: boolean;
   /** Boundary offsets a lane line has taken over — see {@link laneLineOffsets}. */
   replaced?: number[];
+  /** Stretches of the kerb-side edge line a bus bay has opened — see {@link busBays}. */
+  cuts?: [number, number][];
   interaction?: Interaction;
 }) {
   const bands = laneBands(link.lanes, style);
   const w = roadWidth(link.lanes, style);
   const casing = polylinePath(points);
   const edgeInset = w / 2 - 1.5;
-  const leftEdge = polylinePath(offsetPolyline(points, edgeInset));
+  // The kerb-side edge — `leftEdge`'s name comes from the y-up formula, and lane
+  // 0 sits at the most positive offset — stops where a bus bay opens off it, in
+  // as many pieces as that link's merged stretches leave (bus stops §2.9). Each
+  // piece is cut from the drawn polyline and only then offset (§2.6).
+  //
+  // With nothing cut it is the single path it always was, built straight from
+  // `points` rather than from a stretch of the whole road: re-walking a polyline
+  // can land its far end a float slack away, which would change the markup of
+  // every road in every document that carries no bay at all.
+  const leftEdges = cuts?.length
+    ? keptPieces(points, cuts).map((piece) =>
+        polylinePath(offsetPolyline(piece, edgeInset)),
+      )
+    : [polylinePath(offsetPolyline(points, edgeInset))];
   const rightEdge = polylinePath(offsetPolyline(points, -edgeInset));
 
   // `laneBands` treats an empty array as one default lane, so it can return a
@@ -988,7 +1067,9 @@ function RoadShape({
           stroke={b.kind === "shoulder" ? `url(#${HATCH_ID})` : undefined}
         />
       ))}
-      <path className="road-edge" d={leftEdge} vectorEffect={nse} />
+      {leftEdges.map((d, i) => (
+        <path key={i} className="road-edge" d={d} vectorEffect={nse} />
+      ))}
       <path className="road-edge" d={rightEdge} vectorEffect={nse} />
       {dividers.map((d, i) => (
         <path key={i} className={d.cls} d={d.d} vectorEffect={nse} />

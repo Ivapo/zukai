@@ -23,6 +23,7 @@ import {
   NodeId,
   NodeKind,
   SignKind,
+  StopForm,
   TurnDirection,
   Vec2,
 } from "../model/types";
@@ -66,6 +67,8 @@ import {
   bendInsertion,
   boundaryAt,
   boundaryTaken,
+  busBays,
+  busStop,
   carriageways,
   classWidthFactor,
   distance,
@@ -78,6 +81,7 @@ import {
   gridPattern,
   junctionArms,
   junctionRadius,
+  keptPieces,
   laneBands,
   laneLine,
   laneLineOffsets,
@@ -87,6 +91,7 @@ import {
   markingTeeth,
   markingText,
   markingZebra,
+  mergeStretches,
   nearestOnPolyline,
   nodeDots,
   offsetPolyline,
@@ -3447,6 +3452,277 @@ describe("markingAnchor, its distance and a bus stop's kerb", () => {
     expect(anchorOf(road(3, arrow))!.span).toEqual(
       laneBands(defaults(3), DEFAULT_LINK_STYLE)[2],
     );
+  });
+});
+
+describe("busBays, and the stop a bay takes out of the running lane", () => {
+  /** `N1(0,0) → N2(length, 0)` with `n` lanes, carrying `markings`. */
+  function road(n: number, markings: Marking[], length = 240): Document {
+    const base = emptyDocument("bay");
+    return {
+      ...base,
+      nodes: [
+        { id: "N1", type: "endpoint" },
+        { id: "N2", type: "endpoint" },
+      ],
+      links: [
+        {
+          id: "L1",
+          from_node: "N1",
+          to_node: "N2",
+          lanes: defaults(n),
+          median_gap: DEFAULT_MEDIAN_GAP,
+        },
+      ],
+      layout: {
+        ...base.layout,
+        nodes: { N1: { pos: { x: 0, y: 0 } }, N2: { pos: { x: length, y: 0 } } },
+      },
+      markings,
+    };
+  }
+
+  /** A stop on `L1`, placed in **world units** rather than metres. */
+  function stop(units: number, form: StopForm, id = "M1"): Marking {
+    return {
+      id,
+      link: "L1",
+      position: units / UNITS_PER_METRE,
+      kind: { type: "bus_stop", form },
+    };
+  }
+
+  const baysOf = (doc: Document) => busBays(doc, carriageways(doc));
+  const shapeOf = (doc: Document) =>
+    busStop(doc, doc.markings[0], carriageways(doc))!;
+
+  /**
+   * A bay on a three-lane arterial: the road is 30 wide, so its casing rim `e` is
+   * 15, band 0 is 9 wide, and the footprint reaches 46.5 either side of the stop
+   * — the box's 22.5 and a taper's 24.
+   */
+  it("widens the road beside the kerb lane, by the width of that lane", () => {
+    const { bays, cuts } = baysOf(road(3, [stop(120, "bay")]));
+
+    expect(bays).toHaveLength(1);
+    // The casing edge over the whole opening, then the outer edge back, so the
+    // polygon's two closing segments are the tapers.
+    expect(bays[0].polygon).toEqual([
+      { x: 73.5, y: 15 },
+      { x: 166.5, y: 15 },
+      { x: 142.5, y: 24 },
+      { x: 97.5, y: 24 },
+    ]);
+    // Its outer edge line sits 1.5 inside the asphalt, `RoadShape`'s own inset.
+    expect(bays[0].edges[1]).toEqual([
+      { x: 97.5, y: 22.5 },
+      { x: 142.5, y: 22.5 },
+    ]);
+    // The dashed mouth runs the whole opening, tapers included, exactly where the
+    // road's kerb edge line was — and that is the stretch the road leaves undrawn.
+    expect(bays[0].mouth).toEqual([
+      { x: 73.5, y: 13.5 },
+      { x: 166.5, y: 13.5 },
+    ]);
+    expect(bays[0].cut).toEqual([73.5, 166.5]);
+    expect(cuts).toEqual({ L1: [[73.5, 166.5]] });
+    // It paints in the road's own class, the way a taper wedge does.
+    expect(bays[0].style).toBe(DEFAULT_LINK_STYLE);
+  });
+
+  /**
+   * Each taper's line is the hypotenuse of its triangle, inset toward the corner
+   * off it — the wedge's rule, and the reason it is `taperEdge` that draws it. A
+   * sign error would put the line on the paper outside the asphalt and still
+   * satisfy any assertion about its direction.
+   */
+  it("draws a taper line at each end, inset into the asphalt", () => {
+    const [bay] = baysOf(road(3, [stop(120, "bay")])).bays;
+    const [entry, , exit] = bay.edges;
+
+    expect(distance(entry[0], { x: 97.5, y: 24 })).toBeCloseTo(1.5);
+    expect(distance(entry[1], { x: 73.5, y: 15 })).toBeCloseTo(1.5);
+    expect(distance(exit[0], { x: 142.5, y: 24 })).toBeCloseTo(1.5);
+    expect(distance(exit[1], { x: 166.5, y: 15 })).toBeCloseTo(1.5);
+    // Inside the bay, which on this road is the smaller `y` from both corners.
+    expect(entry[0].y).toBeLessThan(24);
+    expect(entry[1].y).toBeLessThan(15);
+  });
+
+  /**
+   * The box moves out of the running lane by exactly its own width: from the
+   * mouth line at 13.5 to the outer edge line at 22.5, where the in-lane box runs
+   * 4.5 to 13.5. Those two lines are its long sides, as the kerb edge line and the
+   * divider are in the lane (§2.7.1).
+   */
+  it("puts the box in the bay, between the mouth line and the outer edge line", () => {
+    const shape = shapeOf(road(3, [stop(120, "bay")]));
+
+    expect(shape.ends).toEqual([
+      [
+        { x: 97.5, y: 13.5 },
+        { x: 97.5, y: 22.5 },
+      ],
+      [
+        { x: 142.5, y: 13.5 },
+        { x: 142.5, y: 22.5 },
+      ],
+    ]);
+    // The hit target and the halo follow the paint into the bay.
+    expect(shape.spine).toEqual([
+      { x: 97.5, y: 18 },
+      { x: 142.5, y: 18 },
+    ]);
+    expect(shape.width).toBe(9);
+    expect(shape.word).toEqual(
+      markingText({
+        at: { x: 120, y: 0 },
+        dir: { x: 1, y: 0 },
+        segment: 0,
+        distance: 120,
+        span: { offset: 18, width: 9 },
+      }),
+    );
+  });
+
+  it("leaves an in-lane stop in the kerb lane, and opens no bay at all", () => {
+    const doc = road(3, [stop(120, "in_lane")]);
+
+    expect(baysOf(doc)).toEqual({ bays: [], cuts: {} });
+    expect(shapeOf(doc).ends).toEqual([
+      [
+        { x: 97.5, y: 4.5 },
+        { x: 97.5, y: 13.5 },
+      ],
+      [
+        { x: 142.5, y: 4.5 },
+        { x: 142.5, y: 13.5 },
+      ],
+    ]);
+  });
+
+  /**
+   * The whole footprint slides in from a road's end, a taper's length further than
+   * an in-lane stop's does (OQ-4) — so a bay dragged to either end still opens and
+   * closes on the road rather than running off it.
+   */
+  it("slides a bay's whole footprint in from the end of its road", () => {
+    expect(baysOf(road(3, [stop(0, "bay")])).bays[0].cut).toEqual([0, 93]);
+    expect(baysOf(road(3, [stop(240, "bay")])).bays[0].cut).toEqual([147, 240]);
+  });
+
+  /**
+   * Each carriageway's bay opens at its own kerb. `carriageways` steps both twins
+   * out by a **positive** offset in their own frames, so a bay built on the
+   * negative one would land at `y` −6 to 3 — in the median, over the westbound
+   * carriageway that runs from −24 to −3.
+   */
+  it("opens at each carriageway's own kerb on a divided road, never in the median", () => {
+    const base = emptyDocument("divided");
+    const doc: Document = {
+      ...base,
+      nodes: [
+        { id: "N1", type: "endpoint" },
+        { id: "N2", type: "endpoint" },
+      ],
+      links: [
+        {
+          id: "L1",
+          from_node: "N1",
+          to_node: "N2",
+          lanes: defaults(2),
+          median_gap: DEFAULT_MEDIAN_GAP,
+        },
+        {
+          id: "L2",
+          from_node: "N2",
+          to_node: "N1",
+          lanes: defaults(2),
+          median_gap: DEFAULT_MEDIAN_GAP,
+        },
+      ],
+      layout: {
+        ...base.layout,
+        nodes: { N1: { pos: { x: 0, y: 0 } }, N2: { pos: { x: 120, y: 0 } } },
+      },
+      markings: [stop(60, "bay")],
+    };
+
+    // The eastbound carriageway is drawn at 13.5 and is 21 wide, so its casing rim
+    // is 24 and the bay reaches a 9-unit lane past it.
+    expect(baysOf(doc).bays[0].polygon.map((p) => p.y)).toEqual([24, 24, 33, 33]);
+  });
+
+  describe("mergeStretches", () => {
+    it("sorts and merges what overlaps, so two bays open one gap", () => {
+      expect(
+        mergeStretches([
+          [153.5, 246.5],
+          [103.5, 196.5],
+        ]),
+      ).toEqual([[103.5, 246.5]]);
+    });
+
+    /**
+     * **Sorting is not merging**, and only a nested pair tells them apart: every
+     * bay's stretch is one length today, so sorted starts are sorted ends and a
+     * plain walk happens to come out right. A stop length that can vary is exactly
+     * what OQ-2 leaves open.
+     */
+    it("swallows a stretch inside another, which sorting alone leaves behind", () => {
+      expect(
+        mergeStretches([
+          [100, 300],
+          [150, 200],
+        ]),
+      ).toEqual([[100, 300]]);
+    });
+
+    it("leaves disjoint stretches alone, in order", () => {
+      expect(
+        mergeStretches([
+          [300, 400],
+          [0, 100],
+        ]),
+      ).toEqual([
+        [0, 100],
+        [300, 400],
+      ]);
+    });
+  });
+
+  describe("keptPieces", () => {
+    const line = [
+      { x: 0, y: 0 },
+      { x: 240, y: 0 },
+    ];
+
+    it("returns what the cuts leave, in the frame it was given", () => {
+      expect(keptPieces(line, [[73.5, 166.5]])).toEqual([
+        [
+          { x: 0, y: 0 },
+          { x: 73.5, y: 0 },
+        ],
+        [
+          { x: 166.5, y: 0 },
+          { x: 240, y: 0 },
+        ],
+      ]);
+    });
+
+    /**
+     * A bay slid against a road's end leaves nothing at that end, and a path of no
+     * length is still an element in the markup (§2.9).
+     */
+    it("omits a piece of no length", () => {
+      expect(keptPieces(line, [[0, 93]])).toEqual([
+        [
+          { x: 93, y: 0 },
+          { x: 240, y: 0 },
+        ],
+      ]);
+      expect(keptPieces(line, [[0, 240]])).toEqual([]);
+    });
   });
 });
 

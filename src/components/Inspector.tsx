@@ -30,6 +30,7 @@ import {
   Sign,
   SignId,
   SignKind,
+  StopForm,
   TurnDirection,
   UnsignalizedRule,
 } from "../model/types";
@@ -90,10 +91,10 @@ const MARKING_KINDS: Record<MarkingKind["type"], string> = {
  * placeholder bar: a marking you can see, select, and then type into, rather than
  * an invisible object findable only by accident.
  *
- * `bus_stop` starts `in_lane`, and nothing here offers the other form yet: a bay
- * the panel offered and the drawing ignored would be visibly wrong, so until the
- * bay is drawn `form: bay` is reachable only by editing a file (bus stops spec
- * Phase 1).
+ * `bus_stop` starts `in_lane`, the form that changes nothing but paint; the Form
+ * control is the route to a bay, offered only once a bay was drawn — a form the
+ * panel offered and the drawing ignored would have been visibly wrong (bus stops
+ * spec Phase 2).
  */
 const MARKING_PICKER: MarkingKind[] = [
   { type: "stop_line" },
@@ -129,6 +130,15 @@ const LINE_STYLES: { value: LineStyle; label: string }[] = [
   { value: "solid", label: "Solid" },
   { value: "dashed", label: "Dashed" },
   { value: "double", label: "Double" },
+];
+/**
+ * Where a bus stops — in the kerb lane, or pulled into a bay beside it.
+ * `in_lane` is what {@link MARKING_PICKER} mints, so this is the only route to a
+ * bay, and it can be offered at all only because the bay is drawn now.
+ */
+const STOP_FORMS: { value: StopForm; label: string }[] = [
+  { value: "in_lane", label: "In lane" },
+  { value: "bay", label: "Bay" },
 ];
 /**
  * Which end of the road a marking's distance is measured from. The default
@@ -340,6 +350,16 @@ export function Inspector({ state, dispatch }: InspectorProps) {
             <MarkingText
               id={marking.id}
               content={marking.kind.content}
+              dispatch={dispatch}
+            />
+          </Field>
+        )}
+
+        {marking.kind.type === "bus_stop" && (
+          <Field label="Form">
+            <MarkingStopForm
+              id={marking.id}
+              form={marking.kind.form}
               dispatch={dispatch}
             />
           </Field>
@@ -764,6 +784,45 @@ function MarkingLineStyle({
           }
         >
           {s.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Where a bus stop is drawn — one more dispatcher of `setMarkingKind`, on
+ * {@link MarkingLineStyle}'s model and for its reason: the form rides inside the
+ * tagged kind, so it needs no action of its own, and naming nothing else is what
+ * keeps a change of form from moving the stop.
+ *
+ * Single-select, like the style beside it: a stop is in the lane or in a bay. The
+ * panel could not offer this until the bay was drawn (bus stops spec Phase 2).
+ */
+function MarkingStopForm({
+  id,
+  form,
+  dispatch,
+}: {
+  id: MarkingId;
+  form: StopForm;
+  dispatch: (action: Action) => void;
+}) {
+  return (
+    <div className="segmented">
+      {STOP_FORMS.map((f) => (
+        <button
+          key={f.value}
+          className={`seg${form === f.value ? " is-active" : ""}`}
+          onClick={() =>
+            dispatch({
+              type: "setMarkingKind",
+              id,
+              kind: { type: "bus_stop", form: f.value },
+            })
+          }
+        >
+          {f.label}
         </button>
       ))}
     </div>

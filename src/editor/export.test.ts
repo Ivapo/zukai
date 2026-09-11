@@ -182,10 +182,15 @@ describe("strokeAllowance", () => {
 
   /**
    * A marking needs **no** widening, and this confirms it rather than pre-empting
-   * it (markings spec §2.10). Every marking is painted inside the road it belongs
-   * to, and the allowance is already half the widest road; the bar's own stroke
-   * is 4, which the `2` floor — half the fattest non-casing stroke in
-   * `diagram.css` — already covers.
+   * it (markings spec §2.10). The allowance reads only `doc.links`, so nothing a
+   * marking carries can move it at all — and nothing needs to: paint is painted
+   * inside the road it belongs to, and the bar's own stroke is 4, which the `2`
+   * floor — half the fattest non-casing stroke in `diagram.css` — already covers.
+   *
+   * **A bus stop's bay is the one marking that reaches outside its road**, a lane
+   * past the casing rim, and it needs no allowance either: a bay is *fill*, which
+   * `getBBox` measures with no allowance at all, and its own lines sit inside that
+   * fill (bus stops spec §2.10).
    */
   it("is unchanged by the markings painted on a road", () => {
     const plain = road(3);
@@ -783,6 +788,31 @@ describe("road markings in an exported file", () => {
     expect(svg.match(/@font-face/g)).toHaveLength(1);
     expectSelfContained(svg);
     expect(svg).not.toMatch(CHROME);
+  });
+
+  /**
+   * A bay is asphalt rather than paint, and the one thing a marking has ever added
+   * **outside** its own carriageway — but it travels like everything else in the
+   * drawing: class tokens on the elements, the rules in the embedded stylesheet,
+   * and no chrome (bus stops spec §2.8).
+   */
+  it("carries a bay's asphalt, its lines and its mouth, and no chrome", () => {
+    const svg = diagramSvg(painted({ type: "bus_stop", form: "bay" }), {
+      x: 0,
+      y: 0,
+      width: 120,
+      height: 40,
+    });
+
+    expect(svg).toContain('<polygon class="road-taper road-bay"');
+    expect(svg).toContain('class="road-edge road-bay-edge"');
+    expect(svg).toContain('class="road-divider road-bay-mouth"');
+    // It paints through the road's own rules, so it needs none of its own.
+    expect(embeddedCss(svg)).toContain(".road-taper");
+    expectSelfContained(svg);
+    expect(svg).not.toMatch(CHROME);
+    // Asphalt and paint scale with the road; the hairline is the canvas's alone.
+    expect(svg).not.toMatch(/vector-effect/);
   });
 
   /**

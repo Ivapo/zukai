@@ -289,10 +289,11 @@
 }
 
 /* A bus stop: the two ends of its box, and nothing else. The box's long sides
-   are the road's own lines - the kerb edge line and the divider to the next
-   lane - so drawing them here would lay a solid stroke over the dashed line a
-   bus has to cross to reach the stop. Its word is `.marking-text` above, the
-   same paint a text marking uses.
+   are the road's own lines - in the lane, the kerb edge line and the divider to
+   the next lane; in a bay, the bay's outer edge line and its dashed mouth - so
+   drawing them here would lay a solid stroke over the dashed line a bus has to
+   cross to reach the stop. Its word is `.marking-text` above, the same paint a
+   text marking uses.
 
    Two units, `.marking-line`'s weight, so an end reads as a line on the road
    rather than as a stop bar. Butt caps, because each bar runs exactly from one

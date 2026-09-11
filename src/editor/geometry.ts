@@ -23,6 +23,7 @@ import {
   Marking,
   NodeId,
   SignKind,
+  StopForm,
   TurnDirection,
   Vec2,
 } from "../model/types";
@@ -3142,54 +3143,109 @@ export const BUS_STOP_LENGTH = 5 * LANE_PX;
 
 /** A bus stop's drawn form: the box's two ends, its word, and its hit target. */
 export interface BusStopShape {
-  /** The box's two ends, each across the kerb lane. Its long sides are the road's own lines. */
+  /**
+   * The box's two ends, each across the strip the box sits in — the kerb lane, or
+   * the bay beside it. Its long sides are the road's own lines.
+   */
   ends: [Vec2, Vec2][];
   /** Where `BUS` is painted: the box's centre, running along the road. */
   word: TextRun;
-  /** The hit target's and the halo's path: the box's stretch down the lane's centre. */
+  /** The hit target's and the halo's path: the box's stretch down that strip's centre. */
   spine: Vec2[];
-  /** What the spine is stroked at — the lane's width, so the stroke is the box. */
+  /** What the spine is stroked at — the strip's width, so the stroke is the box. */
   width: number;
+}
+
+/**
+ * How far a bus stop's footprint reaches either side of its centre, in world
+ * units: half a box in the lane, and a taper further for a bay, whose asphalt
+ * opens and closes over a {@link TAPER_LENGTH} at each end (bus stops spec §2.6).
+ */
+function stopReach(form: StopForm): number {
+  return BUS_STOP_LENGTH / 2 + (form === "bay" ? TAPER_LENGTH : 0);
+}
+
+/** Where a bus stop is drawn: its road as drawn, its anchor, and the centre it slid to. */
+interface StopFootprint {
+  link: Link;
+  points: Vec2[];
+  total: number;
+  anchor: MarkingAnchor;
+  form: StopForm;
+  centre: number;
+}
+
+/**
+ * Where a bus stop is drawn, or `undefined` if it cannot be — **the one place its
+ * footprint slides**, so the box ({@link busStop}), the bay and the gap the bay
+ * opens in the road's edge line ({@link busBays}) cannot come to disagree about
+ * where the stop is (bus stops spec §2.9).
+ *
+ * **The footprint slides to fit** (OQ-4): its centre is the anchor's `distance`
+ * held a {@link stopReach} in from either end, or the road's middle on a road too
+ * short for the whole footprint. A stop dragged to a road's end stays whole with
+ * its word centred, where a clamped stretch would draw half a box with the word at
+ * its edge. `position` is untouched: the slide is how a stop is drawn, not what is
+ * stored.
+ *
+ * Every distance is in world units from that `distance`, never from `position`, so
+ * the conversion stays in {@link markingAnchor} — which also supplies the kerb lane
+ * whatever `lane` holds (§2.4), and skips a stop on the same terms as any other
+ * marking.
+ */
+function stopFootprint(
+  doc: Document,
+  marking: Marking,
+  offsets: Record<LinkId, number>,
+): StopFootprint | undefined {
+  if (marking.kind.type !== "bus_stop") return undefined;
+  const anchor = markingAnchor(doc, marking, offsets);
+  const link = findLink(doc, marking.link);
+  const points = link && drawnPolyline(doc, link, offsets);
+  if (!anchor || !link || !points) return undefined;
+
+  const total = polylineLength(points);
+  const { form } = marking.kind;
+  const h = stopReach(form);
+  const centre =
+    total < 2 * h ? total / 2 : Math.min(total - h, Math.max(h, anchor.distance));
+  return { link, points, total, anchor, form, centre };
 }
 
 /**
  * A bus stop's drawn form, or `undefined` if it cannot be drawn.
  *
  * **A stretch of the road, not a rectangle at a point.** The box follows the
- * drawn polyline between two distances, so on a bent road each end is square to
- * the segment it is on and the hit target turns the corner with the road (bus
- * stops spec §2.6). Every distance is in world units from the anchor's
- * `distance`, never from `position`, so the conversion stays in
- * {@link markingAnchor} — which also supplies the kerb lane whatever `lane`
- * holds (§2.4), and skips a stop on the same terms as any other marking.
+ * drawn polyline between two distances either side of its footprint's centre
+ * ({@link stopFootprint}), so on a bent road each end is square to the segment it
+ * is on and the hit target turns the corner with the road (bus stops spec §2.6).
  *
- * **The footprint slides to fit** (OQ-4): its centre is `distance` held half a
- * box in from either end, or the road's middle on a road shorter than a box. A
- * stop dragged to a road's end stays whole with its word centred, where a
- * clamped stretch would draw half a box with the word at its edge. `position` is
- * untouched: the slide is how a stop is drawn, not what is stored.
- *
- * **Both forms draw in the lane for now.** A bay reaches a taper further each way
- * and moves the box out of the running lane; until that is drawn, a hand-edited
- * `form: bay` stays visible and selectable in the lane, the posture
- * `markingPaint`'s fall-through takes.
+ * **In a bay the box moves out of the running lane** by exactly its own width: it
+ * spans the bay's mouth line at `e − 1.5` to the bay's outer edge line at
+ * `e + b − 1.5`, which {@link busBays} draws and which are its long sides there, as
+ * the kerb edge line and the divider are in the lane (§2.7.1, §2.8). The word, the
+ * hit target and the halo go with it. `e` is half the road's drawn width and `b`
+ * the kerb lane's, so a bay is as wide as the lane it pulls out of (OQ-7); the 1.5
+ * is `RoadShape`'s `edgeInset`.
  */
 export function busStop(
   doc: Document,
   marking: Marking,
   offsets: Record<LinkId, number>,
 ): BusStopShape | undefined {
-  if (marking.kind.type !== "bus_stop") return undefined;
-  const anchor = markingAnchor(doc, marking, offsets);
-  const link = findLink(doc, marking.link);
-  const points = link && drawnPolyline(doc, link, offsets);
-  if (!anchor || !points) return undefined;
+  const foot = stopFootprint(doc, marking, offsets);
+  if (!foot) return undefined;
+  const { link, points, total, anchor, form, centre } = foot;
 
-  const total = polylineLength(points);
   const h = BUS_STOP_LENGTH / 2;
-  const centre =
-    total < 2 * h ? total / 2 : Math.min(total - h, Math.max(h, anchor.distance));
-  const { span } = anchor;
+  const b = anchor.span.width;
+  const span: LaneBand =
+    form === "bay"
+      ? {
+          offset: roadWidth(link.lanes, linkStyle(doc, link.id)) / 2 - 1.5 + b / 2,
+          width: b,
+        }
+      : anchor.span;
   // `markingAnchor` has already walked this polyline, so every point exists.
   const at = (distance: number): MarkingAnchor => ({
     ...pointAlongPolyline(points, distance)!,
@@ -3206,6 +3262,141 @@ export function busStop(
     ),
     width: span.width,
   };
+}
+
+/** A bus bay as drawn: its asphalt, its lines, and the stretch of road edge it opens. */
+export interface BusBay {
+  /** The link it opens off, which {@link BusBay.cut} is measured along. */
+  link: LinkId;
+  /** That link's class, which the bay paints as — a taper wedge's posture. */
+  style: LinkStyle;
+  /** The asphalt: the casing edge over the whole opening, then the bay's outer edge back. */
+  polygon: Vec2[];
+  /** Its edge lines: the taper line in, the outer edge line, the taper line out. */
+  edges: Vec2[][];
+  /** The dashed line across the whole opening, tapers included, where the edge line was. */
+  mouth: Vec2[];
+  /**
+   * The stretch of the drawn polyline, in world units from its start, over which
+   * the road leaves its kerb-side edge line undrawn.
+   */
+  cut: [number, number];
+}
+
+/**
+ * Every bus bay in the document, and — per link, merged — the stretches of kerb
+ * edge line they open (bus stops spec §2.8, §2.9). Computed once in `Diagram`, as
+ * the taper wedges are, because the roads need the cuts before they draw.
+ *
+ * In the drawn polyline's frame, with `s` the footprint's slid centre, `L` the
+ * box's length, `T` a taper's, `e` half the road's drawn width — the casing's rim —
+ * and `b` the kerb lane's width:
+ *
+ * - **the asphalt** is the casing edge over `s ± (L/2 + T)`, then the outer edge at
+ *   `e + b` over `s ± L/2` reversed, so its two closing segments are the tapers;
+ * - **its lines** sit 1.5 inside it, `RoadShape`'s `edgeInset`: the outer one along
+ *   the box, and at each end {@link taperEdge} of that taper's triangle;
+ * - **the mouth** runs the whole opening at `e − 1.5`, exactly where the road's own
+ *   edge line was, and **the cut** is that same stretch.
+ *
+ * **Every piece is cut from the drawn polyline and then offset**, never the reverse
+ * (§2.6), and the bay is on the **positive** offset: the kerb side, lane 0's, which
+ * on a divided road is each carriageway's own outside edge rather than the median.
+ */
+export function busBays(
+  doc: Document,
+  offsets: Record<LinkId, number>,
+): { bays: BusBay[]; cuts: Record<LinkId, [number, number][]> } {
+  const bays: BusBay[] = [];
+  for (const marking of doc.markings) {
+    if (marking.kind.type !== "bus_stop" || marking.kind.form !== "bay") continue;
+    const foot = stopFootprint(doc, marking, offsets);
+    if (!foot) continue;
+    const { link, points, total, anchor, centre } = foot;
+
+    const style = linkStyle(doc, link.id);
+    const e = roadWidth(link.lanes, style) / 2;
+    const b = anchor.span.width;
+    const box: [number, number] = [
+      centre - BUS_STOP_LENGTH / 2,
+      centre + BUS_STOP_LENGTH / 2,
+    ];
+    const opening: [number, number] = [box[0] - TAPER_LENGTH, box[1] + TAPER_LENGTH];
+    const along = ([from, to]: [number, number], d: number) =>
+      offsetPolyline(polylineStretch(points, from, to), d);
+
+    const casing = along(opening, e);
+    const outer = along(box, e + b);
+    // The casing edge beside the box: each taper triangle's corner off its hypotenuse.
+    const beside = along(box, e);
+    const last = (line: Vec2[]) => line[line.length - 1];
+
+    bays.push({
+      link: link.id,
+      style,
+      polygon: [...casing, ...[...outer].reverse()],
+      edges: [
+        taperEdge([outer[0], beside[0], casing[0]], 1.5),
+        along(box, e + b - 1.5),
+        taperEdge([last(outer), last(beside), last(casing)], 1.5),
+      ],
+      mouth: along(opening, e - 1.5),
+      cut: [Math.max(0, opening[0]), Math.min(total, opening[1])],
+    });
+  }
+
+  const byLink: Record<LinkId, [number, number][]> = {};
+  for (const bay of bays) (byLink[bay.link] ??= []).push(bay.cut);
+  const cuts: Record<LinkId, [number, number][]> = {};
+  for (const id of Object.keys(byLink)) cuts[id] = mergeStretches(byLink[id]);
+  return { bays, cuts };
+}
+
+/**
+ * Stretches of one polyline, sorted, with every overlap merged — so two bays whose
+ * footprints overlap open **one** gap in the road's edge line, not two overlapping
+ * ones (bus stops spec OQ-5).
+ *
+ * **Sorting alone is not merging**, though today it looks like it: every bay's
+ * stretch is one length, so sorted starts are sorted ends and a walk over them
+ * happens to come out right. Stretches of two lengths break that — `[100, 300]`
+ * and `[150, 200]` sorted still leave the road drawing 200 to 300 inside the first
+ * gap — and a stop length that can vary is exactly what OQ-2 leaves open.
+ */
+export function mergeStretches(
+  stretches: [number, number][],
+): [number, number][] {
+  const merged: [number, number][] = [];
+  for (const [from, to] of [...stretches].sort((a, b) => a[0] - b[0])) {
+    const prev = merged[merged.length - 1];
+    if (prev && from <= prev[1]) prev[1] = Math.max(prev[1], to);
+    else merged.push([from, to]);
+  }
+  return merged;
+}
+
+/**
+ * What is left of `points` once `cuts` are taken out: each kept stretch a polyline
+ * of its own, **in the frame it was cut from**, for the caller to offset afterwards
+ * (bus stops spec §2.6).
+ *
+ * `cuts` must be sorted and disjoint, as {@link mergeStretches} leaves them. **A
+ * kept stretch with no length is omitted** rather than returned as one repeated
+ * point: a bay slid against a road's end leaves exactly that at the end, and a
+ * path of no length is still an element in the markup (§2.9).
+ */
+export function keptPieces(points: Vec2[], cuts: [number, number][]): Vec2[][] {
+  const pieces: Vec2[][] = [];
+  let from = 0;
+  const keep = (to: number) => {
+    if (to - from >= SAME_EDGE) pieces.push(polylineStretch(points, from, to));
+  };
+  for (const [a, b] of cuts) {
+    keep(a);
+    from = b;
+  }
+  keep(polylineLength(points));
+  return pieces;
 }
 
 /**

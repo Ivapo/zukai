@@ -15,9 +15,14 @@ import {
   alignmentReading,
   carriageways,
   classWidthFactor,
+  drawnPolyline,
   junctionArms,
   markingText,
+  offsetPolyline,
   padRadius,
+  polylineLength,
+  polylinePath,
+  polylineStretch,
   signPlate,
 } from "../editor/geometry";
 import { Action, EditorState, initialState, reducer } from "../editor/state";
@@ -1801,6 +1806,226 @@ describe("road markings", () => {
       expect(along(a0, a1, [1, 0])).toBeCloseTo(0);
       expect(along(b0, b1, [0, 1])).toBeCloseTo(0);
       expect(Math.hypot(b1[0] - b0[0], b1[1] - b0[1])).toBeCloseTo(9);
+    });
+  });
+
+  /**
+   * A bus stop in a bay: the road widens beside the running lane and its kerb edge
+   * line opens over the whole mouth (bus stops spec §2.8, §2.9). The bay's own
+   * geometry is pinned in `geometry.test.ts`; what these carry is the markup —
+   * which pieces the road draws, and in what order the layers fall.
+   */
+  describe("a bus stop in a bay", () => {
+    /** A three-lane road due east, `length` long, carrying `markings`. */
+    function roadOf(length: number, markings: Marking[]): Document {
+      return withMarkings(
+        run(
+          initialState(),
+          { type: "addNode", pos: { x: 0, y: 0 } },
+          { type: "addNode", pos: { x: length, y: 0 } },
+          { type: "startLink", from: "N1" },
+          { type: "completeLink", to: "N2" },
+          { type: "setLinkLanes", id: "L1", count: 3 },
+        ).doc,
+        markings,
+      );
+    }
+
+    /** A bay stop on `L1`, placed in **world units** rather than metres. */
+    function bay(units: number, id = "M1"): Marking {
+      return {
+        id,
+        link: "L1",
+        position: units / UNITS_PER_METRE,
+        kind: { type: "bus_stop", form: "bay" },
+      };
+    }
+
+    /** The first road group's markup — everything `RoadShape` drew, and nothing else. */
+    function roadGroup(svg: string): string {
+      return svg.match(/<g class="road road-[^"]*">[\s\S]*?<\/g>/)![0];
+    }
+
+    /** Its `road-edge` paths, in the order drawn: the kerb pieces, then the offside edge. */
+    function roadEdges(svg: string): string[] {
+      return [
+        ...roadGroup(svg).matchAll(/class="road-edge" d="([^"]*)"/g),
+      ].map((m) => m[1]);
+    }
+
+    /**
+     * The cut is made on the road **as drawn** and only then offset. Offsetting
+     * first moves the corner along the road — the first piece would end at
+     * `(36.5, 55.5)`, 36.5 along its own first leg and then 42 down the second.
+     */
+    it("cuts the kerb edge line on the drawn polyline, not the offset one", () => {
+      // `A(0,0) → (50,0) → C(50,150)`: a bay centred 125 along sits 75 down the
+      // second leg, so its opening runs 78.5 to 171.5, all on that leg.
+      const bent = withMarkings(
+        run(
+          initialState(),
+          { type: "addNode", pos: { x: 0, y: 0 } },
+          { type: "addNode", pos: { x: 50, y: 150 } },
+          { type: "startLink", from: "N1" },
+          { type: "completeLink", to: "N2" },
+          { type: "setLinkLanes", id: "L1", count: 3 },
+          { type: "addBend", link: "L1", index: 0, pos: { x: 50, y: 0 } },
+        ).doc,
+        [bay(125)],
+      );
+
+      expect(roadEdges(renderToStaticMarkup(<Diagram doc={bent} />))).toEqual([
+        "M 0 13.5 L 36.5 13.5 L 36.5 28.5",
+        "M 36.5 121.5 L 36.5 150",
+        "M 0 -13.5 L 63.5 -13.5 L 63.5 150",
+      ]);
+    });
+
+    /**
+     * Two bays whose footprints overlap open **one** gap, not two overlapping ones
+     * (OQ-5). Listed later-first deliberately: their stretches are equally long, so
+     * in sorted order a walk that never merges still comes out right, and only this
+     * order makes the merge observable.
+     */
+    it("opens one gap for two bays whose footprints overlap", () => {
+      const doc = roadOf(400, [bay(200, "M1"), bay(150, "M2")]);
+
+      expect(roadEdges(renderToStaticMarkup(<Diagram doc={doc} />))).toEqual([
+        "M 0 13.5 L 103.5 13.5",
+        "M 246.5 13.5 L 400 13.5",
+        "M 0 -13.5 L 400 -13.5",
+      ]);
+    });
+
+    /**
+     * A bay dragged to the road's start slides in until the whole footprint fits —
+     * its reach is 46.5, a taper further than an in-lane stop's (OQ-4) — so the
+     * road keeps one kerb piece rather than that plus an empty one at the start.
+     */
+    it("slides in from the road's end, and draws no piece of no length", () => {
+      const svg = renderToStaticMarkup(<Diagram doc={roadOf(240, [bay(0)])} />);
+
+      expect(roadEdges(svg)).toEqual([
+        "M 93 13.5 L 240 13.5",
+        "M 0 -13.5 L 240 -13.5",
+      ]);
+      expect(svg).toContain(
+        'class="road-divider road-bay-mouth" d="M 0 13.5 L 93 13.5"',
+      );
+      // The box and its word slide with the bay, and sit in it: 13.5 to 22.5.
+      expect(svg).toContain(
+        'class="marking-stop-ends" d="M 24 13.5 L 24 22.5 M 69 13.5 L 69 22.5"',
+      );
+      expect(svg).toMatch(/<text class="marking-text" x="46.5" /);
+    });
+
+    it("leaves the road exactly as it was for an in-lane stop", () => {
+      const stopped = roadOf(240, [
+        {
+          id: "M1",
+          link: "L1",
+          position: 120 / UNITS_PER_METRE,
+          kind: { type: "bus_stop", form: "in_lane" },
+        },
+      ]);
+      const svg = renderToStaticMarkup(<Diagram doc={stopped} />);
+
+      expect(roadGroup(svg)).toBe(
+        roadGroup(renderToStaticMarkup(<Diagram doc={roadOf(240, [])} />)),
+      );
+      expect(svg).not.toContain("road-bay");
+    });
+
+    /**
+     * A road with no bay draws its kerb edge from its **own points**, never from a
+     * stretch of its whole length: re-walking a polyline lands its far end a float
+     * slack away, which no picture shows and which would change the markup of every
+     * road in every document that carries no bay at all.
+     */
+    it("draws an uncut kerb edge straight from the road's own points", () => {
+      const doc = run(
+        initialState(),
+        { type: "addNode", pos: { x: 0.3, y: 0.7 } },
+        { type: "addNode", pos: { x: 141.9, y: 5.3 } },
+        { type: "startLink", from: "N1" },
+        { type: "completeLink", to: "N2" },
+        { type: "setLinkLanes", id: "L1", count: 3 },
+        { type: "addBend", link: "L1", index: 0, pos: { x: 37.1, y: 11.9 } },
+        { type: "addBend", link: "L1", index: 1, pos: { x: 90.23, y: -23.17 } },
+      ).doc;
+      const points = drawnPolyline(doc, doc.links[0], carriageways(doc))!;
+      const direct = polylinePath(offsetPolyline(points, 13.5));
+
+      // The fixture is one where the two differ, or this would assert nothing.
+      expect(
+        polylinePath(
+          offsetPolyline(polylineStretch(points, 0, polylineLength(points)), 13.5),
+        ),
+      ).not.toBe(direct);
+      expect(roadEdges(renderToStaticMarkup(<Diagram doc={doc} />))[0]).toBe(direct);
+    });
+
+    /**
+     * The bay is asphalt, so it is drawn in the wedge layer: after **every** road,
+     * and before every marking — including a marking of a neighbouring road listed
+     * before the stop the bay belongs to, which is what a bay drawn beside its own
+     * stop would paint over (§2.8).
+     */
+    it("draws above every road and below every marking", () => {
+      const two = run(
+        initialState(),
+        { type: "addNode", pos: { x: 0, y: 0 } },
+        { type: "addNode", pos: { x: 240, y: 0 } },
+        { type: "startLink", from: "N1" },
+        { type: "completeLink", to: "N2" },
+        { type: "setLinkLanes", id: "L1", count: 3 },
+        { type: "addNode", pos: { x: 0, y: 120 } },
+        { type: "addNode", pos: { x: 240, y: 120 } },
+        { type: "startLink", from: "N3" },
+        { type: "completeLink", to: "N4" },
+        { type: "setLinkLanes", id: "L2", count: 3 },
+      ).doc;
+      const svg = renderToStaticMarkup(
+        <Diagram
+          doc={withMarkings(two, [
+            {
+              id: "M2",
+              link: "L2",
+              position: 14,
+              lane: 0,
+              kind: { type: "stop_line" },
+            },
+            bay(120),
+          ])}
+        />,
+      );
+
+      expect(svg.lastIndexOf("road-casing")).toBeLessThan(svg.indexOf("road-bay"));
+      expect(svg.indexOf("road-bay")).toBeLessThan(svg.indexOf('class="marking'));
+    });
+
+    it("carries the road's class on its group, and the box's chrome in the bay", () => {
+      const doc = roadOf(240, [bay(120)]);
+      const selected: Interaction = {
+        ...interaction(),
+        selection: { kind: "marking", id: "M1" },
+      };
+      const live = renderToStaticMarkup(<Diagram doc={doc} interaction={selected} />);
+
+      // The class token reaches the bay the way it reaches a taper wedge, so the
+      // asphalt and the edge-line width need no rule of their own.
+      expect(live).toContain('<g class="bay road-arterial">');
+      expect(live).toContain(
+        '<path class="marking-hit" d="M 97.5 18 L 142.5 18" stroke-width="9">',
+      );
+      expect(live).toContain(
+        '<path class="marking-halo" d="M 97.5 18 L 142.5 18" stroke-width="15">',
+      );
+      // Hairlines on the canvas; an export drops them with every other one.
+      expect(live).toMatch(
+        /class="road-edge road-bay-edge" d="[^"]*" vector-effect="non-scaling-stroke"/,
+      );
+      expect(renderToStaticMarkup(<Diagram doc={doc} />)).not.toMatch(/vector-effect/);
     });
   });
 
