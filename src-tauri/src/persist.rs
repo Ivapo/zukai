@@ -23,13 +23,29 @@ use serde::Deserialize;
 use crate::model::layout::JunctionGlyph;
 use crate::model::{Document, SCHEMA_VERSION};
 
-/// The `.zkai` text for a document.
+/// The `.zkai` text for a document, **declaring the version this build writes**.
 ///
-/// Trivial today, and deliberately still a named function: it is the *only*
-/// place the on-disk shape is produced, so both hosts write bytes that came out
-/// of one `serde_yaml` call rather than two that happen to agree.
+/// The *only* place the on-disk shape is produced, so both hosts write bytes that
+/// came out of one `serde_yaml` call rather than two that happen to agree.
+///
+/// **The stamp is the one thing it adds, and it is load-bearing.** Both ways in
+/// keep a file's own `schema_version` — [`decode`] parses it through and the
+/// frontend's `normalizeDocument` copies it — so without this an older file given
+/// newer content would save still declaring the older version, pass an older
+/// build's probe, and fail inside serde on the whole document: the failure a bump
+/// exists to prevent (bus stops spec §2.3.1). Here rather than in [`decode`],
+/// which would break the pins that a load keeps a file's version, and rather than
+/// as a serde attribute, since the same struct crosses IPC and wasm as JSON on
+/// load, where the file's own version has to survive.
+///
+/// The cost, accepted: a file merely opened and re-saved by a newer build is
+/// refused by an older one — with a readable message, which is the safe direction.
 pub fn encode(doc: &Document) -> Result<String, String> {
-    serde_yaml::to_string(doc).map_err(|e| e.to_string())
+    let stamped = Document {
+        schema_version: SCHEMA_VERSION,
+        ..doc.clone()
+    };
+    serde_yaml::to_string(&stamped).map_err(|e| e.to_string())
 }
 
 /// Read `.zkai` text: check its schema version, deserialize, then migrate.
@@ -123,6 +139,7 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+    use crate::model::decoration::{LinkEnd, Marking, MarkingKind, StopForm};
     use crate::model::graph::{Lane, Link, Node, NodeKind};
     use crate::model::ids::NodeId;
 
@@ -203,7 +220,7 @@ mod tests {
 
         fs::write(
             &path,
-            "schema_version: 3\nmetadata:\n  name: From the future\n",
+            "schema_version: 4\nmetadata:\n  name: From the future\n",
         )
         .expect("write");
 
@@ -215,10 +232,12 @@ mod tests {
         );
     }
 
-    /// The other half of the bump: an *older* file is not rejected. Nothing in
-    /// version 2 is a breaking change to a version-1 document — the `gore` glyph
-    /// only added a variant — so there is no migration arm to exercise, and the
-    /// evidence for that is simply that a v1 file loads.
+    /// The other half of the bump: an *older* file is not rejected. No bump so far
+    /// has broken an older document — the `gore` glyph and the `bus_stop` marking
+    /// each only added a variant — so there is no migration arm for a version to
+    /// exercise, and the evidence for that is simply that a v1 file loads. It
+    /// loads still declaring 1: a load keeps the file's version, and only
+    /// [`encode`] moves it.
     #[test]
     fn still_loads_a_version_1_file() {
         let dir = tempdir().expect("temp dir");
@@ -241,7 +260,8 @@ mod tests {
     /// carry a spelling the vocabulary no longer offers, so it would exercise
     /// [`migrate`] while proving nothing about serde. Going through
     /// [`load_document`] is also what pins the probe's inability to help here —
-    /// the file declares version 2, so it is accepted before serde ever runs.
+    /// the file declares an older version, so it is accepted before serde ever
+    /// runs.
     ///
     /// The same fixture carries a `rotation:` key, the field that left in the
     /// same pass, and the two assertions on the saved text are deliberately
@@ -274,15 +294,25 @@ mod tests {
 
         assert!(!text.contains("t_junction"), "{text}");
         assert!(!text.contains("rotation"), "{text}");
-        // And the vocabulary narrowing does **not** move the version: the
-        // migration is what saves the old file, and a version-2 document is still
-        // a valid version-2 document, so a bump would buy only a label.
-        assert_eq!(SCHEMA_VERSION, 2);
-        assert!(text.contains("schema_version: 2"), "{text}");
+        // The re-save declares the version this build writes, not the one the
+        // fixture was written at: `encode` stamps it. The narrowing itself moved
+        // no version — the migration is what saves the old file, so a bump would
+        // have bought only a label (junction glyphs OQ-2).
+        assert!(
+            text.contains(&format!("schema_version: {SCHEMA_VERSION}\n")),
+            "{text}"
+        );
     }
 
     /// …and what this build writes declares the current version, so the file a
-    /// user saves today is refused by the builds that cannot read its glyphs.
+    /// user saves today is refused by the builds that cannot read its markings.
+    ///
+    /// **The one literal pin on the version, deliberately.** Every other test
+    /// names the constant, so a bump fails here and nowhere it would have to be
+    /// explained away. The claims earlier pins made — that a retired variant, a
+    /// dropped field and a new optional field each cost no bump — live in
+    /// `rules/document-model.md`, where an unrelated bump cannot break them
+    /// (bus stops spec OQ-6).
     #[test]
     fn saves_at_the_current_schema_version() {
         let dir = tempdir().expect("temp dir");
@@ -292,11 +322,54 @@ mod tests {
         save_document(path_str, Document::new("Current")).expect("save");
         let text = fs::read_to_string(&path).expect("read back");
 
-        assert_eq!(SCHEMA_VERSION, 2);
+        assert_eq!(SCHEMA_VERSION, 3);
         assert!(
-            text.contains("schema_version: 2"),
+            text.contains("schema_version: 3"),
             "expected the current schema version in {text:?}"
         );
+    }
+
+    /// A load keeps the file's version and a save declares this build's — the
+    /// stamp in [`encode`], seen from both sides. Without it this document would
+    /// re-save declaring 2 while able to carry a `bus_stop`, which a version-2
+    /// build passes at its probe and then fails on inside serde (bus stops spec
+    /// §2.3.1).
+    #[test]
+    fn an_older_file_loads_at_its_own_version_and_saves_at_this_one() {
+        let doc = decode("schema_version: 2\nmetadata:\n  name: From v2\n").expect("decode");
+        assert_eq!(doc.schema_version, 2);
+
+        let text = encode(&doc).expect("encode");
+        assert!(
+            text.starts_with(&format!("schema_version: {SCHEMA_VERSION}\n")),
+            "{text}"
+        );
+    }
+
+    /// A stop of each form survives a save and a load, and saving what was loaded
+    /// writes the same bytes — spelled in the snake_case the TypeScript mirror
+    /// uses.
+    #[test]
+    fn a_bus_stop_of_each_form_round_trips_byte_for_byte() {
+        let stop = |id: &str, form| Marking {
+            id: id.into(),
+            link: "L1".into(),
+            position: 20.0,
+            anchor: LinkEnd::Start,
+            lane: None,
+            kind: MarkingKind::BusStop { form },
+        };
+        let mut doc = sample();
+        doc.markings = vec![stop("M1", StopForm::InLane), stop("M2", StopForm::Bay)];
+
+        let text = encode(&doc).expect("encode");
+        let back = decode(&text).expect("decode");
+        assert_eq!(back, doc);
+        assert_eq!(encode(&back).expect("re-encode"), text);
+
+        assert!(text.contains("type: bus_stop"), "{text}");
+        assert!(text.contains("form: in_lane"), "{text}");
+        assert!(text.contains("form: bay"), "{text}");
     }
 
     /// **The `.zkai` bytes, pinned against a committed file** — the reference

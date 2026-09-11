@@ -1129,9 +1129,9 @@ mod tests {
     /// Pointing Import at a `.zkai` is the obvious user error, and the dialog's
     /// extension filter is what prevents it (spec §2.5). This pins the fallback:
     /// it **fails** rather than importing something half-formed. The message it
-    /// happens to get is the version probe's — `.zkai` is at schema 2 and
-    /// Assimilator's format is at 1 — which is odd phrasing for the case but not
-    /// worth a content sniffer to improve.
+    /// happens to get is the version probe's — a `.zkai` declares Zukai's own
+    /// schema version, which is past Assimilator's 1 — which is odd phrasing for
+    /// the case but not worth a content sniffer to improve.
     #[test]
     fn a_zkai_document_is_not_a_network() {
         let dir = tempdir().expect("temp dir");

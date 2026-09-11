@@ -71,6 +71,7 @@ const MARKING_KINDS: Record<MarkingKind["type"], string> = {
   lane_line: "Lane line",
   hatching: "Hatching",
   text: "Text",
+  bus_stop: "Bus stop",
 };
 /**
  * The kinds the picker offers, in order, each carrying the payload a fresh pick

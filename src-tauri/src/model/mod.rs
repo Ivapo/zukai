@@ -35,11 +35,14 @@ use layout::Layout;
 /// **variant** is: an older build fails to deserialize the whole document, and
 /// [`crate::persist::load_document`]'s version probe can only turn that into a
 /// readable message if the version moves with it. Version 2 is
-/// [`layout::JunctionGlyph::Gore`].
+/// [`layout::JunctionGlyph::Gore`]; version 3 is
+/// [`decoration::MarkingKind::BusStop`].
 ///
-/// No migration arm is needed for it: a version-1 document is a valid version-2
-/// document.
-pub const SCHEMA_VERSION: u32 = 2;
+/// No migration arm is needed for either: an older document is a valid document
+/// at the current version. **A save always declares this version**, whatever the
+/// file it was loaded from said — [`crate::persist::encode`] stamps it, so the
+/// probe guards a re-saved file as well as a new one.
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// A complete schematic: semantic graph, its presentation, and decorations.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -274,8 +277,6 @@ mod tests {
         let back = serde_yaml::to_string(&junction).expect("serialize");
         assert!(!back.contains("movements"), "{back}");
         assert!(!back.contains("M_L1_L2"), "{back}");
-        // The schema version does not move for a dropped field.
-        assert_eq!(SCHEMA_VERSION, 2);
     }
 
     #[test]
@@ -325,6 +326,5 @@ links:
         assert_eq!(yaml.matches("length:").count(), 1, "{yaml}");
         assert!(yaml.contains("length: 1800"), "{yaml}");
         assert!(!yaml.contains("length: null"), "{yaml}");
-        assert_eq!(SCHEMA_VERSION, 2);
     }
 }

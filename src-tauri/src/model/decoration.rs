@@ -108,6 +108,21 @@ pub enum MarkingKind {
         /// Solid / dashed / double appearance.
         style: LineStyle,
     },
+    /// A kerbside bus stop, in the nearside lane or pulled into a bay beside it.
+    ///
+    /// **A marking kind rather than an object of its own**, because a stop is
+    /// positioned exactly as paint is — one link, a distance along it, and the end
+    /// that distance is measured from (bus stops spec §2.2). It is always drawn at
+    /// the kerb, so [`Marking::lane`] means nothing to it, and how long it is
+    /// drawn is the drawing's business: no field carries a length.
+    ///
+    /// **The variant that took [`SCHEMA_VERSION`](super::SCHEMA_VERSION) to 3.** An
+    /// older build fails on the whole document at a variant it does not know,
+    /// where a new optional field would have cost nothing.
+    BusStop {
+        /// Whether the bus stops in the running lane or pulls into a bay.
+        form: StopForm,
+    },
 }
 
 /// Arrow direction for a [`MarkingKind::TurnArrow`].
@@ -138,6 +153,19 @@ pub enum LineStyle {
     Dashed,
     /// Double solid line.
     Double,
+}
+
+/// Where a [`MarkingKind::BusStop`] puts the bus.
+///
+/// An enum rather than a boolean so the file names what it means (`form: bay`),
+/// on [`LineStyle`]'s model and with its derives.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StopForm {
+    /// In the kerb lane: the bus stops in the lane it was driving in.
+    InLane,
+    /// Pulled into a bay beside the running lane, out of the traffic.
+    Bay,
 }
 
 /// A roadside sign. Its canvas position lives in the [`Layout`](super::layout::Layout);

@@ -112,7 +112,15 @@ export type MarkingKind =
   | { type: "crosswalk" }
   | { type: "hatching" }
   | { type: "text"; content: string }
-  | { type: "lane_line"; style: LineStyle };
+  | { type: "lane_line"; style: LineStyle }
+  | { type: "bus_stop"; form: StopForm };
+
+/**
+ * Where a bus stop puts the bus: in the kerb lane, or pulled into a bay beside
+ * it. A stop is always at the kerb, so a `bus_stop` ignores `Marking.lane`
+ * (bus stops spec §2.4).
+ */
+export type StopForm = "in_lane" | "bay";
 
 /**
  * Which end of a link a marking's `position` is measured from — `end` is the
@@ -246,9 +254,11 @@ export interface Document {
  * Current Zukai document schema version (matches the Rust `SCHEMA_VERSION` —
  * the two must move together).
  *
- * 2 since the `gore` junction glyph: a new *field* costs no bump, but a new
- * enum **variant** does. An older build fails to deserialize the whole document
- * on an unknown variant, and `persist.rs`'s probe can only turn that into a
- * readable message if the version moves with it.
+ * 3 since the `bus_stop` marking kind, as 2 was since the `gore` junction glyph:
+ * a new *field* costs no bump, but a new enum **variant** does. An older build
+ * fails to deserialize the whole document on an unknown variant, and
+ * `persist.rs`'s probe can only turn that into a readable message if the version
+ * moves with it — and only if a save declares it, which `persist.rs:encode`
+ * makes true whatever version the document was loaded at.
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
