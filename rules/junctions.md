@@ -21,7 +21,7 @@ generated: 2026-08-08
 
 What a junction *means*, as opposed to what it looks like: `Junction.control` and
 `Junction.rule`. Frontend only — all three types have been in both mirrors since
-the first commit, so nothing moves `SCHEMA_VERSION` (still **2**). Rationale:
+the first commit, so nothing here moves `SCHEMA_VERSION` (at **3**). Rationale:
 `specs/junction_semantics_spec.md`.
 
 **Build state: Phase 1 only.** Phases 2–4 — the turn movements, their arcs and

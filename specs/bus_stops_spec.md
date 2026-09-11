@@ -11,7 +11,7 @@ last_updated: 2026-09-11
 phases:
   - name: "Phase 1 — A bus stop in the kerb lane"
     reviewed: 2026-09-11
-    shipped: null
+    shipped: 2026-09-11
     cut: null
     by: null
   - name: "Phase 2 — A bus stop in a bay"

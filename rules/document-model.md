@@ -6,13 +6,14 @@ sources:
   - src-tauri/src/model/layout.rs
   - src-tauri/src/model/decoration.rs
   - src-tauri/src/model/ids.rs
+  - src-tauri/src/persist.rs
   - src/model/types.ts
   - src/model/document.ts
 covers: >
   the three parts of a Document and what separates them, the invariants, the
-  Rust-TypeScript mirror discipline and its one instructive exception, and what
-  does and does not move SCHEMA_VERSION
-max_lines: 135
+  Rust-TypeScript mirror discipline and its one instructive exception, what does
+  and does not move SCHEMA_VERSION, and the version a save declares
+max_lines: 144
 generated: 2026-08-09
 ---
 
@@ -28,7 +29,7 @@ Terse by design — read the rustdoc in `src-tauri/src/model/` for field detail.
 |------|-------|------------------------|
 | **Semantic graph** | `graph.rs` — `Node`, `Link`, `Lane`, `Junction` | shaped like the `network.yaml` subset; **nothing writes that format** |
 | **Layout** (presentation) | `layout.rs` — `Layout`, `Vec2`, `NodeView`, `LinkView`, `JunctionView`, `JunctionGlyph`, `LinkStyle`, `LinkAlign` | ❌ |
-| **Decorations** (Zukai-native) | `decoration.rs` — `Marking`, `MarkingKind`, `LinkEnd`, `Sign`, `SignKind` | ❌ Assimilator has no equivalent |
+| **Decorations** (Zukai-native) | `decoration.rs` — `Marking`, `MarkingKind`, `StopForm`, `LinkEnd`, `Sign`, `SignKind` | ❌ Assimilator has no equivalent |
 
 Every collection is defaulted and elided when empty — except `layout`, defaulted but **not** elided, so a new
 document on disk is `schema_version`, `metadata` and a bare `layout: {}`, its four sub-maps elided inside it.
@@ -92,8 +93,15 @@ does not know, and `#[serde(default)]` covers the other direction — which is w
 `LinkView.align` arrived at version 1. A new variant is not symmetric: an older
 build fails to deserialize the *whole document*, and `persist.rs`'s probe rejects
 only files declaring a **newer** version, so it cannot turn that into a readable
-message unless the version moves with the variant. `JunctionGlyph::Gore` is the
-variant that took the version to **2**.
+message unless the version moves with the variant. `JunctionGlyph::Gore` took the
+version to **2**, and `MarkingKind::BusStop` to **3**.
+
+**A save declares the version this build writes, whatever it loaded.** Both ways
+in keep a file's own `schema_version`, so `persist.rs:encode` stamps
+`SCHEMA_VERSION` on the way out — without it an older file given a new variant
+re-saved declaring the old version, passed an older build's probe and failed
+inside serde. Not in `decode` (the load pins) nor a serde attribute (the struct
+crosses IPC and wasm as JSON on load). A merely re-saved file is refused, readably.
 
 **A *removed* field costs no bump either** — the reading-direction mirror of a new
 one. `a_zkai_saved_with_movements_still_loads_and_writes_none` asserts both
@@ -104,16 +112,20 @@ file breaks a *newer* build, which no version guards, since it declares an
 older-or-equal version and so passes the probe. `JunctionGlyph::TJunction` stays
 load-only and `persist.rs:migrate` normalizes it away (`rules/persistence.md`).
 
-Three things move together on a bump, and the third is easy to miss:
+What moves together on a bump — and the fixture is the one easy to miss:
 
 - `SCHEMA_VERSION` in `model/mod.rs` **and** its mirror in `src/model/types.ts`;
 - `persist.rs`'s `rejects_a_newer_schema_version` fixture, which has to stay
   *above* the constant. Left behind it the test silently stops testing anything —
   the probe passes and, since every `Document` field but `schema_version` and
   `metadata` is defaulted, so does the full parse, so `expect_err` fails.
-- A **migration arm is not a bump's companion.** Neither bump so far broke an
-  older file (`still_loads_a_version_1_file` pins it); the one arm that exists
-  came from a *removal*, at no bump at all.
+- the goldens under `src-tauri/tests/fixtures/golden/`, this build's own output,
+  regenerated through their opt-in — one version line apiece, and nothing else;
+- `saves_at_the_current_schema_version`, the **one literal pin**; every other test
+  names the constant, and what older pins claimed is this section's prose.
+- A **migration arm is not a bump's companion.** No bump so far broke an older
+  file (`still_loads_a_version_1_file` pins it); the one arm that exists came from
+  a *removal*, at no bump at all.
 
 Pair every defaulted field with a `skip_serializing_if` so a document that never
 set it saves byte-for-byte as before — `Vec::is_empty` for `bends` and for
@@ -129,10 +141,9 @@ emptying the control is the whole route back to a single-headed arrow.
 ## What a field has to justify
 
 **Some fields were `carried, never edited`** — held only so an imported
-`network.yaml` survived a round trip. `Movement` carried `priority`, `yields_to`
-and `lane_mapping` for exactly that reason and **lost all three in `fe8b452`**,
-when the export was cut: a field whose only justification is surviving a round
-trip has none once nothing writes the file.
+`network.yaml` survived a round trip. `Movement`'s `priority`, `yields_to` and
+`lane_mapping` **went in `fe8b452`** with the export: a field whose only
+justification is a round trip has none once nothing writes the file.
 
 **`Movement` itself then went the same way** (2026-07-28), the sharper version:
 its four remaining fields were genuinely *drawn* as dashed arcs across the
@@ -144,9 +155,8 @@ not the round trip, **and the reason has to be a picture somebody wants**.
 
 ## On disk
 
-Files use the **`.zkai`** extension, read and written by the `save_document` /
-`load_document` Tauri commands in `persist.rs`. YAML is only the on-disk body —
-the document crosses IPC as JSON. Because empty collections and layout sub-maps
-are elided, that JSON can omit them entirely; the frontend restores them with
+Files use the **`.zkai`** extension, read and written by `persist.rs`'s codec. YAML
+is only the on-disk body — the document crosses IPC as JSON, which can omit the
+elided collections and sub-maps entirely; the frontend restores them with
 `normalizeDocument` (`document.ts`) at exactly one boundary, the `loadDocument`
 reducer case. Full path: `rules/persistence.md`.

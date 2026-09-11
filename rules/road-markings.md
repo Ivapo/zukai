@@ -26,11 +26,12 @@ it moves and is edited, and what deletes it. What each kind *paints* is
 `rules/marking-kinds.md`, which starts from the anchor this rule defines.
 Almost entirely frontend — `Marking` and `MarkingKind` have been in the model since
 the first commit, and the two fields added since (`Marking.anchor`,
-`TurnArrow.back`) are optional and elided at their defaults, so nothing here has
-ever moved `SCHEMA_VERSION`. **That is the pattern, not a coincidence:** a new
-optional *field* costs no bump where a new enum *variant* would, which is why the
-second head is a field and not a pair of `TurnDirection`s. Rationale:
-`specs/road_markings_spec.md`; for the anchor, `specs/lane_arrows_spec.md`.
+`TurnArrow.back`) are optional and elided at their defaults, so neither moved
+`SCHEMA_VERSION`. **That is the pattern:** a new optional *field* costs no bump
+where a new enum *variant* does, which is why the second head is a field and not a
+pair of `TurnDirection`s — and why `MarkingKind::BusStop`, a variant, took it to
+**3**. Rationale: `specs/road_markings_spec.md`; the anchor,
+`specs/lane_arrows_spec.md`; the stop, `specs/bus_stops_spec.md`.
 
 ## The anchor, and the one place metres become units
 
@@ -46,8 +47,9 @@ second head is a field and not a pair of `TurnDirection`s. Rationale:
 
 The metre/unit boundary is exactly two functions, and no third site converts:
 `projectOntoLink` (`Canvas.tsx`) turns world units into metres, `markingAnchor`
-(`geometry.ts`) turns metres back. `projectOntoLink` is what placement and
-dragging **share**, which is what keeps that count at two.
+(`geometry.ts`) turns metres back — and reports the clamped `distance` in world
+units, so a stop's stretch is measured without converting again. `projectOntoLink`
+is what placement and dragging **share**, which is what keeps that count at two.
 
 **The frame flip lives inside those same two functions.** `anchoredAlong(total,
 distance, anchor)` is `total - distance` for an `end` anchor and untouched for a
@@ -81,12 +83,10 @@ rim is derived, and the two other things that measure to it, is
   the paint in every document already saved.
 
 `junctionRadius` excludes what has no radius to give: a non-junction node, a
-`gore`, a junction with no arms. **A roundabout is deliberately *not* excluded**,
-though the obvious list to reach for excludes it — that list came from a `pad`
-gate written for the drawn movement arcs, whose reason (an arc on a roundabout is
-a chord across its own island) an anchor never had; a ring buries an approach
-arrow exactly as a pad does. **A list copied from another feature's gate carries
-that feature's reasons**; check them before inheriting.
+`gore`, a junction with no arms. **A roundabout is deliberately *not* excluded**:
+the obvious list came from the movement arcs' `pad` gate, whose reason (an arc on
+a roundabout crosses its island) an anchor never had — a ring buries an approach
+arrow as a pad does. **A copied gate carries its feature's reasons**; check them.
 
 **Nothing tests the drag's half of it** — `Canvas.tsx` has no test file and the
 `anchor` argument is optional, so dropping it at the call site compiles and the
@@ -151,11 +151,12 @@ Under the select tool a marking is grabbed and slid along its road
   end-anchored marking and the paint mirrors about the road's midpoint and tracks
   the pointer *backwards*.
 - **The lane a drag resolves to is kind-aware, and this is the one place it is.**
-  `bandAt` answers for every kind but a `lane_line`, whose `lane` names one of
-  `n-1` **boundaries**; `boundaryAt` answers for that one. Matching a lane line
-  against the bands can name `n-1`, which draws *nothing* — invisible,
-  unselectable, recoverable only by undo (`rules/marking-kinds.md`). The branch
-  lives in `Canvas.tsx`, never the reducer.
+  `bandAt` answers for most kinds; `boundaryAt` for a `lane_line`, whose `lane`
+  names one of `n-1` **boundaries** — the bands can name `n-1`, which draws
+  *nothing*, recoverable only by undo; and **nothing** for a `bus_stop`, drawn at
+  the kerb whatever `lane` says, so a drag straight across the lanes changes
+  nothing a stop reads and records no undo step. The branch lives in `Canvas.tsx`,
+  never the reducer.
 - **`moveMarking` returns `state` by identity on a same-place drag**, which
   `moveNode` and `moveSign` do not: many neighbouring pixels project to one
   `(position, lane)`, and without it the document dirties for nothing.
@@ -164,9 +165,10 @@ Under the select tool a marking is grabbed and slid along its road
 
 Three that every marking has — the kind picker, labelled **Paint**
 (`setMarkingKind`), a **Span** control (`setMarkingLane`), an **Anchor** row
-(`setMarkingAnchor`) — and **four payload controls**, one per kind with a payload:
-**Directions** for a `turn_arrow`, **Oncoming** beside it (the same component
-reading `back`), **Style** for a `lane_line`, **Words** for a `text`.
+(`setMarkingAnchor`) — and **four payload controls**: **Directions** for a
+`turn_arrow`, **Oncoming** beside it (the same component reading `back`), **Style**
+for a `lane_line`, **Words** for a `text`. A `bus_stop` gets **no Span**, since it
+ignores `lane`, and no Form control until a bay is drawn.
 
 `Road` and `Position` stay readouts. `Position` reads **"Whole link"** for a lane
 line and names its frame otherwise (`81.7 m from end`), because a bare distance
@@ -215,11 +217,10 @@ entry reads active until one is picked; and repainting as a `lane_line` **keeps
 its `lane`**, now naming a *boundary* — lane 1 becomes boundary `1|2`.
 
 **The Words field is the panel's first `<input>`.** `App.tsx`'s keydown handler
-already returns early on an `INPUT` target, so typing `m` switches no tool. It
-dispatches per keystroke, and `coalesceKeyFor` gives it a gesture key **only for
-non-empty content** — the picker's fresh `content: ""` must stay outside the run,
-or one undo after picking Text and typing jumps past the repaint. Controlled by
-the document, not local state.
+returns early on an `INPUT` target, so typing `m` switches no tool. It dispatches
+per keystroke, and `coalesceKeyFor` keys it **only for non-empty content** — the
+picker's fresh `content: ""` must stay outside the run, or one undo after picking
+Text and typing jumps past the repaint. Controlled by the document.
 
 ## The pointer handlers, which are written and not inherited
 
@@ -242,11 +243,13 @@ the document, not local state.
 deleting a node (every marking on the links it took), and `setLinkLanes` shrinking
 a link (markings whose `lane >= n`). All three route through `keepMarkings`, which
 returns **the same array** when nothing is dropped, because a document with no
-marking must share the array with its history snapshots. What the cascades cannot
-reach, the renderer skips instead (`rules/marking-kinds.md`). A stranded marking
-is **dropped, not clamped** to a surviving lane: a turn arrow that silently moved
-lane is worse than one that goes away, because the drawing still looks deliberate.
-Without this a deleted road leaves markings invisible, saved and permanent.
+marking must share the array with its history snapshots. **A `bus_stop` survives a
+shrink** — it never read `lane` — and `clearOutgrownStopLanes` removes the outgrown
+key (same array when there is none), so a later repaint cannot strand it. What the
+cascades cannot reach, the renderer skips (`rules/marking-kinds.md`). A stranded
+marking is **dropped, not clamped** to a surviving lane: a turn arrow that silently
+moved lane is worse than one that goes away, because the drawing still looks
+deliberate. Without this a deleted road leaves markings invisible and permanent.
 
 ## The third `Selection` arm, and why the compiler is no help
 
@@ -277,8 +280,8 @@ dispatches `deleteSelection`, so a separate action would have no dispatcher.
 `bandAt`/`boundaryAt` — under `geometry.test.ts`; the radii it clears are
 `rules/road-joints.md`'s, the per-kind builders `rules/marking-kinds.md`'s. `state.ts` holds the five
 actions (`addMarking`, `moveMarking`, `setMarkingKind`, `setMarkingLane`,
-`setMarkingAnchor`) plus `turnArrowKind`, `keepMarkings`, the cascades and
-`unreachable`. `Canvas.tsx` holds `placeMarking`, `projectOntoLink` (which owns
+`setMarkingAnchor`) plus `turnArrowKind`, `keepMarkings`, `clearOutgrownStopLanes`,
+the cascades and `unreachable`. `Canvas.tsx` holds `placeMarking`, `projectOntoLink` (which owns
 the frame flip), the two pointer handlers and the drag arm — dev-pass tested,
 since SVG bubbling and the drag's frame are what is under test. The panel and
 `TURN_DIRECTIONS` are `Inspector.tsx`; the tool button `Toolbar.tsx`, the key

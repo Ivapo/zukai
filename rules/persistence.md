@@ -58,6 +58,12 @@ readable message rather than a serde error from inside `Document`. Older files
 fall straight through to `migrate`. Both halves cross to wasm, so the browser
 refuses a future file with the same sentence the desktop does.
 
+**`encode` stamps `SCHEMA_VERSION` on every save**, whatever the document loaded
+at. Both ways in keep a file's own version, so an older file given newer content
+used to re-save declaring the old one, pass an older build's probe and fail inside
+serde (`specs/bus_stops_spec.md` §2.3.1); the price is that an older build now
+refuses a file merely re-saved by a newer one — readably.
+
 **There is one migration arm, and the probe is exactly why it must exist.**
 `migrate` folds the retired `t_junction` glyph to `generic` (`rules/junctions.md`).
 A removed enum *variant* is the one change the probe cannot turn into a readable

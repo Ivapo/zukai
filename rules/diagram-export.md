@@ -277,18 +277,20 @@ separate way to get it wrong:
 
 - **`needsText(doc)` (exported from `Diagram.tsx`) gates the whole thing**, on
   `hasShoulder`'s model. Three arms counting different things **on purpose**: for
-  markings it counts exactly what `markingPaint` emits a `<text>` for — non-empty
-  content — so one predicate answers both "is there a glyph" and "is there a face";
-  for **signs** it counts every sign, label or no label, because refining it to
-  "kinds that draw a glyph" would put the sign vocabulary in the export path, where
-  it can fall out of step with the drawing. A sign with an empty label carries
-  ≈18 kB for no glyph — the deliberate price, pinned so it reads as a decision.
-  The third arm, **a link stating a `length`**, takes the marking half's posture:
-  it is the label layer's own first test, character for character, so the two
-  cannot drift. It over-counts only for a link whose polyline is undrawable, which
-  is the safe direction. Adding a fourth thing that draws a `<text>` and *not* an
-  arm here is the failure this whole section exists to prevent — the drawing would
-  name a face the file does not carry (`rules/road-rendering.md`).
+  markings it counts exactly what the marking layer emits a `<text>` for —
+  non-empty `text` content, and every `bus_stop`, whose `BUS` is the same element —
+  so one predicate answers both "is there a glyph" and "is there a face"; for
+  **signs** it counts every sign, label or no label, because refining it to "kinds
+  that draw a glyph" would put the sign vocabulary in the export path, where it can
+  fall out of step with the drawing. A sign with an empty label carries ≈18 kB for
+  no glyph — the deliberate price, pinned so it reads as a decision. The third arm,
+  **a link stating a `length`**, takes the marking half's posture: it is the label
+  layer's own first test, character for character, so the two cannot drift. It
+  over-counts only for a link whose polyline is undrawable, which is the safe
+  direction. Adding another thing that draws a `<text>` and *not* a term here is
+  the failure this whole section exists to prevent — the drawing would name a face
+  the file does not carry, and only an export test can see it
+  (`rules/road-rendering.md`, `specs/bus_stops_spec.md`).
 - **The `@font-face` is a second `<style>`, emitted *after* `diagram.css`'s.** Not
   a rule inside it, which travels in every export and would name a face most files
   have no bytes for; and not an `@import`, which is the forbidden external

@@ -32,5 +32,5 @@
   A link is drawn as a straight chord between its two nodes and nothing can bend it — so this makes a bend an object a human places, after fixing the offset that would cut its corner, and puts placement on the grid that is already drawn.
 - **[web-demo](web_demo_spec.md)** — `zk-015` · accepted · done
   Publish Zukai on the web — the editor running in a browser tab with no Rust toolchain, and a landing page made of the diagrams it draws.
-- **[bus-stops](bus_stops_spec.md)** — `zk-016` · accepted · pending
+- **[bus-stops](bus_stops_spec.md)** — `zk-016` · accepted · partial
   Draw a bus stop where buses stop — a box lettered BUS in the kerb lane, or pulled into a bay that widens the road beside it — as a marking kind rather than a new object, after the edge line learns to stop for a bay.

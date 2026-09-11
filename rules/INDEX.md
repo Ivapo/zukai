@@ -6,25 +6,25 @@
   what the pointer and the keyboard do on the drawing surface: the five tools and what each claims, the five Selection arms and the one with no id, the four drags and the one threshold, how a click becomes a document coordinate, the grid it lands on, and the chrome that exists only here
 - **[deploy](deploy.md)** — generated 2026-08-23 · 10 sources · 246/250 lines
   how one Vite build serves two hosts — the two entries and which is which, where the deploy's `base` lives and why never in the config, the one line in `tauri.conf.json` that keeps the desktop window on the editor and the two neighbouring edits that break it, the favicon that has to exist, where the landing page's figures come from and what keeps them honest, the workflow that makes a push to `main` the deploy, and the second one that turns a `v*` tag into a published desktop release
-- **[diagram-export](diagram-export.md)** — generated 2026-08-22 · 16 sources · 299/305 lines
+- **[diagram-export](diagram-export.md)** — generated 2026-08-22 · 16 sources · 301/305 lines
   the SVG/PNG export path: the one render tree and its two consumers, which paint travels inside the file, the pure/DOM/host layers, how bounds and the margin are derived, the self-contained-file constraints that fail silently, and the fourth consumer that reaches this path through a browser
-- **[document-model](document-model.md)** — generated 2026-08-09 · 7 sources · 135/135 lines
-  the three parts of a Document and what separates them, the invariants, the Rust-TypeScript mirror discipline and its one instructive exception, and what does and does not move SCHEMA_VERSION
+- **[document-model](document-model.md)** — generated 2026-08-09 · 8 sources · 144/144 lines
+  the three parts of a Document and what separates them, the invariants, the Rust-TypeScript mirror discipline and its one instructive exception, what does and does not move SCHEMA_VERSION, and the version a save declares
 - **[history](history.md)** — generated 2026-08-10 · 5 sources · 160/160 lines
   the undo/redo snapshot stack in the reducer: the document-identity signal, drag coalescing, the trap where an action deleting nothing must return the same doc, what resets history, and the three trigger surfaces
 - **[host-seam](host-seam.md)** — generated 2026-08-22 · 14 sources · 224/225 lines
   how the file commands reach the outside world on two hosts — the Host interface and its cancel/throw contract, which capabilities the browser has and which it answers differently, the three shapes of Open and the two of Import and where the codecs are called, the three readings of a null return, how a host is chosen and which surfaces vary by it, where an export's filename and MIME are decided, where the bundled examples come from, and the in-page error banner
 - **[junctions](junctions.md)** — generated 2026-08-08 · 8 sources · 215/215 lines
   what a junction means rather than what it looks like — control and rule, which layer owns each part, the glyph-versus-control split and its nudge, the two actions, and the one turn vocabulary left in the model
-- **[marking-kinds](marking-kinds.md)** — generated 2026-08-10 · 7 sources · 246/250 lines
-  what each of the seven marking kinds paints: the marking layer and its order, the per-kind shapes and their chrome, the turn arrow with its staggered forks and its second head, the lane line and the boundary it replaces, and text and the font it cost
+- **[marking-kinds](marking-kinds.md)** — generated 2026-08-10 · 7 sources · 250/250 lines
+  what each of the eight marking kinds paints: the marking layer and its order, the per-kind shapes and their chrome, the turn arrow with its staggered forks and its second head, the lane line and the boundary it replaces, the bus stop's box and the stretch it is cut from, and text and the font it cost
 - **[network-yaml](network-yaml.md)** — generated 2026-08-22 · 9 sources · 343/345 lines
   reading Assimilator's network.yaml: the serde mirror and what earns a place in it, the header and version probe, the scale and the fitted factor that places nodes, the two lane-numbering conventions, what import throws away, the one number it keeps off the polyline, the turn arrows it mints, the four ways in over one converter and the golden that pins two of them, and why there is no writer
-- **[persistence](persistence.md)** — generated 2026-08-22 · 15 sources · 154/160 lines
+- **[persistence](persistence.md)** — generated 2026-08-22 · 15 sources · 160/160 lines
   the .zkai save/open path end to end — trigger, dialog and IPC, the codec and its three shells, the version probe and the one migration arm, reducer, the normalize-at-one-boundary rule, the close guard — plus the JS-built native menu, how recents are stored and pruned, and how the browser differs
 - **[road-joints](road-joints.md)** — generated 2026-08-14 · 7 sources · 268/268 lines
   what is drawn where links meet a node: the arms and the two radii, the rim three things measure to, the pad that follows the arms inside it, taper wedges at a through joint, the gore between two separating arms — its triangle, its chevrons, and the one derivation that faces them at the driver — the butt cap its two owners share, and the dots that mark a node once per drawn road end, on the canvas only
-- **[road-markings](road-markings.md)** — generated 2026-08-09 · 9 sources · 277/280 lines
+- **[road-markings](road-markings.md)** — generated 2026-08-09 · 9 sources · 280/280 lines
   the marking as an object a human owns: the anchor and the one metre/unit boundary, the rim an end anchor measures to, placement from the click, the importer as second author, dragging, the kind-aware controls, what removes a marking, and the third Selection arm
 - **[road-rendering](road-rendering.md)** — generated 2026-08-14 · 11 sources · 272/272 lines
   how a link becomes a picture of a road: the one lane-width derivation everything descends from, class as a token, two-way carriageways, alignment, the route a road turns through, lane kinds and the hatch, the painted centreline, and the length a link states

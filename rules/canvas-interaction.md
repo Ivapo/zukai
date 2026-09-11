@@ -133,10 +133,10 @@ Three conversions, and picking the wrong one is the recurring defect:
 - **A place on a road** (`addMarking`, `moveMarking`) goes through
   `projectOntoLink`: `nearestOnPolyline` on the **drawn** polyline gives an arc
   length and a signed lateral offset; the length becomes metres through
-  `UNITS_PER_METRE` and `anchoredAlong`, and the offset becomes a lane through
-  `bandAt` — or a *boundary* through `boundaryAt` for a `lane_line`, whose `lane`
-  names one of `n-1` boundaries rather than one of `n` lanes. That kind-awareness
-  lives here, in the UI layer, never in the reducer.
+  `UNITS_PER_METRE` and `anchoredAlong`, and a `span` argument says what the offset
+  becomes — a lane (`bandAt`), a *boundary* for a `lane_line` (`boundaryAt`), or
+  **nothing** for a `bus_stop`, which is drawn at the kerb whatever `lane` says.
+  That kind-awareness lives here, in the UI layer, never in the reducer.
 - **A vertex of a road** (`addBend`) goes through `geometry.ts:bendInsertion`,
   which is the same idea one step harder: the pointer is on the **drawn** polyline
   and the bend belongs to the **layout** one. It transfers the arc length by the

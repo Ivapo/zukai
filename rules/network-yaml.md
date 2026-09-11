@@ -24,7 +24,7 @@ generated: 2026-08-22
 # `network.yaml`
 
 Assimilator's format — the only one Zukai reads that Zukai does not own. Nothing
-here moves `SCHEMA_VERSION` (still **2**). Not `rules/persistence.md`, which is
+here moves `SCHEMA_VERSION` (at **3**). Not `rules/persistence.md`, which is
 `.zkai`: a different format with a different owner. The module rustdoc carries the
 per-field reasoning; this is the map. Rationale: `specs/network_yaml_spec.md`.
 
@@ -48,7 +48,7 @@ only because the paint is derived from it.
 |---|---|---|
 | Owner | Zukai | Assimilator |
 | May change when | Zukai likes | Assimilator's does |
-| Version constant | `model::SCHEMA_VERSION` (2) | `ASSIMILATOR_SCHEMA_VERSION` (1), **a copy** |
+| Version constant | `model::SCHEMA_VERSION` (3) | `ASSIMILATOR_SCHEMA_VERSION` (1), **a copy** |
 | Version lives | a `Document` field | a header read *above* serde |
 
 Row two is the whole reason the module is separate; merging them would hide it.
