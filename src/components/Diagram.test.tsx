@@ -89,6 +89,16 @@ function interaction(): Interaction {
   };
 }
 
+/** A road arrow's three corners, apex first — the order `arrowTriangle` emits. */
+function arrowPoints(svg: string): Vec2[] {
+  const points = svg.match(/class="road-arrow" points="([^"]*)"/)?.[1];
+  if (points === undefined) throw new Error("the markup carries no road arrow");
+  return points.split(" ").map((p) => {
+    const [x, y] = p.split(",").map(Number);
+    return { x, y };
+  });
+}
+
 describe("Diagram in export mode", () => {
   it("renders the drawing and none of the canvas chrome", () => {
     const svg = renderToStaticMarkup(<Diagram doc={sample()} />);
@@ -162,6 +172,21 @@ describe("RoadShape geometry", () => {
     expect(svg).toContain('class="road-casing" d="M 0 0 L 120 0" stroke-width="12"');
     expect(svg).toContain('class="road-edge" d="M 0 4.5 L 120 4.5"');
     expect(svg).not.toContain("road-divider");
+  });
+
+  /**
+   * The direction arrow sits halfway along the road, pointing the way it runs,
+   * and is as long as it ever was: `0.45` of the 39-unit width, so `17.55`.
+   */
+  it("centres the direction arrow on the road's midpoint, apex downstream", () => {
+    const [apex, b1, b2] = arrowPoints(
+      renderToStaticMarkup(<Diagram doc={straight(4)} />),
+    );
+
+    expect(apex.x).toBeCloseTo(60 + 17.55 / 2);
+    expect(apex.y).toBeCloseTo(0);
+    for (const b of [b1, b2]) expect(b.x).toBeCloseTo(60 - 17.55 / 2);
+    expect(b1.y).toBeCloseTo(-b2.y);
   });
 });
 
@@ -2623,6 +2648,25 @@ describe("link bends", () => {
   it("walks the road's own path through the bend", () => {
     const svg = renderToStaticMarkup(<Diagram doc={road({ x: 60, y: -40 })} />);
     expect(paths(svg)[0]).toBe("M 0 0 L 60 -40 L 120 40");
+  });
+
+  /**
+   * Halfway along the **route**, not the chord: legs of `√5200 ≈ 72.11` and `100`
+   * put the midpoint 13.94 into the second leg, heading `(0.6, 0.8)` — where the
+   * chord's midpoint `(60, 20)` would sit 36 units off a road 30 wide.
+   */
+  it("puts the direction arrow halfway along the route it turns through", () => {
+    const [apex, b1, b2] = arrowPoints(
+      renderToStaticMarkup(<Diagram doc={road({ x: 60, y: -40 })} />),
+    );
+    const base = { x: (b1.x + b2.x) / 2, y: (b1.y + b2.y) / 2 };
+    const into = (Math.sqrt(5200) + 100) / 2 - Math.sqrt(5200);
+    const len = Math.hypot(apex.x - base.x, apex.y - base.y);
+
+    expect((apex.x + base.x) / 2).toBeCloseTo(60 + 0.6 * into);
+    expect((apex.y + base.y) / 2).toBeCloseTo(-40 + 0.8 * into);
+    expect((apex.x - base.x) / len).toBeCloseTo(0.6);
+    expect((apex.y - base.y) / len).toBeCloseTo(0.8);
   });
 
   /**

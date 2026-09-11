@@ -39,7 +39,6 @@ import {
   boundaryTaken,
   carriageways,
   drawnPolyline,
-  endDirection,
   formatLength,
   gore,
   goreChevrons,
@@ -60,7 +59,9 @@ import {
   offsetPolyline,
   padRadius,
   padShape,
+  pointAlongPolyline,
   polygonsPath,
+  polylineLength,
   polylinePath,
   polylinesPath,
   rayCircleExit,
@@ -901,10 +902,11 @@ function RoadShape({
     ];
   });
 
-  const dir = endDirection(points);
-  const end = points[points.length - 1];
-  const arrow =
-    dir && arrowTriangle(end, dir, Math.max(6, w * 0.45), w + 8);
+  // Halfway along the road as drawn — the carriageway's own polyline, so the two
+  // halves of a two-way road point their own ways side by side, each level with
+  // the length label `lengthLabel` stands beside that same point.
+  const mid = pointAlongPolyline(points, polylineLength(points) / 2);
+  const arrow = mid && arrowTriangle(mid.at, mid.dir, Math.max(6, w * 0.45));
 
   const selected = isSelected(interaction?.selection ?? null, "link", link.id);
   const nse = hairline(interaction);
@@ -954,10 +956,10 @@ function RoadShape({
   );
 }
 
-/** Points string for a direction arrowhead, inset `back` world units from `tip`. */
-function arrowTriangle(tip: Vec2, dir: Vec2, size: number, back: number): string {
-  const bx = tip.x - dir.x * back;
-  const by = tip.y - dir.y * back;
+/** Points string for a direction arrowhead `size` long, centred on `at`, apex first. */
+function arrowTriangle(at: Vec2, dir: Vec2, size: number): string {
+  const bx = at.x - (dir.x * size) / 2;
+  const by = at.y - (dir.y * size) / 2;
   const nx = -dir.y;
   const ny = dir.x;
   const tipX = bx + dir.x * size;
