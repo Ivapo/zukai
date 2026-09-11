@@ -126,7 +126,7 @@ Every diagram on `index.html` is an SVG the demo itself exported, inlined
 serves `dist` (a `prerender-examples` hook plus `vite preview`, so the demo is at
 `/demo/`), then for each `.zkai` in `examples/` drives headless Chromium: click
 **Open…** and take the `filechooser` event — `host-browser.ts:pickFile` never
-adds its `<input>` to the document — then click **Export SVG** and take the
+adds its `<input>` to the document — then choose **SVG** from **Export…** and take the
 `download` event, `host-browser.ts:download` delivering through an
 `<a download>` over an object URL.
 

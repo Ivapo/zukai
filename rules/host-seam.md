@@ -4,7 +4,7 @@ sources:
   - src/App.tsx
   - src/components/Banner.tsx
   - src/components/Canvas.tsx
-  - src/components/Toolbar.tsx
+  - src/components/Footer.tsx
   - src/editor/examples.ts
   - src/editor/export-target.ts
   - src/editor/files.ts
@@ -140,7 +140,7 @@ document's own name, and does.
 
 `OpenedDocument.path` is **host-opaque**, like `ExportTarget.destination`: an
 absolute path on the desktop, a bare `File.name` in a browser, which is all a
-page ever learns about where a file came from. It is what the toolbar shows and
+page ever learns about where a file came from. It is what the footer shows and
 what an export names itself after, and nothing else may read it as a location.
 
 Neither host may call into `files.ts` to reach the banner: that edge closes the
@@ -204,16 +204,19 @@ Gated on synchronous **`isTauri()`**, never on `App`'s `menuInstalled`: that onl
 turns true once `installMenu` resolves over IPC, so a surface keyed to it renders
 the browser's shape for the first frames of a desktop launch.
 
-- `Toolbar.tsx:fileCommands()` — the desktop's five buttons, or the browser's
-  seven (Export splits, Import gains a button because there is no menu).
+- `Footer.tsx:ExportCommand` — the desktop's one dialog-driven button, or a
+  `CommandSelect` of SVG and PNG. The four buttons before it are the same on both.
 - `App.tsx`'s `Cmd/Ctrl+E` — the desktop's one dialog command, or SVG with PNG
   on Shift.
-- `Toolbar.tsx:ExampleSelect` — browser only, and **controlled at `""`, pinned to
-  a disabled placeholder after a load *and* after a declined discard**: left
-  showing its last pick, re-choosing that entry fires no `change` and the document
-  is unreachable. Not a `FileCommand`, and its handler is a prop rather than a
-  `FileActions` member — that interface is a button surface `menu.ts` shares, and
-  a member taking an argument does not assign against `keyof FileActions`.
+- `Footer.tsx:ExampleSelect` — browser only. It and Export's menu are both a
+  `CommandSelect`, **controlled at `""` and pinned to a disabled placeholder**
+  after a choice *and* after a declined discard: left showing its last pick,
+  re-choosing that entry fires no `change` and the command is unreachable. Its
+  handler is a prop rather than a `FileActions` member — that interface is a
+  button surface `menu.ts` shares, and a member taking an argument does not
+  assign against `keyof FileActions`.
+- `Footer.tsx:docStatus` — the green saved dot is desktop-only: a browser cannot
+  write in place, so a clean, named document there matches no file it can save to.
 
 `FileActions` is the shared command surface and carries all of them; each host
 shows a subset. `menuInstalled` remains only what decides whether `App` handles
@@ -246,4 +249,4 @@ survives a broken notice surface.
 | `importNetworkYaml`, `decodeZkai`, `encodeZkai` | `src/editor/wasm.ts` | `src/editor/wasm.test.ts` |
 | `isNetworkFile`, `isZkaiFile`, the extension consts | `src/model/document.ts` | `src/model/document.test.ts` |
 | the canvas drop | `src/components/Canvas.tsx` | `bun run dev` in a browser |
-| `FileActions`, `fileCommands`, `ExampleSelect` | `src/components/Toolbar.tsx` | `bun run dev` |
+| `FileActions`, `FILE_COMMANDS`, `ExportCommand`, `ExampleSelect`, `CommandSelect`, `docStatus` | `src/components/Footer.tsx` | `docStatus` by `src/components/Footer.test.tsx`; Open… and Export by `bun run render-examples`; the rest `bun run dev` |

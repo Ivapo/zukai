@@ -2,7 +2,7 @@
 title: persistence
 sources:
   - src/App.tsx
-  - src/components/Toolbar.tsx
+  - src/components/Footer.tsx
   - src/editor/examples.ts
   - src/editor/files.ts
   - src/editor/host.ts
@@ -34,7 +34,7 @@ design rationale lives in `specs/save_load_spec.md`.
 
 | Step | Where |
 |------|-------|
-| Trigger | Toolbar `.file-actions` buttons (`src/components/Toolbar.tsx`), the native File menu (`src/editor/menu.ts`), and Cmd/Ctrl+N/O/S, Shift for Save As (`src/App.tsx` keydown) — the same three surfaces undo/redo use (`rules/history.md`); plus, on the browser only, a canvas drop and the Examples `<select>` |
+| Trigger | Footer `.file-actions` buttons (`src/components/Footer.tsx`), the native File menu (`src/editor/menu.ts`), and Cmd/Ctrl+N/O/S, Shift for Save As (`src/App.tsx` keydown) — the same three surfaces undo/redo use (`rules/history.md`); plus, on the browser only, a canvas drop and the Examples `<select>` |
 | Dialog + IPC | `src/editor/host-tauri.ts`, reached through the `Host` interface — `files.ts` itself names no Tauri (`rules/host-seam.md`) |
 | Codec | `persist::encode` / `persist::decode` (`src-tauri/src/persist.rs`) — no path in either |
 | Commands | `save_document` / `load_document` / `load_document_text` (`src-tauri/src/persist.rs`), `recent_files` / `push_recent_file` (`src-tauri/src/recent.rs`), all registered in `src-tauri/src/lib.rs` — whose handler list also still carries the Tauri template's unused `greet` |
@@ -121,7 +121,7 @@ one.
 
 ## Menu and recents
 
-- The menu is **built in JS** so its items call the same `FileActions` the toolbar
+- The menu is **built in JS** so its items call the same `FileActions` the footer
   does. It is rebuilt whenever `state.recents` changes identity — which is why the
   `setRecents` reducer case returns the *same* state for an unchanged list, and why
   rebuilds queue behind one another in `menu.ts`.
@@ -134,11 +134,11 @@ one.
   Removing the pair takes two `removeAt(0)`; it is the only place the menu code
   removes anything, and it runs before `setAsAppMenu()` so a throw leaves nothing
   half-installed.
-- **The menu carries one command the desktop toolbar does not.** `FileActions`
-  (`Toolbar.tsx`) is the shared surface; each host's row, from `fileCommands()`,
-  is a deliberate subset of it. Import network… sits below a separator and has no
-  accelerator, so it needs no case in `App.tsx`'s keydown handler. The *browser*
-  row gives it a button instead, because there is no menu there to reach it from.
+- **The menu carries a command the footer does not: Save As.** `FileActions`
+  (`Footer.tsx`) is the shared surface; the footer's row — `FILE_COMMANDS`, then
+  Export — is the same subset on both hosts. Save As keeps its accelerator on both,
+  and in a browser downloads exactly what Save does. Import network… has no
+  accelerator, so it needs no keydown case; the footer's `Import…` reaches it.
 - Zukai's commands go into Tauri's own File submenu (found by title) with
   **`insert` at position 0, never `prepend`**: the plugin's prepend puts *each*
   item of a batch at 0, reversing it, while insert advances the position. The
@@ -165,10 +165,10 @@ committed golden holds it to. Three things still differ, all by decision:
 - **Recents are absent**, not omitted: `recents()` answers `[]`, `state.recents`
   stays empty, no Open Recent surface appears, and `browserHost.read` is
   therefore unreachable and throws.
-- **There is no native menu**, so the toolbar row gains an Import button;
-  `installMenu` resolves `false` and `App` keeps the Cmd/Ctrl chords. The row is
-  not quite the whole command surface, though: an Examples `<select>` sits beside
-  it, and it is the only way to open a document with no checkout.
+- **There is no native menu**, so `installMenu` resolves `false`, `App` keeps the
+  Cmd/Ctrl chords, and Save As is keyboard-only. The footer row is not quite the
+  whole command surface: an Examples `<select>` sits beside it, the only way to
+  open a document with no checkout — and Export is a `<select>` of SVG and PNG.
 
 Dirty tracking, the close guard and `newDocument` all work — the guard through
 `beforeunload` rather than `onCloseRequested`. A `.zkai` also arrives two other

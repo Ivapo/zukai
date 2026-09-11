@@ -2,7 +2,7 @@
 id: zk-001
 title: save-load
 status: accepted
-last_updated: 2026-07-31
+last_updated: 2026-09-11
 note: >
   Save and open documents as `.zkai` YAML files, with dirty tracking and an
   unsaved-changes guard.
@@ -174,6 +174,14 @@ The title/dirty indicator uses `document.title` plus the toolbar wordmark. (Nati
 `setTitle` needs a window permission and only works under `tauri dev`; it's deferred
 with the desktop menu in Phase 4.)
 
+> **CORRECTED 2026-09-11 — the indicator moved, and gained a second colour.** The
+> file name and its yellow unsaved dot now sit at the left of a footer bar rather
+> than in the toolbar. A clean document that has a file shows a **green** dot, on
+> the desktop only: a browser tab cannot write in place (`web_demo_spec.md` OQ-3),
+> so a document there matches no file it could be saved back to, however clean. A
+> new Untitled document shows no dot on either host. `rules/host-seam.md` records
+> the gate.
+
 ### Why split the dialog from the apply logic (decision, recorded)
 
 The native file dialog (`tauri-plugin-dialog`) only works in the Tauri runtime, not
@@ -191,6 +199,13 @@ unit-testable (see Phase 2's `vitest` gate); only the actual file-picker path ne
   everywhere; some OS/browser shortcuts (notably Cmd/Ctrl+N) may be intercepted by
   the browser and are only guaranteed under `tauri dev`. Native OS menus are
   desktop-only and deferred (Phase 4).
+
+  > **CORRECTED 2026-09-11 — Save As is no longer a button.** The file row moved
+  > to a footer bar and is the same five on both hosts: New, Open…, Import…, Save,
+  > Export…. Save As keeps Cmd/Ctrl+Shift+S everywhere, and on the desktop the
+  > File menu this bullet predates. The reason above still holds for every command
+  > that does something distinct, which keeps a clickable trigger on each host — in
+  > a browser Save As downloads exactly what Save does, so it lost nothing there.
 - **Save** with `currentPath == null` behaves as **Save As…** (opens the picker).
 - **Unsaved-changes guard:** New and Open, when `dirty`, first confirm "Discard
   unsaved changes?" via `tauri-plugin-dialog`'s `ask()` (reliable in the webview;

@@ -5,7 +5,7 @@ sources:
   - src/App.tsx
   - src/components/Canvas.tsx
   - src/components/Diagram.tsx
-  - src/components/Toolbar.tsx
+  - src/components/Footer.tsx
   - src/editor/export.tsx
   - src/editor/export.test.ts
   - src/editor/export-target.ts
@@ -215,8 +215,8 @@ Honour the name the user typed; never write bytes of one format into a file name
 for another. The dialog offers both filters and still proposes `.svg`.
 
 **None of that mechanism exists in a browser**, which has neither dialog nor
-path, so there the format is carried by the *command* — Export SVG and Export PNG
-are two buttons — and `export-target.ts:browserExportTarget` derives the download
+path, so there the format is carried by the *command* — SVG or PNG, chosen under
+the one Export… label — and `export-target.ts:browserExportTarget` derives the download
 name from `currentPath ?? metadata.name`, reduced to its basename. Both hosts
 still build the picture exactly once and hand the same string to `rasterizePng`,
 so the raster stays that file rendered rather than a second drawing of it. See
@@ -225,15 +225,16 @@ never be re-derived by the other host.
 
 ## Triggers
 
-Same three surfaces as save/open and undo/redo: `Export…` in the toolbar's
-`.file-actions`; the File submenu below Save As at `CmdOrCtrl+E` (`menu.ts`); and
+Same three surfaces as save/open and undo/redo: `Export…` in the footer's
+`.file-actions` — a button on the desktop, a `<select>` of SVG and PNG in a
+browser; the File submenu below Save As at `CmdOrCtrl+E` (`menu.ts`); and
 `App.tsx`'s keydown `case "e"` — **browser path only**, since the handler returns
 early on every chord once `menuInstalled`.
 
 ## A fourth consumer: the landing page's figures
 
 `scripts/render-examples.ts` reaches `diagramSvg` the long way round — it drives
-the **built demo** in headless Chromium and presses its Export SVG button, rather
+the **built demo** in headless Chromium and picks SVG in its Export menu, rather
 than calling the module. That is not indirection for its own sake: `bounds` has
 exactly one producer, `measureDiagram`, and this repo has no headless DOM, so a
 build step would silently pass `bounds = null` and frame the drawing outside its

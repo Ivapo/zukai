@@ -6,13 +6,13 @@
   what the pointer and the keyboard do on the drawing surface: the five tools and what each claims, the five Selection arms and the one with no id, the four drags and the one threshold, how a click becomes a document coordinate, the grid it lands on, and the chrome that exists only here
 - **[deploy](deploy.md)** — generated 2026-08-23 · 10 sources · 246/250 lines
   how one Vite build serves two hosts — the two entries and which is which, where the deploy's `base` lives and why never in the config, the one line in `tauri.conf.json` that keeps the desktop window on the editor and the two neighbouring edits that break it, the favicon that has to exist, where the landing page's figures come from and what keeps them honest, the workflow that makes a push to `main` the deploy, and the second one that turns a `v*` tag into a published desktop release
-- **[diagram-export](diagram-export.md)** — generated 2026-08-22 · 16 sources · 298/305 lines
+- **[diagram-export](diagram-export.md)** — generated 2026-08-22 · 16 sources · 299/305 lines
   the SVG/PNG export path: the one render tree and its two consumers, which paint travels inside the file, the pure/DOM/host layers, how bounds and the margin are derived, the self-contained-file constraints that fail silently, and the fourth consumer that reaches this path through a browser
 - **[document-model](document-model.md)** — generated 2026-08-09 · 7 sources · 135/135 lines
   the three parts of a Document and what separates them, the invariants, the Rust-TypeScript mirror discipline and its one instructive exception, and what does and does not move SCHEMA_VERSION
 - **[history](history.md)** — generated 2026-08-10 · 5 sources · 160/160 lines
   the undo/redo snapshot stack in the reducer: the document-identity signal, drag coalescing, the trap where an action deleting nothing must return the same doc, what resets history, and the three trigger surfaces
-- **[host-seam](host-seam.md)** — generated 2026-08-22 · 14 sources · 221/225 lines
+- **[host-seam](host-seam.md)** — generated 2026-08-22 · 14 sources · 224/225 lines
   how the file commands reach the outside world on two hosts — the Host interface and its cancel/throw contract, which capabilities the browser has and which it answers differently, the three shapes of Open and the two of Import and where the codecs are called, the three readings of a null return, how a host is chosen and which surfaces vary by it, where an export's filename and MIME are decided, where the bundled examples come from, and the in-page error banner
 - **[junctions](junctions.md)** — generated 2026-08-08 · 8 sources · 215/215 lines
   what a junction means rather than what it looks like — control and rule, which layer owns each part, the glyph-versus-control split and its nudge, the two actions, and the one turn vocabulary left in the model

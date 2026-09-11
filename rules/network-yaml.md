@@ -297,8 +297,8 @@ it that decides only where the bytes came from:
 
 | Entry | Host | Shell |
 |---|---|---|
-| File ▸ Import network… (`menu.ts`, no accelerator) | desktop | `import_network(path)` |
-| `Import…` toolbar button (browser row only) | browser | `<input type="file">` → the wasm |
+| File ▸ Import network… (`menu.ts`, no accelerator), or the footer's `Import…` | desktop | `import_network(path)` |
+| The footer's `Import…` button | browser | `<input type="file">` → the wasm |
 | A file dropped on the canvas (gated on `isTauri()`) | browser | `Host.importNetworkText` → the wasm |
 | *(none yet — the desktop's webview drop is not wired)* | desktop | `import_network_text(text)` |
 

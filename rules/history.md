@@ -167,7 +167,7 @@ All three dispatch the same `{ type: "undo" }` / `{ type: "redo" }`:
 | Surface | Where |
 |---------|-------|
 | Keyboard | `src/App.tsx` keydown — Cmd/Ctrl+Z, Cmd/Ctrl+Shift+Z, Ctrl+Y. **Browser path only**: the handler returns early on every chord once `menuInstalled` |
-| Toolbar | `.history` buttons left of the tool group (`src/components/Toolbar.tsx`), disabled via `past.length` / `future.length` |
+| Toolbar | `.history` buttons right of the tool group (`src/components/Toolbar.tsx`), disabled via `past.length` / `future.length` |
 | Native menu | Edit submenu (`src/editor/menu.ts`) — Zukai's items **replace** Tauri's predefined Undo/Redo, which drive webview text editing, not the document |
 
 The menu items are always enabled and no-op at the ends; the toolbar carries the
