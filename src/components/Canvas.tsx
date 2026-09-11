@@ -330,12 +330,20 @@ export function Canvas({ state, dispatch }: CanvasProps) {
    *   against the lane bands. Outside every band (the casing lip, or the fat
    *   invisible hit path) means the whole carriageway.
    *
-   * **`boundaries` is the one kind-aware argument**, and it belongs to a caller
-   * rather than to the geometry: a `lane_line`'s `lane` names a *boundary*, of
-   * which a road has one fewer than it has lanes, so matching it against the bands
-   * can name `n-1` — an index `laneLine` cannot draw, which makes the marking
-   * vanish mid-drag. The kind-aware marking rules already live in the UI layer
-   * rather than in the reducer (markings §2.3), and this is one more of them.
+   * **`span` is the one kind-aware argument** — what the offset becomes — and it
+   * belongs to a caller rather than to the geometry. Three answers:
+   *
+   * - `band`: a lane, which is what `lane` names for most kinds;
+   * - `boundary`: a `lane_line`'s `lane` names a *boundary*, of which a road has
+   *   one fewer than it has lanes, so matching it against the bands can name
+   *   `n-1` — an index `laneLine` cannot draw, which makes the marking vanish
+   *   mid-drag;
+   * - `none`: a `bus_stop` is drawn at the kerb whatever `lane` says (bus stops
+   *   §2.4), so a drag straight across the lanes must write no `lane` — or it
+   *   dirties the document and records an undo step that draws nothing different.
+   *
+   * The kind-aware marking rules already live in the UI layer rather than in the
+   * reducer (markings §2.3), and this is one more of them.
    *
    * **`anchor` is the frame the answer is reported in**, and it is not
    * kind-aware — it is read off the marking's own state. `nearestOnPolyline`
@@ -353,7 +361,7 @@ export function Canvas({ state, dispatch }: CanvasProps) {
   function projectOntoLink(
     e: React.PointerEvent,
     link: Link,
-    boundaries: boolean,
+    span: "band" | "boundary" | "none",
     anchor?: LinkEnd,
   ): { position: number; lane?: LaneIdx } | null {
     const points = drawnPolyline(doc, link, carriageways(doc));
@@ -362,7 +370,12 @@ export function Canvas({ state, dispatch }: CanvasProps) {
     const bands = laneBands(link.lanes, linkStyle(doc, link.id));
     return {
       position: anchoredAlong(polylineLength(points), along, anchor) / UNITS_PER_METRE,
-      lane: boundaries ? boundaryAt(bands, offset) : bandAt(bands, offset),
+      lane:
+        span === "band"
+          ? bandAt(bands, offset)
+          : span === "boundary"
+            ? boundaryAt(bands, offset)
+            : undefined,
     };
   }
 
@@ -374,7 +387,7 @@ export function Canvas({ state, dispatch }: CanvasProps) {
    * turns it into a lane line afterwards.
    */
   function placeMarking(e: React.PointerEvent, link: Link) {
-    const at = projectOntoLink(e, link, false);
+    const at = projectOntoLink(e, link, "band");
     if (!at) return;
     dispatch({ type: "addMarking", link: link.id, ...at });
   }
@@ -476,15 +489,20 @@ export function Canvas({ state, dispatch }: CanvasProps) {
       // **on a road**, so this re-runs placement's projection rather than the two
       // subtractions below. The marking supplies its own link — a drag slides it
       // along the road it is painted on and never re-homes it to another — its
-      // own kind, which is what picks boundaries over lane bands, and its own
-      // anchor, which is the frame the answer comes back in.
+      // own kind, which picks what the offset becomes (a lane, a boundary, or for
+      // a bus stop nothing at all), and its own anchor, which is the frame the
+      // answer comes back in.
       const marking = findMarking(doc, d.id);
       const link = marking && findLink(doc, marking.link);
       if (!marking || !link) return;
       const at = projectOntoLink(
         e,
         link,
-        marking.kind.type === "lane_line",
+        marking.kind.type === "lane_line"
+          ? "boundary"
+          : marking.kind.type === "bus_stop"
+            ? "none"
+            : "band",
         marking.anchor,
       );
       if (at) dispatch({ type: "moveMarking", id: d.id, ...at });

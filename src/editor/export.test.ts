@@ -761,6 +761,31 @@ describe("road markings in an exported file", () => {
   });
 
   /**
+   * A bus stop is paint and a word: its ends travel as a rule like every other
+   * marking's, and its `BUS` costs the face exactly as a `text` marking's does.
+   * The face is `needsText`'s stop term, and it is the one clause no canvas test
+   * can see — a missing term draws `BUS` on the canvas and exports it in whatever
+   * face the viewer has (bus stops spec §2.7).
+   */
+  it("carries a bus stop's ends, its word, and the face its word needs", () => {
+    const svg = diagramSvg(painted({ type: "bus_stop", form: "in_lane" }), {
+      x: 0,
+      y: 0,
+      width: 120,
+      height: 40,
+    });
+
+    expect(svg).toContain('<g class="marking marking-bus-stop">');
+    expect(svg).toContain('class="marking-stop-ends"');
+    expect(embeddedCss(svg)).toContain(".marking-stop-ends");
+    expect(svg.match(/<text[\s>]/g)).toHaveLength(1);
+    expect(svg).toContain(">BUS</text>");
+    expect(svg.match(/@font-face/g)).toHaveLength(1);
+    expectSelfContained(svg);
+    expect(svg).not.toMatch(CHROME);
+  });
+
+  /**
    * **No text unless the document asks for it.** Markings spec §2.8 held this as
    * an absolute — an exported SVG reaches no external font, so the first `<text>`
    * either falls back to whatever the viewer has or, in the PNG path, bakes that

@@ -11,10 +11,12 @@ import {
   ROAD_MARGIN,
   SCHEMATIC_MEDIAN,
   SIGN_SIZE,
+  UNITS_PER_METRE,
   alignmentReading,
   carriageways,
   classWidthFactor,
   junctionArms,
+  markingText,
   padRadius,
   signPlate,
 } from "../editor/geometry";
@@ -1658,6 +1660,148 @@ describe("road markings", () => {
     expect(exported).not.toMatch(/marking-hit|marking-halo|is-selected/);
     // Paint on the road scales with the road, unlike the glyph's own bar.
     expect(exported).not.toMatch(/vector-effect/);
+  });
+
+  /**
+   * A bus stop in the kerb lane: two end bars and the word, and **no long side**,
+   * because the road's own lines are the box's sides (bus stops spec §2.7.1). On
+   * `marked`'s road — 120 long, three lanes, band 0 at offset 9 and 9 wide — a bar
+   * runs `y` 4.5 to 13.5, and the box is 45 long.
+   */
+  describe("a bus stop", () => {
+    /** `marked`'s road carrying one in-lane stop, `units` along it. */
+    function stopAt(units: number): Document {
+      return withMarkings(marked(0), [
+        {
+          id: "M1",
+          link: "L1",
+          position: units / UNITS_PER_METRE,
+          kind: { type: "bus_stop", form: "in_lane" },
+        },
+      ]);
+    }
+
+    /** What the stop's group holds, from the first stop group in `svg`. */
+    function group(svg: string): string {
+      return svg.match(/<g class="marking marking-bus-stop[^"]*">([\s\S]*?)<\/g>/)![1];
+    }
+
+    it("paints two end bars and its word, and no long side", () => {
+      const [bars, word, ...rest] = group(
+        renderToStaticMarkup(<Diagram doc={stopAt(60)} />),
+      ).split(/(?=<text )/);
+
+      // The whole of its paint: one path of two bars across band 0, and the word.
+      expect(rest).toEqual([]);
+      expect(bars).toBe(
+        '<path class="marking-stop-ends" d="M 37.5 4.5 L 37.5 13.5 M 82.5 4.5 L 82.5 13.5"></path>',
+      );
+      expect(word).toMatch(/^<text class="marking-text" [^>]*>BUS<\/text>$/);
+
+      const run = markingText({
+        at: { x: 60, y: 0 },
+        dir: { x: 1, y: 0 },
+        segment: 0,
+        distance: 60,
+        span: { offset: 9, width: 9 },
+      });
+      expect(word).toContain(` x="${run.at.x}" y="${run.at.y}" `);
+      expect(word).toContain(
+        `transform="rotate(${run.angle} ${run.at.x} ${run.at.y})"`,
+      );
+
+      // …and it is the element a text marking reading BUS paints in that lane.
+      const lettered = renderToStaticMarkup(
+        <Diagram
+          doc={withMarkings(marked(0), [
+            {
+              id: "M1",
+              link: "L1",
+              position: 60 / UNITS_PER_METRE,
+              lane: 0,
+              kind: { type: "text", content: "BUS" },
+            },
+          ])}
+        />,
+      );
+      expect(lettered).toContain(word);
+    });
+
+    /**
+     * Dragged to the road's end, the stop slides back until it fits whole — its
+     * word still centred in its box — rather than drawing half a box (OQ-4).
+     */
+    it("slides to fit at the end of its road, word and all", () => {
+      const inner = group(renderToStaticMarkup(<Diagram doc={stopAt(120)} />));
+
+      expect(inner).toContain(
+        'class="marking-stop-ends" d="M 75 4.5 L 75 13.5 M 120 4.5 L 120 13.5"',
+      );
+      expect(inner).toMatch(/<text class="marking-text" x="97.5" /);
+    });
+
+    /** The box is what selects and highlights, not a bar across its middle. */
+    it("is hit and haloed as the box, not as a bar across it", () => {
+      const selected: Interaction = {
+        ...interaction(),
+        selection: { kind: "marking", id: "M1" },
+      };
+      const live = renderToStaticMarkup(
+        <Diagram doc={stopAt(60)} interaction={selected} />,
+      );
+
+      expect(live).toContain('<g class="marking marking-bus-stop is-selected">');
+      // Band 0's centre line along the stretch, stroked band 0's width.
+      expect(live).toContain(
+        '<path class="marking-hit" d="M 37.5 9 L 82.5 9" stroke-width="9">',
+      );
+      expect(live).toContain(
+        '<path class="marking-halo" d="M 37.5 9 L 82.5 9" stroke-width="15">',
+      );
+    });
+
+    /**
+     * A stop follows the road: its stretch carries a bend, and each end bar is
+     * square to the segment its own end is on — not to the direction at the
+     * stop's centre, which on this road is the first leg's (bus stops §2.6).
+     */
+    it("follows a bend inside its stretch", () => {
+      // `N1(0,0) → (60,0) → N2(60,100)`: the corner 60 along, so a stop centred
+      // there runs 22.5 into each leg.
+      const bent = withMarkings(
+        run(
+          initialState(),
+          { type: "addNode", pos: { x: 0, y: 0 } },
+          { type: "addNode", pos: { x: 60, y: 100 } },
+          { type: "startLink", from: "N1" },
+          { type: "completeLink", to: "N2" },
+          { type: "setLinkLanes", id: "L1", count: 3 },
+          { type: "addBend", link: "L1", index: 0, pos: { x: 60, y: 0 } },
+        ).doc,
+        stopAt(60).markings,
+      );
+      const live = renderToStaticMarkup(
+        <Diagram doc={bent} interaction={interaction()} />,
+      );
+      const points = (d: string) =>
+        d
+          .split(/[ML]/)
+          .map((s) => s.trim())
+          .filter((s) => s !== "")
+          .map((s) => s.split(" ").map(Number));
+      const path = (cls: string) =>
+        points(live.match(new RegExp(`<path class="${cls}" d="([^"]*)"`))![1]);
+
+      expect(path("marking-hit")).toHaveLength(3);
+
+      const [a0, a1, b0, b1] = path("marking-stop-ends");
+      const along = (p: number[], q: number[], dir: [number, number]) =>
+        (q[0] - p[0]) * dir[0] + (q[1] - p[1]) * dir[1];
+      // The near end is on the eastbound leg, the far end on the southbound one.
+      expect(along(a0, a1, [1, 0])).toBeCloseTo(0);
+      expect(along(b0, b1, [0, 1])).toBeCloseTo(0);
+      expect(Math.hypot(b1[0] - b0[0], b1[1] - b0[1])).toBeCloseTo(9);
+    });
   });
 
   /**

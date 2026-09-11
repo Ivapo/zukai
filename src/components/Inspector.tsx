@@ -89,6 +89,11 @@ const MARKING_KINDS: Record<MarkingKind["type"], string> = {
  * spec Phase 1). Its fresh payload is the **empty** string, which draws the
  * placeholder bar: a marking you can see, select, and then type into, rather than
  * an invisible object findable only by accident.
+ *
+ * `bus_stop` starts `in_lane`, and nothing here offers the other form yet: a bay
+ * the panel offered and the drawing ignored would be visibly wrong, so until the
+ * bay is drawn `form: bay` is reachable only by editing a file (bus stops spec
+ * Phase 1).
  */
 const MARKING_PICKER: MarkingKind[] = [
   { type: "stop_line" },
@@ -97,6 +102,7 @@ const MARKING_PICKER: MarkingKind[] = [
   { type: "turn_arrow", directions: ["through"] },
   { type: "lane_line", style: "solid" },
   { type: "text", content: "" },
+  { type: "bus_stop", form: "in_lane" },
 ];
 /**
  * A turn arrow's directions, **in road order left to right** rather than in the
@@ -343,17 +349,22 @@ export function Inspector({ state, dispatch }: InspectorProps) {
           <div className="readout">{marking.link}</div>
         </Field>
 
-        <Field label="Span">
-          {lanes === undefined ? (
-            <div className="readout">
-              {marking.lane === undefined
-                ? "Whole carriageway"
-                : `Lane ${marking.lane}`}
-            </div>
-          ) : (
-            <MarkingSpan marking={marking} lanes={lanes} dispatch={dispatch} />
-          )}
-        </Field>
+        {/* Withheld for a bus stop, which is drawn in the kerb lane whatever
+            `lane` holds (bus stops §2.4) — a control every value of which draws
+            the same picture, as the Anchor row below would be for a lane line. */}
+        {marking.kind.type !== "bus_stop" && (
+          <Field label="Span">
+            {lanes === undefined ? (
+              <div className="readout">
+                {marking.lane === undefined
+                  ? "Whole carriageway"
+                  : `Lane ${marking.lane}`}
+              </div>
+            ) : (
+              <MarkingSpan marking={marking} lanes={lanes} dispatch={dispatch} />
+            )}
+          </Field>
+        )}
 
         {/* Withheld for the one kind that has no distance to anchor, on the same
             terms as the Position readout below. */}

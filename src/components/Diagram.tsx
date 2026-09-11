@@ -33,6 +33,7 @@ import {
   LANE_LINE_GAP,
   MarkingAnchor,
   MarkingForm,
+  TextRun,
   ROAD_MARGIN,
   TAPER_LENGTH,
   TEXT_SIZE,
@@ -384,9 +385,11 @@ function hasShoulder(doc: Document): boolean {
  * no text, or worse, text with no face (signs spec §2.3).
  *
  * **The three arms are deliberately asymmetric.** The marking half counts exactly
- * what {@link markingPaint} emits a `<text>` for — **non-empty** content, an empty
- * one drawing the transverse bar instead — so the font and the glyph cannot
- * disagree. The sign half counts *every* sign, and is deliberately **not** refined
+ * what the marking layer emits a `<text>` for — **non-empty** content, an empty
+ * one drawing the transverse bar instead, and every `bus_stop`, whose `BUS` is
+ * the same element a `text` marking paints (bus stops spec §2.7) — so the font
+ * and the glyph cannot disagree. The sign half counts *every* sign, and is
+ * deliberately **not** refined
  * to "signs whose kind draws a glyph": a give-way triangle and a priority diamond
  * carry no letters and a freshly placed sign's label is empty, but teaching the
  * export path the kind vocabulary to save 18 kB on a rare sign-without-letters
@@ -402,7 +405,11 @@ function hasShoulder(doc: Document): boolean {
  */
 export function needsText(doc: Document): boolean {
   return (
-    doc.markings.some((m) => m.kind.type === "text" && m.kind.content !== "") ||
+    doc.markings.some(
+      (m) =>
+        (m.kind.type === "text" && m.kind.content !== "") ||
+        m.kind.type === "bus_stop",
+    ) ||
     doc.signs.length > 0 ||
     doc.links.some((l) => l.length !== undefined)
   );
@@ -652,10 +659,13 @@ function isBendSelected(sel: Selection | null, link: LinkId, index: number) {
  *
  * **The hit target and halo are the anchor's transverse bar for every kind that
  * sits at a point**, so selecting one feels the same whatever it paints, and a
- * stop line's markup is exactly what Phase 1 emitted. A `lane_line` runs *along*
- * the road rather than across it and is the one kind with its own: its spine, and
+ * stop line's markup is exactly what Phase 1 emitted. Two kinds have their own. A
+ * `lane_line` runs *along* the road rather than across it: its spine, and
  * narrower strokes, because a 12-unit hit strip running the length of a link is a
- * dead zone for every click on the road under it.
+ * dead zone for every click on the road under it. A `bus_stop` is a box, and a
+ * bar across its middle would leave most of it unclickable: its spine runs the
+ * box's stretch down the lane's centre, stroked the lane's width — a rectangle,
+ * on the lane line's model (bus stops spec §2.7).
  *
  * **No `vector-effect`**, unlike the glyph's bar and the roads' hairlines. Those
  * are symbol and hairline respectively, and want to hold their weight as the
@@ -671,7 +681,15 @@ function MarkingShape({
   form: MarkingForm;
   interaction?: Interaction;
 }) {
-  const d = polylinePath(form.along ? form.along.spine : markingBar(form.across));
+  // Three-way, and `stop` is tested first: left two-way, a stop would reach
+  // `markingBar` with no anchor to build one from.
+  const d = polylinePath(
+    form.stop
+      ? form.stop.spine
+      : form.along
+        ? form.along.spine
+        : markingBar(form.across),
+  );
   const selected = isSelected(
     interaction?.selection ?? null,
     "marking",
@@ -694,12 +712,27 @@ function MarkingShape({
           group's own handler. The halo is narrower, and butt-capped in CSS, so
           it stays inside the lane the marking spans. */}
       {interaction && (
-        <path className="marking-hit" d={d} strokeWidth={form.along ? 8 : 12} />
+        <path
+          className="marking-hit"
+          d={d}
+          strokeWidth={form.stop ? form.stop.width : form.along ? 8 : 12}
+        />
       )}
       {selected && (
         <path className="marking-halo" d={d} strokeWidth={haloWidth(form)} />
       )}
-      {form.along ? (
+      {form.stop ? (
+        // The box's two ends and its word, and no long side: the road's own
+        // lines are those (bus stops §2.7.1). The word is the very element a
+        // `text` marking reading `BUS` paints, because it is the same paint.
+        <>
+          <path
+            className="marking-stop-ends"
+            d={polylinesPath(form.stop.ends)}
+          />
+          {markingRun(form.stop.word, "BUS")}
+        </>
+      ) : form.along ? (
         // The style rides on a class token from the model, as the road class
         // does, so `diagram.css` carries the dashes and the double line's colour
         // and an exported file inherits both with no exporter change.
@@ -719,13 +752,16 @@ function MarkingShape({
  * margin**, the rule `.road-halo`'s `w + 6` already follows.
  *
  * A transverse kind is drawn inside its 4-unit bar, so one number covers every
- * one of them. A `double` lane line is the one shape whose paint is wider than
+ * one of them. A bus stop's box fills its lane, so its halo is the lane's width
+ * plus the margin — tested first, or a stop falls through to a bar's 9. A
+ * `double` lane line is the one shape whose paint is wider than
  * the line it is centred on: its two strokes sit `LANE_LINE_GAP` apart, and a
  * halo that ignored that would be exactly as wide as the paint and read as no
  * halo at all — caught in the app, where a yellow halo behind a yellow double
  * line is invisible.
  */
 function haloWidth(form: MarkingForm): number {
+  if (form.stop) return form.stop.width + 6;
   if (!form.along) return 9;
   return 6 + (form.along.style === "double" ? LANE_LINE_GAP : 0);
 }
@@ -790,35 +826,41 @@ function markingPaint(marking: Marking, anchor: MarkingAnchor, bar: string) {
     }
     case "text": {
       const { content } = marking.kind;
-      if (content) {
-        const run = markingText(anchor);
-        return (
-          <text
-            className="marking-text"
-            x={run.at.x}
-            y={run.at.y}
-            /* The face and the size are attributes, not rules in `diagram.css`,
-               on the arrow's `stroke-width` precedent above — but for a harder
-               reason. `diagram.css` is embedded verbatim in *every* exported
-               picture, and most carry no font; a `font-family` there would name
-               a face the file never embeds. Declaring it only in the gated
-               `@font-face` block would instead leave the canvas drawing this in
-               the chrome's proportional Overpass while the file drew the mono
-               one, which is the canvas/file drift the whole export design exists
-               to rule out (signs spec §2.3). */
-            fontFamily={FONT_FAMILY}
-            fontSize={run.size}
-            textAnchor="middle"
-            transform={`rotate(${run.angle} ${run.at.x} ${run.at.y})`}
-          >
-            {content}
-          </text>
-        );
-      }
+      if (content) return markingRun(markingText(anchor), content);
       break;
     }
   }
   return <path className="marking-bar" d={bar} />;
+}
+
+/**
+ * Words painted on the road — the one `<text>` element the marking layer emits,
+ * for a `text` marking and a bus stop's `BUS` alike, so the two are the same
+ * paint by construction rather than by agreement (bus stops spec §2.7).
+ * {@link needsText} counts both.
+ */
+function markingRun(run: TextRun, content: string) {
+  return (
+    <text
+      className="marking-text"
+      x={run.at.x}
+      y={run.at.y}
+      /* The face and the size are attributes, not rules in `diagram.css`, on
+         the arrow's `stroke-width` precedent above — but for a harder reason.
+         `diagram.css` is embedded verbatim in *every* exported picture, and most
+         carry no font; a `font-family` there would name a face the file never
+         embeds. Declaring it only in the gated `@font-face` block would instead
+         leave the canvas drawing this in the chrome's proportional Overpass
+         while the file drew the mono one, which is the canvas/file drift the
+         whole export design exists to rule out (signs spec §2.3). */
+      fontFamily={FONT_FAMILY}
+      fontSize={run.size}
+      textAnchor="middle"
+      transform={`rotate(${run.angle} ${run.at.x} ${run.at.y})`}
+    >
+      {content}
+    </text>
+  );
 }
 
 /**

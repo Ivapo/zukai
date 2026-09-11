@@ -866,9 +866,18 @@ function setLinkLanes(
       // surviving lane: a turn arrow that silently moves lane is worse than one
       // that goes away, because the drawing still looks deliberate (markings
       // spec §2.5). Same scar as the lane `kind` this control used to destroy.
-      markings: keepMarkings(
-        doc.markings,
-        (m) => m.link !== id || m.lane === undefined || m.lane < n,
+      // A bus stop is the exception: it never moves lanes, so it stays.
+      markings: clearOutgrownStopLanes(
+        keepMarkings(
+          doc.markings,
+          (m) =>
+            m.link !== id ||
+            m.lane === undefined ||
+            m.lane < n ||
+            m.kind.type === "bus_stop",
+        ),
+        id,
+        n,
       ),
     },
   };
@@ -890,6 +899,41 @@ function keepMarkings(
 ): Marking[] {
   const kept = markings.filter(keep);
   return kept.length === markings.length ? markings : kept;
+}
+
+/**
+ * `markings` with the `lane` key removed from every bus stop on `link` whose
+ * `lane` a shrink to `n` lanes has outgrown, and **the same array** back when no
+ * stop has.
+ *
+ * **Housekeeping, not the rule.** A stop draws in the kerb lane whatever `lane`
+ * holds (`geometry.ts:markingAnchor`), which is why {@link setLinkLanes} keeps
+ * one rather than dropping it for a field it ignores. But a stale `lane` kept
+ * would outlive the kind: a stop clicked into lane 2, its road narrowed to two
+ * lanes, then repainted as a stop line, becomes a marking `markingAnchor` skips —
+ * undrawn and unclickable (bus stops spec §2.4). So the key goes, on
+ * {@link moveMarking}'s absent-key rule.
+ *
+ * A `map`, so the identity is recovered by a pre-check, as {@link clearSignLinks}
+ * recovers its own: a shrink that clears nothing must leave `doc.markings` shared
+ * with the history snapshots.
+ */
+function clearOutgrownStopLanes(
+  markings: Marking[],
+  link: LinkId,
+  n: number,
+): Marking[] {
+  const outgrown = (m: Marking) =>
+    m.link === link &&
+    m.kind.type === "bus_stop" &&
+    m.lane !== undefined &&
+    m.lane >= n;
+  if (!markings.some(outgrown)) return markings;
+  return markings.map((m) => {
+    if (!outgrown(m)) return m;
+    const { lane: _dropped, ...rest } = m;
+    return rest;
+  });
 }
 
 /**

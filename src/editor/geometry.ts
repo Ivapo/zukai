@@ -1739,10 +1739,39 @@ export function pointAlongPolyline(
   points: Vec2[],
   along: number,
 ): PolylinePoint | undefined {
-  // `index` is the point's own index in `points`, carried rather than inferred
-  // from this array's position: the `continue` below skips degenerate segments,
-  // so the two run apart the moment a polyline carries a duplicate vertex.
-  const segments: { a: Vec2; dir: Vec2; len: number; index: number }[] = [];
+  const segments = walkable(points);
+  // Not `polylineLength(points) === 0`: an empty polyline and two identical
+  // points both measure zero, and both must return nothing rather than walk.
+  if (segments.length === 0) return undefined;
+
+  const { i, at } = landing(
+    segments,
+    Math.min(polylineLength(points), Math.max(0, along)),
+  );
+  return { at, dir: segments[i].dir, segment: segments[i].index };
+}
+
+/** One segment of a polyline long enough to have a direction. */
+interface WalkableSegment {
+  a: Vec2;
+  dir: Vec2;
+  len: number;
+  /** The segment's own index in `points`. */
+  index: number;
+}
+
+/**
+ * The segments of `points` long enough to have a direction, in order — **the one
+ * walk** {@link pointAlongPolyline} and {@link polylineStretch} both take, so the
+ * two agree about where a distance lands exactly rather than to within a float
+ * slack.
+ *
+ * `index` is the segment's own index in `points`, carried rather than inferred
+ * from this array's position: the filter skips degenerate segments, so the two
+ * run apart the moment a polyline carries a duplicate vertex.
+ */
+function walkable(points: Vec2[]): WalkableSegment[] {
+  const segments: WalkableSegment[] = [];
   for (let i = 0; i < points.length - 1; i++) {
     const a = points[i];
     const b = points[i + 1];
@@ -1755,28 +1784,77 @@ export function pointAlongPolyline(
       index: i,
     });
   }
-  // Not `polylineLength(points) === 0`: an empty polyline and two identical
-  // points both measure zero, and both must return nothing rather than walk.
-  if (segments.length === 0) return undefined;
+  return segments;
+}
 
-  let remaining = Math.min(polylineLength(points), Math.max(0, along));
-  for (const s of segments) {
+/**
+ * Where a distance lands on a non-empty {@link walkable} list: that segment's
+ * position in the list, and the point. The distance must already be clamped to
+ * the polyline. The rule is `remaining <= len`, so a distance exactly at a vertex
+ * lands at the **end** of the segment before it.
+ */
+function landing(
+  segments: WalkableSegment[],
+  along: number,
+): { i: number; at: Vec2 } {
+  let remaining = along;
+  for (let i = 0; i < segments.length; i++) {
+    const s = segments[i];
     if (remaining <= s.len) {
       return {
+        i,
         at: { x: s.a.x + s.dir.x * remaining, y: s.a.y + s.dir.y * remaining },
-        dir: s.dir,
-        segment: s.index,
       };
     }
     remaining -= s.len;
   }
   // Only reachable on float slack at exactly `total`: the last segment's far end.
-  const last = segments[segments.length - 1];
+  const i = segments.length - 1;
+  const last = segments[i];
   return {
+    i,
     at: { x: last.a.x + last.dir.x * last.len, y: last.a.y + last.dir.y * last.len },
-    dir: last.dir,
-    segment: last.index,
   };
+}
+
+/**
+ * The stretch of `points` between two distances along it, as a polyline of its
+ * own — clamped to the polyline, and carrying every vertex it passes.
+ *
+ * **Cut the drawn polyline, then offset the piece — never the reverse.**
+ * Offsetting changes arc length unevenly at a bend: on `A(0,0) → B(50,0) →
+ * C(50,150)` at offset 13.5 the corner sits at 0.211 of the offset polyline's
+ * length against 0.250 of the base one's, so a distance measured on one names a
+ * different point on the other (bus stops spec §2.6).
+ *
+ * It walks {@link walkable}'s segments by {@link pointAlongPolyline}'s own
+ * {@link landing} rule, so each end is **exactly** the point that function puts at
+ * that distance — the reason {@link polylineLength} gives for sharing a walk. The
+ * interior vertices are the starts of the segments after the start's, up to and
+ * including the end's; one the start already lands on is not repeated. `[]` for a
+ * polyline with nothing to walk.
+ */
+export function polylineStretch(
+  points: Vec2[],
+  from: number,
+  to: number,
+): Vec2[] {
+  const segments = walkable(points);
+  if (segments.length === 0) return [];
+  const total = polylineLength(points);
+  const a = Math.min(total, Math.max(0, from));
+  const b = Math.min(total, Math.max(a, to));
+  const start = landing(segments, a);
+  const end = landing(segments, b);
+
+  const stretch = [start.at];
+  for (let i = start.i + 1; i <= end.i; i++) {
+    const v = segments[i].a;
+    const prev = stretch[stretch.length - 1];
+    if (Math.hypot(v.x - prev.x, v.y - prev.y) >= SAME_EDGE) stretch.push(v);
+  }
+  stretch.push(end.at);
+  return stretch;
 }
 
 /** Where a bend is to be spliced into a link's layout polyline. */
@@ -1890,6 +1968,17 @@ export interface MarkingAnchor extends PolylinePoint {
    * whole lane region when the marking spans the carriageway.
    */
   span: LaneBand;
+  /**
+   * How far along the drawn polyline `at` is, in world units from its start —
+   * **clamped**, as {@link pointAlongPolyline} clamps it, so it always names the
+   * point `at` is.
+   *
+   * What keeps the metre/unit conversion in one place: a marking with an extent
+   * (a bus stop) measures its stretch from here in world units and never reads
+   * `position` itself (bus stops spec §2.6). Not `along`, which names
+   * {@link MarkingForm}'s other arm and is what `MarkingShape` branches on.
+   */
+  distance: number;
 }
 
 /**
@@ -1925,7 +2014,7 @@ export interface MarkingAnchor extends PolylinePoint {
  * - the `link` names no link in the document;
  * - that link has no drawable polyline, or none with any length;
  * - `position` is not a finite number;
- * - `lane` is outside the link's lanes.
+ * - `lane` is outside the link's lanes — for any kind but a `bus_stop`, below.
  *
  * `lane` absent means the whole carriageway, whose span is the **lane region** —
  * summed from the bands rather than taken as `roadWidth - ROAD_MARGIN`, which
@@ -1933,10 +2022,13 @@ export interface MarkingAnchor extends PolylinePoint {
  *
  * **One kind-aware line, and only one:** a `turn_arrow` has no carriageway-wide
  * meaning (markings spec §2.7), so a lane-less one falls back to the **nearside**
- * band rather than spanning the road. It lives here rather than in
- * {@link markingArrow} so the hit target and the halo move with it — a halo that
- * highlights a strip the arrow is not painted on misreports the span at the
- * moment the user is looking at it.
+ * band rather than spanning the road — and a `bus_stop` takes that band
+ * **whatever `lane` says**, because a bus stops at the kerb (bus stops spec
+ * §2.4). The stop is tested **before** the out-of-range-lane skip, so no `lane`
+ * a click, a repaint or a hand-edited file left behind can make a stop
+ * undrawable. It lives here rather than in {@link markingArrow} so the hit
+ * target and the halo move with it — a halo that highlights a strip the paint is
+ * not on misreports the span at the moment the user is looking at it.
  */
 export function markingAnchor(
   doc: Document,
@@ -1954,8 +2046,9 @@ export function markingAnchor(
   // clamp below still catches an over-long marking at the polyline's start.
   // A `start` anchor takes no such term: nothing asked for one, and adding it
   // would move the paint in every document already saved.
+  const total = polylineLength(points);
   const along = anchoredAlong(
-    polylineLength(points),
+    total,
     marking.position * UNITS_PER_METRE +
       (marking.anchor === "end" ? rimClearance(doc, link, offsets) : 0),
     marking.anchor,
@@ -1966,18 +2059,21 @@ export function markingAnchor(
 
   const bands = laneBands(link.lanes, linkStyle(doc, link.id));
   let span: LaneBand;
-  if (marking.lane === undefined) {
-    span =
-      marking.kind.type === "turn_arrow"
-        ? bands[0]
-        : { offset: 0, width: bands.reduce((s, b) => s + b.width, 0) };
+  if (
+    marking.kind.type === "bus_stop" ||
+    (marking.lane === undefined && marking.kind.type === "turn_arrow")
+  ) {
+    span = bands[0];
+  } else if (marking.lane === undefined) {
+    span = { offset: 0, width: bands.reduce((s, b) => s + b.width, 0) };
   } else {
     const band = bands[marking.lane];
     if (!band) return undefined;
     span = band;
   }
 
-  return { ...at, span };
+  // The clamp `pointAlongPolyline` applied to put `at` where it is.
+  return { ...at, span, distance: Math.min(total, Math.max(0, along)) };
 }
 
 /**
@@ -3032,12 +3128,95 @@ export function boundaryTaken(
 }
 
 /**
- * How a marking is drawn: **across** the road at a point, or **along** it for the
- * whole link. Exactly one arm is present.
+ * How long a bus stop's box is drawn along the road, in world units — five lanes'
+ * width.
+ *
+ * **A drawn length, not a measured one**, so a build constant in the manner of
+ * {@link CROSSWALK_DEPTH} and {@link TAPER_LENGTH} rather than a model field: a
+ * stop box is a symbol of a stop, as a sign is a symbol and not a scale model,
+ * and the metre/unit boundary stays the two functions it is. A figure that needs
+ * a longer stop can have an optional field later, at no version bump (bus stops
+ * spec §2.5, OQ-2). Settled in the app.
+ */
+export const BUS_STOP_LENGTH = 5 * LANE_PX;
+
+/** A bus stop's drawn form: the box's two ends, its word, and its hit target. */
+export interface BusStopShape {
+  /** The box's two ends, each across the kerb lane. Its long sides are the road's own lines. */
+  ends: [Vec2, Vec2][];
+  /** Where `BUS` is painted: the box's centre, running along the road. */
+  word: TextRun;
+  /** The hit target's and the halo's path: the box's stretch down the lane's centre. */
+  spine: Vec2[];
+  /** What the spine is stroked at — the lane's width, so the stroke is the box. */
+  width: number;
+}
+
+/**
+ * A bus stop's drawn form, or `undefined` if it cannot be drawn.
+ *
+ * **A stretch of the road, not a rectangle at a point.** The box follows the
+ * drawn polyline between two distances, so on a bent road each end is square to
+ * the segment it is on and the hit target turns the corner with the road (bus
+ * stops spec §2.6). Every distance is in world units from the anchor's
+ * `distance`, never from `position`, so the conversion stays in
+ * {@link markingAnchor} — which also supplies the kerb lane whatever `lane`
+ * holds (§2.4), and skips a stop on the same terms as any other marking.
+ *
+ * **The footprint slides to fit** (OQ-4): its centre is `distance` held half a
+ * box in from either end, or the road's middle on a road shorter than a box. A
+ * stop dragged to a road's end stays whole with its word centred, where a
+ * clamped stretch would draw half a box with the word at its edge. `position` is
+ * untouched: the slide is how a stop is drawn, not what is stored.
+ *
+ * **Both forms draw in the lane for now.** A bay reaches a taper further each way
+ * and moves the box out of the running lane; until that is drawn, a hand-edited
+ * `form: bay` stays visible and selectable in the lane, the posture
+ * `markingPaint`'s fall-through takes.
+ */
+export function busStop(
+  doc: Document,
+  marking: Marking,
+  offsets: Record<LinkId, number>,
+): BusStopShape | undefined {
+  if (marking.kind.type !== "bus_stop") return undefined;
+  const anchor = markingAnchor(doc, marking, offsets);
+  const link = findLink(doc, marking.link);
+  const points = link && drawnPolyline(doc, link, offsets);
+  if (!anchor || !points) return undefined;
+
+  const total = polylineLength(points);
+  const h = BUS_STOP_LENGTH / 2;
+  const centre =
+    total < 2 * h ? total / 2 : Math.min(total - h, Math.max(h, anchor.distance));
+  const { span } = anchor;
+  // `markingAnchor` has already walked this polyline, so every point exists.
+  const at = (distance: number): MarkingAnchor => ({
+    ...pointAlongPolyline(points, distance)!,
+    span,
+    distance: Math.min(total, Math.max(0, distance)),
+  });
+
+  return {
+    ends: [markingBar(at(centre - h)), markingBar(at(centre + h))],
+    word: markingText(at(centre)),
+    spine: offsetPolyline(
+      polylineStretch(points, centre - h, centre + h),
+      span.offset,
+    ),
+    width: span.width,
+  };
+}
+
+/**
+ * How a marking is drawn: **across** the road at a point, **along** it for the
+ * whole link, or as a bus **stop**'s box over a stretch of it. Exactly one arm is
+ * present.
  */
 export type MarkingForm =
-  | { across: MarkingAnchor; along?: never }
-  | { along: LaneLine; across?: never };
+  | { across: MarkingAnchor; along?: never; stop?: never }
+  | { along: LaneLine; across?: never; stop?: never }
+  | { stop: BusStopShape; across?: never; along?: never };
 
 /**
  * Everything the renderer needs to draw one marking, or `undefined` if it cannot
@@ -3055,6 +3234,10 @@ export function markingForm(
   if (marking.kind.type === "lane_line") {
     const along = laneLine(doc, marking, offsets);
     return along && { along };
+  }
+  if (marking.kind.type === "bus_stop") {
+    const stop = busStop(doc, marking, offsets);
+    return stop && { stop };
   }
   const across = markingAnchor(doc, marking, offsets);
   return across && { across };

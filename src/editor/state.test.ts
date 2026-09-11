@@ -7,6 +7,7 @@ import {
   RawDocument,
 } from "../model/document";
 import { SCHEMA_VERSION, SignKind } from "../model/types";
+import { carriageways, markingForm } from "./geometry";
 import {
   Action,
   EditorState,
@@ -825,6 +826,83 @@ describe("markings", () => {
       });
 
       expect(shrunk.doc.markings).toHaveLength(1);
+    });
+
+    /**
+     * **A bus stop is kept, and loses the `lane` it outgrew** (bus stops spec
+     * §2.4). Kept, because a stop is drawn at the kerb whatever `lane` says, so
+     * dropping one for a field it ignores is data loss. Cleared, because the stale
+     * value would otherwise outlive the kind — the repaint clause is what that
+     * would cost.
+     */
+    describe("a bus stop through a lane shrink", () => {
+      /** Three lanes: a stop repainted from a click in lane 2, then a stop line
+       *  placed in lane 2, both on `L1`. */
+      function stopped(): EditorState {
+        return run(
+          painted(3, 2),
+          {
+            type: "setMarkingKind",
+            id: "M1",
+            kind: { type: "bus_stop", form: "in_lane" },
+          },
+          { type: "addMarking", link: "L1", position: 30, lane: 2 },
+        );
+      }
+
+      it("keeps the stop without its lane, and still drops the stop line", () => {
+        const shrunk = reducer(stopped(), {
+          type: "setLinkLanes",
+          id: "L1",
+          count: 2,
+        });
+
+        expect(shrunk.doc.markings).toEqual([
+          {
+            id: "M1",
+            link: "L1",
+            position: 20,
+            kind: { type: "bus_stop", form: "in_lane" },
+          },
+        ]);
+        expect("lane" in shrunk.doc.markings[0]).toBe(false);
+      });
+
+      /**
+       * What keeping the stale `lane` would cost: repainted as a stop line, the
+       * marking names lane 2 of a two-lane road, which `markingAnchor` skips —
+       * undrawn, unclickable, with no Span control shown while it was a stop.
+       */
+      it("leaves a marking that is still drawn once it is repainted", () => {
+        const doc = run(
+          stopped(),
+          { type: "setLinkLanes", id: "L1", count: 2 },
+          { type: "setMarkingKind", id: "M1", kind: { type: "stop_line" } },
+        ).doc;
+
+        expect(markingForm(doc, doc.markings[0], carriageways(doc))).toBeDefined();
+      });
+
+      /** `keepMarkings`' identity, which the clearing pass has to keep too. */
+      it("hands back the same markings when nothing is outgrown", () => {
+        const before = run(
+          painted(4, 1),
+          {
+            type: "setMarkingKind",
+            id: "M1",
+            kind: { type: "bus_stop", form: "in_lane" },
+          },
+          { type: "addMarking", link: "L1", position: 30, lane: 1 },
+        );
+        const shrunk = reducer(before, {
+          type: "setLinkLanes",
+          id: "L1",
+          count: 2,
+        });
+
+        expect(shrunk.doc.markings).toHaveLength(2);
+        expect(shrunk.doc.markings).toBe(before.doc.markings);
+      });
     });
 
     it("leaves markings on other links alone", () => {

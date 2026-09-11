@@ -95,6 +95,7 @@ import {
   pointAlongPolyline,
   polygonsPath,
   polylineLength,
+  polylineStretch,
   polylinesPath,
   rayCircleExit,
   rayIntersection,
@@ -2005,6 +2006,73 @@ describe("the grid, and the point that lands on it", () => {
  * road is *actually drawn along* rather than derive it a second time (markings
  * spec §2.4).
  */
+describe("polylineStretch", () => {
+  const bent: Vec2[] = [
+    { x: 0, y: 0 },
+    { x: 100, y: 0 },
+    { x: 100, y: 100 },
+  ];
+
+  it("cuts a straight polyline between two distances", () => {
+    const straight: Vec2[] = [
+      { x: 0, y: 0 },
+      { x: 120, y: 0 },
+    ];
+
+    expect(polylineStretch(straight, 37.5, 82.5)).toEqual([
+      { x: 37.5, y: 0 },
+      { x: 82.5, y: 0 },
+    ]);
+  });
+
+  it("carries the vertex of a bend it runs across, and never twice", () => {
+    expect(polylineStretch(bent, 80, 130)).toEqual([
+      { x: 80, y: 0 },
+      { x: 100, y: 0 },
+      { x: 100, y: 30 },
+    ]);
+    // A start exactly on the corner lands at the end of the first leg, so the
+    // corner is that start and is not appended again.
+    expect(polylineStretch(bent, 100, 150)).toEqual([
+      { x: 100, y: 0 },
+      { x: 100, y: 50 },
+    ]);
+  });
+
+  it("clamps both ends to the polyline", () => {
+    expect(polylineStretch(bent, -40, 400)).toEqual(bent);
+  });
+
+  /**
+   * **The ends are exactly where `pointAlongPolyline` puts them**, because both
+   * walk the same segments. The 5e-7 segment is shorter than `SAME_EDGE`, so the
+   * walk skips it and the point 100 along is `(50, 50.0000005)`; a walk that
+   * counted it would land that 5e-7 short, at `(50, 50)` (bus stops §2.6).
+   */
+  it("ends exactly where pointAlongPolyline puts the same distance", () => {
+    const points: Vec2[] = [
+      { x: 0, y: 0 },
+      { x: 50, y: 0 },
+      { x: 50, y: 5e-7 },
+      { x: 50, y: 100 },
+    ];
+    const stretch = polylineStretch(points, 0, 100);
+    const end = stretch[stretch.length - 1];
+
+    expect(end).toEqual(pointAlongPolyline(points, 100)!.at);
+    expect(end).toEqual({ x: 50, y: 50.0000005 });
+  });
+
+  it("has nothing to cut on a polyline with no length", () => {
+    const point: Vec2[] = [
+      { x: 3, y: 4 },
+      { x: 3, y: 4 },
+    ];
+
+    expect(polylineStretch(point, 0, 10)).toEqual([]);
+  });
+});
+
 describe("drawnPolyline", () => {
   /** A two-way pair `N1 ⇄ N2` 120 units apart, `L1` carrying `lanes` lanes. */
   function twoWay(lanes: number, views: Record<LinkId, LinkView> = {}): Document {
@@ -2095,6 +2163,7 @@ describe("markingTeeth and markingZebra", () => {
       at: { x: 0, y: 0 },
       dir: { x: 1, y: 0 },
       segment: 0,
+      distance: 0,
       span: { offset, width },
     };
   }
@@ -2261,6 +2330,7 @@ describe("markingArrow", () => {
       at: { x: 0, y: 0 },
       dir: { x: 1, y: 0 },
       segment: 0,
+      distance: 0,
       span: { offset, width },
     };
   }
@@ -2730,7 +2800,7 @@ describe("textWidth and markingText", () => {
     width: number,
     dir: Vec2 = { x: 1, y: 0 },
   ): MarkingAnchor {
-    return { at: { x: 0, y: 0 }, dir, segment: 0, span: { offset, width } };
+    return { at: { x: 0, y: 0 }, dir, segment: 0, distance: 0, span: { offset, width } };
   }
 
   /**
@@ -2869,6 +2939,7 @@ describe("formatLength and lengthLabel", () => {
         at: { x: 0, y: 0 },
         dir: { x: -1, y: 0 },
         segment: 0,
+        distance: 0,
         span: { offset: 0, width: LANE_PX },
       }).angle,
     ).toBe(180);
@@ -2962,6 +3033,7 @@ describe("signPlate", () => {
       at: { x: 0, y: 0 },
       dir: { x: 1, y: 0 },
       segment: 0,
+      distance: 0,
       span: { offset, width },
     };
   }
@@ -3302,6 +3374,82 @@ describe("markingAnchor, and the end it measures from", () => {
  * Every road below runs **due east** from the origin, so a marking's distance
  * back from the junction reads straight off `120 - at.x`.
  */
+/**
+ * The distance every anchor reports (bus stops spec §2.6), and the kerb a bus
+ * stop keeps whatever its `lane` says (§2.4).
+ */
+describe("markingAnchor, its distance and a bus stop's kerb", () => {
+  /** `N1(0,0) → N2(120,0)` with `n` lanes, carrying `marking`. */
+  function road(n: number, marking: Marking): Document {
+    const base = emptyDocument("kerb");
+    return {
+      ...base,
+      nodes: [
+        { id: "N1", type: "endpoint" },
+        { id: "N2", type: "endpoint" },
+      ],
+      links: [
+        {
+          id: "L1",
+          from_node: "N1",
+          to_node: "N2",
+          lanes: defaults(n),
+          median_gap: DEFAULT_MEDIAN_GAP,
+        },
+      ],
+      layout: {
+        ...base.layout,
+        nodes: { N1: { pos: { x: 0, y: 0 } }, N2: { pos: { x: 120, y: 0 } } },
+      },
+      markings: [marking],
+    };
+  }
+
+  /** A start-anchored marking of `kind`, `position` metres along `L1`. */
+  function painted(kind: Marking["kind"], lane?: number, position = 14): Marking {
+    return {
+      id: "M1",
+      link: "L1",
+      position,
+      ...(lane === undefined ? {} : { lane }),
+      kind,
+    };
+  }
+
+  const anchorOf = (doc: Document) =>
+    markingAnchor(doc, doc.markings[0], carriageways(doc));
+
+  it("reports a distance clamped to the road, as the point it names is", () => {
+    // 400 m is far past a 120-unit road.
+    const doc = road(1, painted({ type: "stop_line" }, undefined, 400));
+    const points = drawnPolyline(doc, doc.links[0], carriageways(doc))!;
+
+    expect(anchorOf(doc)!.distance).toBe(polylineLength(points));
+    expect(anchorOf(doc)!.at).toEqual({ x: 120, y: 0 });
+  });
+
+  it("puts a bus stop in the kerb lane whatever lane it names", () => {
+    const stop = { type: "bus_stop", form: "in_lane" } as const;
+
+    expect(anchorOf(road(3, painted(stop, 2)))!.span).toEqual(
+      laneBands(defaults(3), DEFAULT_LINK_STYLE)[0],
+    );
+    // Two lanes have no lane 2, so a stop tested after the out-of-range skip
+    // would not be drawn at all.
+    expect(anchorOf(road(2, painted(stop, 2)))!.span).toEqual(
+      laneBands(defaults(2), DEFAULT_LINK_STYLE)[0],
+    );
+  });
+
+  it("still paints a turn arrow in the lane it names", () => {
+    const arrow = painted({ type: "turn_arrow", directions: ["through"] }, 2);
+
+    expect(anchorOf(road(3, arrow))!.span).toEqual(
+      laneBands(defaults(3), DEFAULT_LINK_STYLE)[2],
+    );
+  });
+});
+
 describe("markingAnchor at a junction rim", () => {
   /** `N1 → N2` 120 units east, with whatever `N2` turns out to be. */
   function road(
