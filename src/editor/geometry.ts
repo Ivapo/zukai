@@ -2676,6 +2676,13 @@ export function formatLength(metres: number): string {
  *   carriageway of a divided road out by a **positive** offset in its own frame,
  *   so each one's right of travel points away from their shared centreline and
  *   the two labels land outside the pair rather than in the median (OQ-2).
+ * - **Past whatever the road put there first.** `clearance` is added to that
+ *   offset, and a bus bay is the one thing that needs it: a bay opens on the
+ *   **kerb** side, which is the very side this rule derives, so one lying under
+ *   the midpoint sits exactly where the label goes ({@link bayClearance}). It
+ *   defaults to `0`, so a road with no bay is placed as it always was — and the
+ *   default is what keeps this function's arity at two, the shape the invariant
+ *   above is asserted on.
  * - **Upright.** A westbound road paints its words upside down because a driver
  *   reads them; a label is read by a reader of the figure, so a run that would
  *   set backwards is turned through half a circle into `(-90, 90]`. Every
@@ -2691,8 +2698,9 @@ export function formatLength(metres: number): string {
 export function lengthLabel(
   points: Vec2[],
   width: number,
+  clearance = 0,
 ): TextRun | undefined {
-  const mid = pointAlongPolyline(points, polylineLength(points) / 2);
+  const mid = pointAlongPolyline(points, midway(points));
   if (!mid) return undefined;
 
   // Due south counts as backwards so that a vertical road reads bottom-to-top
@@ -2704,7 +2712,7 @@ export function lengthLabel(
   return {
     at: markingPoint(
       mid,
-      width / 2 + LABEL_GAP + (flip ? -BASELINE_DROP : BASELINE_DROP),
+      width / 2 + clearance + LABEL_GAP + (flip ? -BASELINE_DROP : BASELINE_DROP),
       0,
     ),
     angle: flip ? raw - Math.sign(raw) * 180 : raw,
@@ -3281,6 +3289,8 @@ export interface BusBay {
    * the road leaves its kerb-side edge line undrawn.
    */
   cut: [number, number];
+  /** How far out it widens the road: the kerb lane's width, which is its own. */
+  width: number;
 }
 
 /**
@@ -3342,6 +3352,7 @@ export function busBays(
       ],
       mouth: along(opening, e - 1.5),
       cut: [Math.max(0, opening[0]), Math.min(total, opening[1])],
+      width: b,
     });
   }
 
@@ -3350,6 +3361,46 @@ export function busBays(
   const cuts: Record<LinkId, [number, number][]> = {};
   for (const id of Object.keys(byLink)) cuts[id] = mergeStretches(byLink[id]);
   return { bays, cuts };
+}
+
+/**
+ * How far along a polyline its midpoint lies — the one expression
+ * {@link lengthLabel} places its run at and {@link bayClearance} measures a bay's
+ * stretch against, so the label and the bay it has to clear cannot come to
+ * disagree about where the middle of a road is.
+ */
+function midway(points: Vec2[]): number {
+  return polylineLength(points) / 2;
+}
+
+/**
+ * How far a link's length label must stand off to clear a bus bay: the width of
+ * the widest bay lying under the label's own place on that road, and `0` where
+ * none does.
+ *
+ * **The two collide by construction rather than by accident.** A label sits
+ * {@link LABEL_GAP} beyond the road's edge on the **right of travel**
+ * ({@link lengthLabel}), a bay opens on the **kerb** side, and those are the same
+ * side — so a bay under the midpoint is exactly where the label goes, and before
+ * this the two were drawn over each other.
+ *
+ * **Containment of the midpoint is the whole test.** A bay ending just short of it
+ * can still graze a long label, and that is left alone deliberately: how far a run
+ * reaches along the road depends on its *content*, which {@link lengthLabel} does
+ * not take and must not (link-length §2.2).
+ */
+export function bayClearance(
+  bays: BusBay[],
+  link: LinkId,
+  points: Vec2[],
+): number {
+  const at = midway(points);
+  let clearance = 0;
+  for (const bay of bays) {
+    if (bay.link !== link || at < bay.cut[0] || at > bay.cut[1]) continue;
+    clearance = Math.max(clearance, bay.width);
+  }
+  return clearance;
 }
 
 /**

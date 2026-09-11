@@ -38,6 +38,7 @@ import {
   ROAD_MARGIN,
   TAPER_LENGTH,
   TEXT_SIZE,
+  bayClearance,
   boundaryTaken,
   busBays,
   carriageways,
@@ -256,7 +257,14 @@ export function Diagram({
         if (link.length === undefined) return null;
         const pts = drawnPolyline(doc, link, offsets);
         if (!pts) return null;
-        const run = lengthLabel(pts, roadWidth(link.lanes, linkStyle(doc, link.id)));
+        // Past a bus bay, where one lies under the midpoint: a bay opens on the
+        // kerb side, which is the side the label's own rule derives, so the two
+        // land on each other otherwise (bus stops §2.8).
+        const run = lengthLabel(
+          pts,
+          roadWidth(link.lanes, linkStyle(doc, link.id)),
+          bayClearance(bays, link.id, pts),
+        );
         if (!run) return null;
         return (
           <text

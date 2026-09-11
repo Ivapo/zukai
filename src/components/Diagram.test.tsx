@@ -2004,6 +2004,34 @@ describe("road markings", () => {
       expect(svg.indexOf("road-bay")).toBeLessThan(svg.indexOf('class="marking'));
     });
 
+    /**
+     * A link's length label sits `LABEL_GAP` off the **kerb** side — the side a
+     * bay opens on — so a bay under the road's midpoint lands on top of it. The
+     * label clears it by the bay's own width, and a bay anywhere else on the same
+     * road leaves the label exactly where it was.
+     */
+    it("pushes a length label past a bay under it, and past no other", () => {
+      const stated = (doc: Document): Document => ({
+        ...doc,
+        links: doc.links.map((l) => ({ ...l, length: 820 })),
+      });
+      const label = (doc: Document): number[] =>
+        renderToStaticMarkup(<Diagram doc={stated(doc)} />)
+          .match(/<text class="link-length" x="([^"]*)" y="([^"]*)"/)!
+          .slice(1)
+          .map(Number);
+
+      // The 240-unit road's midpoint is 120, which the bay's stretch covers; the
+      // bay at `position = 0` slides to 46.5 and stops 27 short of it.
+      const none = label(roadOf(240, []));
+      const under = label(roadOf(240, [bay(120)]));
+      const elsewhere = label(roadOf(240, [bay(0)]));
+
+      expect(under[0]).toBe(none[0]);
+      expect(under[1] - none[1]).toBeCloseTo(LANE_PX);
+      expect(elsewhere).toEqual(none);
+    });
+
     it("carries the road's class on its group, and the box's chrome in the bay", () => {
       const doc = roadOf(240, [bay(120)]);
       const selected: Interaction = {

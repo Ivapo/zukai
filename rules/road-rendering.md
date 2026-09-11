@@ -274,12 +274,12 @@ moves the road and cannot touch the number.
 **The label is derived, so it is not a `Marking`**: no id, no hit target, no
 `Selection` arm, and a link stating nothing emits no element at all. `lengthLabel`
 puts it at the drawn polyline's midpoint, `roadWidth / 2 + LABEL_GAP` to the **right
-of travel**, turned upright into `(-90, 90]` — the inverse of `markingText`, which
-is paint and does not flip. The side is *derived* rather than chosen: `carriageways`
-steps each carriageway out by a positive offset in its own frame, so both labels of
-a divided road land outside the pair. `formatLength` is the one spelling (`1800m`,
-nearest metre), and the label is a third `<text>` the drawing can emit, hence a
-third arm of `needsText` — `rules/diagram-export.md`.
+of travel**, turned upright into `(-90, 90]` where paint does not flip. The side is
+*derived*: `carriageways` steps each carriageway out by a positive offset in its own
+frame, so a divided road's labels land outside the pair — and, being the **kerb**
+side, it is where a bus bay opens, so one under that midpoint pushes the label out
+by its own width (`bayClearance`). `formatLength` is the one spelling, and the label
+is a third `<text>`, hence a third arm of `needsText` — `rules/diagram-export.md`.
 
 ## Where each piece lives
 

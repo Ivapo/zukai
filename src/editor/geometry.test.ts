@@ -64,6 +64,7 @@ import {
   alignmentShift,
   anchoredAlong,
   bandAt,
+  bayClearance,
   bendInsertion,
   boundaryAt,
   boundaryTaken,
@@ -2916,6 +2917,26 @@ describe("formatLength and lengthLabel", () => {
     expect(lengthLabel.length).toBe(2);
   });
 
+  /**
+   * A bus bay opens on the **kerb** side, which is the side this rule already
+   * derives, so a bay under the midpoint sits exactly where the label goes. The
+   * clearance pushes the run past it, and is `0` for every road without one —
+   * which is also why it is a defaulted parameter: the arity assertion above is
+   * what keeps a *length* out, and a default does not change it.
+   */
+  it("clears a bay lying under it, and moves for nothing else", () => {
+    const straight = road({ x: 0, y: 0 }, { x: 100, y: 0 });
+    const plain = lengthLabel(straight, W)!;
+    const cleared = lengthLabel(straight, W, LANE_PX)!;
+
+    expect(cleared.at.y - plain.at.y).toBeCloseTo(LANE_PX);
+    expect(cleared.at.y).toBeCloseTo(W / 2 + LANE_PX + LABEL_GAP + BASELINE_DROP);
+    // Along the road and upright, it is the same run: only the offset moved.
+    expect(cleared.at.x).toBeCloseTo(plain.at.x);
+    expect(cleared.angle).toBe(plain.angle);
+    expect(lengthLabel(straight, W, 0)).toEqual(plain);
+  });
+
   it("sits beside the road at its midpoint, clear of the asphalt", () => {
     const run = lengthLabel(road({ x: 0, y: 0 }, { x: 100, y: 0 }), W)!;
 
@@ -3722,6 +3743,31 @@ describe("busBays, and the stop a bay takes out of the running lane", () => {
         ],
       ]);
       expect(keptPieces(line, [[0, 240]])).toEqual([]);
+    });
+  });
+
+  /**
+   * A length label and a bay collide by construction: the label stands off the
+   * **right of travel**, a bay opens on the **kerb** side, and those are the same
+   * side of the same road.
+   */
+  describe("bayClearance", () => {
+    /** The drawn polyline of `road`'s 240-unit link, whose midpoint is 120. */
+    const points = [
+      { x: 0, y: 0 },
+      { x: 240, y: 0 },
+    ];
+
+    it("answers with a bay's width under the label, and zero anywhere else", () => {
+      const under = baysOf(road(3, [stop(120, "bay")])).bays;
+      const elsewhere = baysOf(road(3, [stop(0, "bay")])).bays;
+
+      expect(bayClearance(under, "L1", points)).toBe(9);
+      // Slid to 46.5, this one's stretch ends at 93 — 27 short of the midpoint.
+      expect(bayClearance(elsewhere, "L1", points)).toBe(0);
+      // A bay belongs to one link; another road's label is not its business.
+      expect(bayClearance(under, "L2", points)).toBe(0);
+      expect(bayClearance([], "L1", points)).toBe(0);
     });
   });
 });
