@@ -2,7 +2,7 @@
  * The native application menu.
  *
  * Built from JS rather than Rust so its items call the very same
- * {@link FileActions} the toolbar buttons do — one command surface, no menu-id
+ * {@link FileActions} the footer buttons do — one command surface, no menu-id
  * and event plumbing to keep in sync across the language boundary. With
  * `host-tauri.ts` this is one of only two modules that touch the Tauri runtime:
  * under the plain Vite dev server there is no menu at all, `installMenu` reports
@@ -16,11 +16,11 @@ import {
   PredefinedMenuItem,
   Submenu,
 } from "@tauri-apps/api/menu";
-import { FileActions } from "../components/Toolbar";
+import { FileActions } from "../components/Footer";
 import { fileLabel } from "../model/document";
 
 export interface MenuOptions {
-  /** The New/Open/Save/Save As commands, shared with the toolbar. */
+  /** The New/Open/Save/Save As commands, shared with the footer. */
   files: FileActions;
   /** Remembered document paths, most recent first. */
   recents: string[];

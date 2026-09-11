@@ -20,6 +20,9 @@
   --chrome-text: #e2e7eb;
   --chrome-dim: #8b96a1;
   --alert: #e8837a;
+  /* Not `--sign-green`: that plate colour is 2.6:1 on `--desk`, too dark to read
+     as a dot beside a file name. */
+  --ok: #6cc28a;
 
   --radius: 7px;
 
@@ -52,10 +55,14 @@ body {
 
 /* ----- toolbar ----- */
 
+/* Three columns with the outer two equal, so the tool group in the middle one
+   sits on the window's centre line whatever the wordmark and the right-hand
+   controls measure. */
 .toolbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
+  column-gap: 10px;
   height: 52px;
   padding: 0 14px;
   background: var(--desk);
@@ -82,77 +89,11 @@ body {
   color: var(--chrome-dim);
 }
 
-.toolbar-left {
-  display: flex;
-  align-items: baseline;
-  gap: 14px;
-}
-
-.doc-name {
-  font-family: "Overpass Mono", monospace;
-  font-size: 12px;
-  color: var(--chrome-dim);
-}
-
-.doc-name.is-dirty::before {
-  content: "● ";
-  color: var(--paint-yellow);
-}
-
-.file-actions {
-  display: flex;
-  gap: 2px;
-}
-
-.file-btn {
-  padding: 5px 8px;
-  border: none;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--chrome-dim);
-  font-family: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  transition: background 0.12s, color 0.12s;
-}
-
-.file-btn:hover {
-  background: var(--desk-2);
-  color: var(--chrome-text);
-}
-
-/* Browser-only, beside the file row: the one way to get a drawing onto the
-   canvas with no checkout. A native control, so it inherits the platform's
-   keyboard and screen-reader behaviour; it only has to look like the buttons. */
-.example-select {
-  padding: 5px 8px;
-  border: none;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--chrome-dim);
-  font-family: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  transition: background 0.12s, color 0.12s;
-}
-
-.example-select:hover {
-  background: var(--desk-2);
-  color: var(--chrome-text);
-}
-
-/* The dropdown itself is painted by the platform, which does not inherit the
-   toolbar's dark ground — name it, or the options land black-on-black. */
-.example-select option {
-  background: var(--desk-2);
-  color: var(--chrome-text);
-}
-
-/* Undo/redo and the tool group share the header's middle slot, so the toolbar
-   keeps its three-way space-between layout. */
-.toolbar-center {
+/* Undo/redo at its start, beside the tools; zoom at its end, against the edge. */
+.toolbar-right {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
 }
 
@@ -248,6 +189,95 @@ body {
   font-family: "Overpass Mono", monospace;
   font-size: 12px;
   color: var(--chrome-dim);
+}
+
+/* ----- footer ----- */
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  height: 36px;
+  padding: 0 14px;
+  background: var(--desk);
+  border-top: 1px solid var(--line);
+  user-select: none;
+}
+
+/* Cut short rather than wrapped: a long file name must not push the file row
+   out of the window. */
+.doc-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: "Overpass Mono", monospace;
+  font-size: 12px;
+  color: var(--chrome-dim);
+}
+
+.doc-name.is-dirty::before {
+  content: "● ";
+  color: var(--paint-yellow);
+}
+
+/* Desktop only — `Footer.tsx:docStatus` says why a browser never shows it. */
+.doc-name.is-saved::before {
+  content: "● ";
+  color: var(--ok);
+}
+
+.file-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+}
+
+.file-btn {
+  padding: 5px 8px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--chrome-dim);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.file-btn:hover {
+  background: var(--desk-2);
+  color: var(--chrome-text);
+}
+
+/* Browser-only: the Examples menu, and Export's SVG/PNG menu — each a native
+   `<select>` used as a menu of commands. A native control inherits the
+   platform's keyboard and screen-reader behaviour; it only has to look like the
+   buttons beside it. */
+.command-select {
+  padding: 5px 8px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--chrome-dim);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.command-select:hover {
+  background: var(--desk-2);
+  color: var(--chrome-text);
+}
+
+/* The dropdown itself is painted by the platform, which does not inherit the
+   footer's dark ground — name it, or the options land black-on-black. */
+.command-select option {
+  background: var(--desk-2);
+  color: var(--chrome-text);
 }
 
 /* ----- workspace ----- */

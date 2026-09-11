@@ -5,7 +5,7 @@ note: >
   Publish Zukai on the web — the editor running in a browser tab with no Rust
   toolchain, and a landing page made of the diagrams it draws.
 status: accepted
-last_updated: 2026-08-23
+last_updated: 2026-09-11
 
 phases:
   - name: "Phase 1 — The host seam, and the file commands working in a browser"
@@ -158,7 +158,7 @@ commands the seam is marked in two and open in seven.
 Three things behave differently in a browser:
 
 - **The command buttons already exist — they just fail.**
-  `Toolbar.tsx:fileCommands` renders New, Open…, Save, Save As… and Export…
+  `fileCommands` (then in `Toolbar.tsx`) renders New, Open…, Save, Save As… and Export…
   unconditionally, and `rules/persistence.md` names that row as one of the
   three trigger surfaces. The native menu is *not* the only way to reach the
   file commands; it is the only way to reach `onImport` (whose own comment
@@ -1106,7 +1106,7 @@ them, this phase consumes them.
   `Four-arm roundabout` inside — and the answer is to name the files so their
   stems read, not to add a manifest.
 
-- **Scope, the surface.** `Toolbar.tsx:fileCommands()` returns `FileCommand[]`
+- **Scope, the surface.** `fileCommands()` (then in `Toolbar.tsx`) returns `FileCommand[]`
   (`{label, hint?, key: keyof FileActions}`), which is a **button** shape and
   cannot carry a list — so the examples are deliberately *not* a `FileCommand`.
   **Nor can the handler join `FileActions`**: the row renders

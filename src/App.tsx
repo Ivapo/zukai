@@ -2,8 +2,9 @@ import { isTauri } from "@tauri-apps/api/core";
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Banner } from "./components/Banner";
 import { Canvas } from "./components/Canvas";
+import { FileActions, Footer } from "./components/Footer";
 import { Inspector } from "./components/Inspector";
-import { FileActions, Toolbar } from "./components/Toolbar";
+import { Toolbar } from "./components/Toolbar";
 import {
   exportDiagram,
   importNetwork,
@@ -72,7 +73,7 @@ function App() {
     };
   }, []);
 
-  // The native menu mirrors the toolbar commands; rebuilt when the recent list
+  // The native menu mirrors the footer's commands; rebuilt when the recent list
   // changes so "Open Recent" stays current.
   useEffect(() => {
     void installMenu({
@@ -158,21 +159,21 @@ function App() {
 
   return (
     <div className="app">
-      <Toolbar
-        state={state}
-        dispatch={dispatch}
-        files={files}
-        // Not a `FileActions` member: that interface is a button surface the
-        // native menu shares, and this takes an argument (`Toolbar.tsx`).
-        onOpenExample={(stem) =>
-          void openExample(stateRef.current, dispatch, stem)
-        }
-      />
+      <Toolbar state={state} dispatch={dispatch} />
       <Banner />
       <div className="workspace">
         <Canvas state={state} dispatch={dispatch} />
         <Inspector state={state} dispatch={dispatch} />
       </div>
+      <Footer
+        state={state}
+        files={files}
+        // Not a `FileActions` member: that interface is a button surface the
+        // native menu shares, and this takes an argument (`Footer.tsx`).
+        onOpenExample={(stem) =>
+          void openExample(stateRef.current, dispatch, stem)
+        }
+      />
     </div>
   );
 }

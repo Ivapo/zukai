@@ -105,7 +105,7 @@ export const browserHost: Host = {
     if (file === null) return null;
     // `file.name`, because that is the whole of what a page learns about where
     // a file came from — and `OpenedDocument.path` is host-opaque for exactly
-    // this reason. It is what the toolbar then shows and what an export names
+    // this reason. It is what the footer then shows and what an export names
     // itself after.
     return { doc: await this.openDocumentText(await file.text()), path: file.name };
   },

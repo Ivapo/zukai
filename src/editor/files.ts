@@ -136,7 +136,7 @@ export async function openDocumentFile(
  * seam — decodes it. So there is no new host method, no synthesized `File` and
  * no second codec call site.
  *
- * It installs under `<stem>.zkai`, so the title, the toolbar's name and a later
+ * It installs under `<stem>.zkai`, so the title, the footer's name and a later
  * Save all read as that file, and the document lands **clean** — which is what
  * `loadDocument` means, and what an example nobody has edited yet is.
  */

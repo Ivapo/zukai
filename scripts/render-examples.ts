@@ -70,7 +70,7 @@ function exampleFiles(): string[] {
 }
 
 /**
- * Open one document in the demo and press Export SVG, returning the bytes the
+ * Open one document in the demo and export it as SVG, returning the bytes the
  * browser downloaded.
  *
  * Three things here are dictated by how the browser host actually works, and
@@ -112,7 +112,9 @@ async function exportOne(page: Page, file: string): Promise<Buffer> {
   }
 
   const downloading = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Export SVG", exact: true }).click();
+  await page
+    .getByRole("combobox", { name: "Export", exact: true })
+    .selectOption("svg");
   const download = await downloading;
 
   const chunks: Buffer[] = [];

@@ -1,45 +1,13 @@
-/** Top control bar: wordmark, file commands, tool selection, and zoom readout. */
+/** Top control bar: wordmark, tool selection, undo/redo, and zoom readout. */
 
-import { isTauri } from "@tauri-apps/api/core";
 import type { ReactNode } from "react";
-import { EXAMPLES, exampleLabel } from "../editor/examples";
 import { clampZoom } from "../editor/geometry";
 import { Action, EditorState, Tool } from "../editor/state";
-import { fileLabel } from "../model/document";
-
-/**
- * The file commands, wired to the host glue by `App`.
- *
- * The shared command surface, of which each toolbar row is deliberately a
- * *subset* — see {@link fileCommands}.
- */
-export interface FileActions {
-  onNew: () => void;
-  onOpen: () => void;
-  onSave: () => void;
-  onSaveAs: () => void;
-  /** The desktop's one dialog-driven Export…; the name chooses the format. */
-  onExport: () => void;
-  /** Import an Assimilator `network.yaml`. */
-  onImport: () => void;
-  /** The browser's two explicit Export commands: a download has no dialog. */
-  onExportSvg: () => void;
-  onExportPng: () => void;
-}
+import { MOD, SHIFT_MOD } from "./shortcuts";
 
 interface ToolbarProps {
   state: EditorState;
   dispatch: (action: Action) => void;
-  files: FileActions;
-  /**
-   * Open one of the bundled examples, by stem.
-   *
-   * Deliberately **not** a member of {@link FileActions}: the row renders
-   * `onClick={files[c.key]}` against `keyof FileActions`, so a
-   * `(stem: string) => void` in that interface widens the union and fails to
-   * assign — and `menu.ts` shares it, while the native menu wants nothing here.
-   */
-  onOpenExample: (stem: string) => void;
 }
 
 const TOOLS: { tool: Tool; label: string; hint: string; icon: ReactNode }[] = [
@@ -50,96 +18,33 @@ const TOOLS: { tool: Tool; label: string; hint: string; icon: ReactNode }[] = [
   { tool: "sign", label: "Sign", hint: "S", icon: <SignIcon /> },
 ];
 
-/** Shortcut prefixes, shown in tooltips: ⌘ on macOS, Ctrl elsewhere. */
-const MAC =
-  typeof navigator !== "undefined" && navigator.userAgent.includes("Mac");
-const MOD = MAC ? "⌘" : "Ctrl+";
-const SHIFT_MOD = MAC ? "⇧⌘" : "Ctrl+Shift+";
-
-interface FileCommand {
-  label: string;
-  /** The accelerator, for the tooltip. Absent where the command has none. */
-  hint?: string;
-  key: keyof FileActions;
-}
-
-/** The desktop's row: the everyday five, each with an accelerator. */
-const DESKTOP_COMMANDS: FileCommand[] = [
-  { label: "New", hint: `${MOD}N`, key: "onNew" },
-  { label: "Open…", hint: `${MOD}O`, key: "onOpen" },
-  { label: "Save", hint: `${MOD}S`, key: "onSave" },
-  { label: "Save As…", hint: `${SHIFT_MOD}S`, key: "onSaveAs" },
-  { label: "Export…", hint: `${MOD}E`, key: "onExport" },
-];
-
-/**
- * The browser's row. It differs in two ways, both forced rather than chosen.
- * Export splits, because a download has no dialog to read a format off a name
- * (`specs/web_demo_spec.md` §2.7). And Import earns a button, because there is
- * no native menu to reach it from — the toolbar is the whole command surface
- * here.
- */
-const BROWSER_COMMANDS: FileCommand[] = [
-  { label: "New", hint: `${MOD}N`, key: "onNew" },
-  { label: "Open…", hint: `${MOD}O`, key: "onOpen" },
-  { label: "Save", hint: `${MOD}S`, key: "onSave" },
-  { label: "Save As…", hint: `${SHIFT_MOD}S`, key: "onSaveAs" },
-  { label: "Import…", key: "onImport" },
-  { label: "Export SVG", hint: `${MOD}E`, key: "onExportSvg" },
-  { label: "Export PNG", hint: `${SHIFT_MOD}E`, key: "onExportPng" },
-];
-
-/**
- * Which row this host shows. Read synchronously at render: `App`'s
- * `menuInstalled` only turns true once `installMenu` resolves over IPC, so a row
- * gated on that would show the browser's shape for the first frames of a desktop
- * launch.
- */
-function fileCommands(): FileCommand[] {
-  return isTauri() ? DESKTOP_COMMANDS : BROWSER_COMMANDS;
-}
-
-export function Toolbar({
-  state,
-  dispatch,
-  files,
-  onOpenExample,
-}: ToolbarProps) {
+export function Toolbar({ state, dispatch }: ToolbarProps) {
   const { tool, view } = state;
   return (
     <header className="toolbar">
-      <div className="toolbar-left">
-        <div className="wordmark">
-          Zukai<span className="wordmark-sub">schematic</span>
-        </div>
-        <span
-          className={`doc-name${state.dirty ? " is-dirty" : ""}`}
-          title={state.dirty ? "Unsaved changes" : undefined}
-        >
-          {fileLabel(state.currentPath)}
-        </span>
-
-        <div className="file-actions">
-          {fileCommands().map((c) => (
-            <button
-              key={c.label}
-              className="file-btn"
-              title={
-                c.hint
-                  ? `${c.label.replace("…", "")} (${c.hint})`
-                  : c.label.replace("…", "")
-              }
-              onClick={files[c.key]}
-            >
-              {c.label}
-            </button>
-          ))}
-        </div>
-
-        {!isTauri() && <ExampleSelect onOpen={onOpenExample} />}
+      <div className="wordmark">
+        Zukai<span className="wordmark-sub">schematic</span>
       </div>
 
-      <div className="toolbar-center">
+      <div className="tools" role="radiogroup" aria-label="Drawing tool">
+        {TOOLS.map((t) => (
+          <button
+            key={t.tool}
+            className={`tool${tool === t.tool ? " is-active" : ""}`}
+            role="radio"
+            aria-checked={tool === t.tool}
+            title={`${t.label} (${t.hint})`}
+            onClick={() => dispatch({ type: "setTool", tool: t.tool })}
+          >
+            {t.icon}
+            <span>{t.label}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Undo/redo open the right-hand column rather than sharing the middle
+          one, so the tool group alone sits on the window's centre line. */}
+      <div className="toolbar-right">
         <div className="history">
           <button
             className="history-btn"
@@ -161,84 +66,25 @@ export function Toolbar({
           </button>
         </div>
 
-        <div className="tools" role="radiogroup" aria-label="Drawing tool">
-          {TOOLS.map((t) => (
-            <button
-              key={t.tool}
-              className={`tool${tool === t.tool ? " is-active" : ""}`}
-              role="radio"
-              aria-checked={tool === t.tool}
-              title={`${t.label} (${t.hint})`}
-              onClick={() => dispatch({ type: "setTool", tool: t.tool })}
-            >
-              {t.icon}
-              <span>{t.label}</span>
-            </button>
-          ))}
+        <div className="zoom">
+          <button
+            className="zoom-btn"
+            title="Zoom out"
+            onClick={() => dispatch({ type: "setView", view: scaleView(view, 1 / 1.2) })}
+          >
+            −
+          </button>
+          <span className="zoom-value">{Math.round(view.k * 100)}%</span>
+          <button
+            className="zoom-btn"
+            title="Zoom in"
+            onClick={() => dispatch({ type: "setView", view: scaleView(view, 1.2) })}
+          >
+            +
+          </button>
         </div>
       </div>
-
-      <div className="zoom">
-        <button
-          className="zoom-btn"
-          title="Zoom out"
-          onClick={() => dispatch({ type: "setView", view: scaleView(view, 1 / 1.2) })}
-        >
-          −
-        </button>
-        <span className="zoom-value">{Math.round(view.k * 100)}%</span>
-        <button
-          className="zoom-btn"
-          title="Zoom in"
-          onClick={() => dispatch({ type: "setView", view: scaleView(view, 1.2) })}
-        >
-          +
-        </button>
-      </div>
     </header>
-  );
-}
-
-/**
- * The browser's Examples menu: the one way to get a drawing onto the canvas
- * without a repo checkout.
- *
- * **Browser-only**, gated on the synchronous `isTauri()` at the call site for
- * the reason {@link fileCommands} gives — a desktop user has Open and a
- * filesystem, and a surface keyed to `App`'s `menuInstalled` would flash the
- * browser's shape for the first frames of a desktop launch.
- *
- * A native `<select>` rather than a bespoke dropdown: the toolbar is
- * provisional, and this is keyboard- and screen-reader-reachable for free.
- *
- * **It is controlled at `""` and never moves off its placeholder**, which is
- * what makes re-choosing the same example work at all. Left displaying its last
- * pick, choosing that entry again fires no `change` event and the document
- * becomes unreachable until the visitor picks a different one first — so React's
- * controlled-state restore, which resets the element after the change event even
- * with no re-render, is load-bearing rather than tidiness. It also keeps the
- * control from claiming to show which document is open; `.doc-name` has that
- * job, and after a *declined* discard the open document is not the one just
- * chosen.
- */
-function ExampleSelect({ onOpen }: { onOpen: (stem: string) => void }) {
-  return (
-    <select
-      className="example-select"
-      aria-label="Open an example"
-      title="Open an example schematic"
-      value=""
-      onChange={(e) => onOpen(e.target.value)}
-    >
-      <option value="" disabled>
-        Examples…
-      </option>
-      {Object.keys(EXAMPLES).map((stem) => (
-        <option key={stem} value={stem}>
-          {exampleLabel(stem)}
-        </option>
-      ))}
-    </select>
   );
 }
 
