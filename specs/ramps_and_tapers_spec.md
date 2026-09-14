@@ -1137,6 +1137,14 @@ hang nearside") for a reader to untangle. Three things decide it:
   head at the link's far end — so the reader converts `right of travel` to a side
   of the screen by looking, which is the step the frame is for.
 
+> **CORRECTED 2026-09-14 — the arrow is at the midpoint, and only on the canvas's
+> selected link; see `road_declutter_spec.md` §2.1.** True when written; commit
+> `67f9018` (2026-09-11) moved the arrow halfway along the road, and zk-017 Phase 1
+> made it chrome: no exported figure carries one, and the canvas draws it on the
+> selected link alone. The argument above still holds, because this readout is shown only for a
+> selected link — which is exactly where the arrow now is — but "the picture"
+> means the canvas, not a figure.
+
 **The magnitude is canvas units and is named as such**, on the precedent the panel
 already sets for the one other quantity of this kind: the bend `Position` readout
 (`Inspector.tsx`, the `selection.kind === "bend"` arm) carries a comment declaring

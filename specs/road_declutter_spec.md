@@ -11,7 +11,7 @@ last_updated: 2026-09-14
 phases:
   - name: "Phase 1 — The direction arrow becomes chrome"
     reviewed: 2026-09-14
-    shipped: null
+    shipped: 2026-09-14
     cut: null
     by: null
   - name: "Phase 2 — Road class goes"

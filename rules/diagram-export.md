@@ -52,8 +52,8 @@ The consequence that matters: **a new glyph exports for free.** Draw it in
 The rejected alternative — clone the live `<svg>` and delete the chrome — ships
 chrome the day someone adds an affordance and forgets. `export.test.ts` asserts
 the class tokens are absent, matching **tokens, not bare words** (`road-hit|jn-hit|
-marking-hit|sign-hit|bend-hit|bend-handle|node-dot|-halo|is-selected|link-preview|
-grid|cursor`), because `--paint-white` contains the substring `hit`.
+marking-hit|sign-hit|bend-hit|bend-handle|node-dot|road-arrow|-halo|is-selected|
+link-preview|grid|cursor`), because `--paint-white` contains the substring `hit`.
 
 ## The paint travels inside the file
 

@@ -34,5 +34,5 @@
   Publish Zukai on the web — the editor running in a browser tab with no Rust toolchain, and a landing page made of the diagrams it draws.
 - **[bus-stops](bus_stops_spec.md)** — `zk-016` · accepted · done
   Draw a bus stop where buses stop — a box lettered BUS in the kerb lane, or pulled into a bay that widens the road beside it — as a marking kind rather than a new object, after the edge line learns to stop for a bay.
-- **[road-declutter](road_declutter_spec.md)** — `zk-017` · accepted · pending
+- **[road-declutter](road_declutter_spec.md)** — `zk-017` · accepted · partial
   Take off the road what a figure's reader never asked for — the direction arrowhead halfway along every link becomes an editing mark on the selected one, and the four road classes, two of which draw identically, go.

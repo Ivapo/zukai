@@ -176,18 +176,18 @@ renders `<Diagram doc={doc} />` with no such prop, so there is no filter anyone 
 forget (`rules/diagram-export.md`). What hangs off it: the five `…PointerDown`
 callbacks, the fat invisible hit paths (`.road-hit`, `.marking-hit`, `.jn-hit`,
 `.sign-hit`, `.bend-hit`), the selection halos, `.link-preview`, the bend handles,
-**`.node-dot`**, and `vector-effect="non-scaling-stroke"` on every hairline.
+**`.node-dot`**, **`.road-arrow`** — through `selected`, so on the selected link
+alone — and `vector-effect="non-scaling-stroke"` on every hairline.
 
 Two rules keep it honest. Chrome paint lives in `src/styles.css`, **never** in
-`styles/diagram.css`, which travels inside every exported file — and the dot's four
-rules are there too, the one piece that *paints* and is chrome anyway, because a
-figure draws a fragment whose roads run off the frame and a bead on a cut end says
-one stops there (ramps §2.11.1). And every chrome class must be in
-`export.test.ts`'s `CHROME` regex — **ten** assertions reuse it, and an unlisted
-class makes all ten pass for markup that leaks into the figure. Measured: a bend
-handle leaked into every export passed that file unchanged before
-`bend-handle`/`bend-hit` were added, and with `node-dot` unlisted an ungated dot
-fails 4 tests rather than 13.
+`styles/diagram.css`, which travels inside every exported file — the dot's and the
+arrow's rules too, the pieces that *paint* and are chrome anyway: a bead on a cut end
+says a road stops there, and no road is painted with an arrowhead (ramps §2.11.1,
+road declutter §2.1). And every chrome class must be in `export.test.ts`'s `CHROME`
+regex — twelve tests reuse it, all passing for markup that leaks into the figure
+while its class is unlisted. Measured: a bend handle leaked into every export passed
+that file unchanged before `bend-handle`/`bend-hit` were added, and with `node-dot`
+unlisted an ungated dot fails 4 tests rather than 13.
 
 A marking and a sign each carry an unconditional `stopPropagation`, making them
 small **dead zones for the node tool** — nudging the click is the whole remedy.
