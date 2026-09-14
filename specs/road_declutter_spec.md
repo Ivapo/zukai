@@ -15,7 +15,7 @@ phases:
     cut: null
     by: null
   - name: "Phase 2 — Road class goes"
-    reviewed: null
+    reviewed: 2026-09-14
     shipped: null
     cut: null
     by: null
@@ -86,7 +86,7 @@ Canvas ▸ click RAMP
 ```
 
 A ramp still reads as a ramp: it is one lane leaving three through a gore, which is
-what the lane count, the taper and the chevrons already say (§2.2).
+what the lane count, the gore and its chevrons already say (§2.2).
 
 ### 1.1 Non-goals
 
@@ -148,8 +148,8 @@ label, not the other way round — so gating it moves no label.
 ### 2.2 Road class goes, whole, and nothing inherits it (decision, recorded)
 
 **What the class could say, the lanes already say.** A hard shoulder is a
-`shoulder` lane and draws its solid line and hatch. Width is lane count, and
-`geometry.ts:classWidthFactor`'s own doc comment concedes the tension: "never large
+`shoulder` lane and draws its solid line and hatch. Width is lane count, and the doc
+comment on `classWidthFactor` in `geometry.ts` concedes the tension: "never large
 enough to confuse lane count: road width is how a reader counts lanes". A ×0.8 lane
 is exactly a quantity that makes a 5-lane ramp and a 4-lane arterial the same width.
 A ramp's identity is its topology — a gore, a taper, one lane — and every one of
@@ -160,15 +160,18 @@ rendering effect restores the exact defect `road_rendering_spec.md` §1 opened o
 a control that stores a choice and draws nothing — and keeping it only for the
 round trip is the field `CLAUDE.md` says not to add.
 
-**What goes**, in both mirrors and the renderer:
+**What goes**, in both mirrors and the renderer. A symbol this phase deletes is named
+in words — `LinkStyle` in `layout.rs` — and never as `file:symbol`: `spec-lint`
+resolves the second form, and fails `CIT_SYMBOL_ABSENT` the moment the symbol is gone.
 
-- **Model.** `layout.rs:LinkStyle` and `LinkView.style`; `types.ts:LinkStyle` and
-  `LinkView.style`, leaving `LinkView` with two optional fields.
-- **Derivation.** `geometry.ts:classWidthFactor` and `CLASS_WIDTH_FACTOR`; the
+- **Model.** `LinkStyle` and `LinkView.style` in `layout.rs`; `LinkStyle` and
+  `LinkView.style` in `types.ts`, leaving `LinkView` with two optional fields.
+- **Derivation.** `classWidthFactor` and `CLASS_WIDTH_FACTOR` in `geometry.ts`; the
   `style` parameter of `laneWidths`, `roadWidth`, `laneBands`, `alignmentShift` and
   `alignmentReading`, and of every call site that reads `linkStyle(doc, id)` to feed
-  one (`Canvas.tsx`, `Diagram.tsx`, `export.tsx:strokeAllowance`, `geometry.ts`);
-  `document.ts:linkStyle` and `DEFAULT_LINK_STYLE`.
+  one (`Canvas.tsx`, `Diagram.tsx`, `Inspector.tsx:Inspector`,
+  `export.tsx:strokeAllowance`, `geometry.ts`); `linkStyle` and `DEFAULT_LINK_STYLE`
+  in `document.ts`.
 - **Paint.** The class token on the road group, on a taper's group and on a bay's
   (`road-${style}` in `RoadShape`, `TaperShape` and `BayShape`, and the `style` field
   of the wedge record in `Diagram.tsx` and of `geometry.ts:BusBay` that carry it
@@ -330,20 +333,30 @@ the one asphalt, in the figure and on the canvas; the panel loses its Road class
     `view`, `network/import.rs:network_to_document`), which stops inserting a
     `LinkView` per link.
     Regenerate both import goldens through `ZUKAI_UPDATE_GOLDEN=1 cargo test`.
-  - **TypeScript model and state.** `types.ts:LinkStyle` and `LinkView.style`;
-    `document.ts:linkStyle` and `DEFAULT_LINK_STYLE`; `state.ts`'s `setLinkStyle`
+  - **TypeScript model and state.** `LinkStyle` and `LinkView.style` in `types.ts`;
+    `linkStyle` and `DEFAULT_LINK_STYLE` in `document.ts`; `state.ts`'s `setLinkStyle`
     action arm and function; `completeLink` inserts no view; `setLinkAlign` and
     `withBends` mint `{}`.
   - **Geometry.** `classWidthFactor`, `CLASS_WIDTH_FACTOR`, and the `style` parameter
     of `laneWidths`, `roadWidth`, `laneBands`, `alignmentShift`, `alignmentReading` and
-    their call sites; the `style` field of the record `geometry.ts` builds per bay.
+    their call sites, `Inspector.tsx:Inspector` among them; the `style` field of the
+    record `geometry.ts` builds per bay.
   - **Render and panel.** The class token on the road, taper and bay groups and the
     `style` fields feeding the last two in `Diagram.tsx`; the road-class block and
     `--asphalt-2` in `diagram.css`; the *Road class* row and `LINK_STYLES` in
     `Inspector.tsx`, and the Lane region comment's example figures, which quote a
     ramp's and a local road's widths.
-  - **Examples.** Strip `style:` from the three `examples/*.zkai`, dropping any view
-    left empty; regenerate `examples/rendered/*.svg` and `index.html`.
+  - **Comments naming a class**, which the `git grep` below finds and so must go in
+    this pass: the sign comment in `diagram.css` citing `.road-local .road-casing`
+    (outside the road-class block, and copied into every rendered figure); the doc
+    comments on `TaperShape` and `BayShape`; `export.tsx:strokeAllowance`'s doc
+    comment, which says the class is part of the width it measures;
+    `withBends`' `{@link setLinkStyle}`; and the taper comment in `Diagram.test.tsx`
+    naming `.road-local .road-taper`.
+  - **Examples.** Strip `style:` from the three `examples/*.zkai`. All 19 views in
+    them are class-only, so each file's `layout.links` key goes whole rather than
+    being left as a bare `links:`. Regenerate `examples/rendered/*.svg` and
+    `index.html`.
 - **Exit gate:**
   - `bun run build`, `bun run test`, and from `src-tauri/` `cargo test`,
     `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings`, all green;
@@ -358,26 +371,97 @@ the one asphalt, in the figure and on the canvas; the panel loses its Road class
     import produces a document whose `layout.links` is empty.
   - `state.test.ts`: `completeLink` leaves `layout.links` without the new link's id;
     `setLinkAlign` and a bend placed on such a link each create its view.
-  - Shipped tests that assert a class are **deleted, not rewritten to pass**:
-    `geometry.test.ts`'s width-factor cases (including the 1-lane ramp narrower than a
-    1-lane arterial), `Diagram.test.tsx`'s four-class token loop, the arterial
-    fallback, and the `pad("ramp") < pad("arterial")` comparison;
-    `export.test.ts`'s class-reaches-the-file case and `strokeAllowance`-at-its-class
-    case. Class tokens in unrelated assertions (`<g class="taper road-motorway">`,
-    `<g class="bay road-arterial">`) are edited to the token-free group.
-  - Dev pass (`bun run dev`): open `motorway-ramp`; the ramp is a full-width lane on
-    the same asphalt as the mainline; the Link panel has no Road class row; open a
-    pre-change `.zkai` carrying `style: local` and it draws; save it and the file has
-    no `style` key; undo and redo an alignment change on a link with no view.
-- **Close-out:** `rules/road-rendering.md` (the lane-width derivation loses its factor;
-  the "Road class paints as a class token" section goes); `rules/document-model.md`
-  (a third removed-field example; `LinkStyle` leaves the layer table);
-  `rules/diagram-export.md` (`strokeAllowance` and its class width),
-  `rules/road-joints.md` (a taper's class token), `rules/network-yaml.md` (import's
-  default class, and that it writes no view) — each in place;
-  **the supersession lands here, both halves in one commit**: this spec's `supersedes`
-  gains `{id: zk-004, phases: ["Phase 2 — Road class paints"]}` and
-  `road_rendering_spec.md` Phase 2 gains `cut: <ship date>, by: zk-017` — `spec-lint`
-  rejects either half alone (`EDGE_PHASE_NOT_CUT`), which is why the draft carries
-  neither. No `## 0.` note on zk-004: a phase-scoped cut leaves it `accepted`, and the
-  edge is the record. Roadmap memory: one line. One push.
+  - **Shipped tests: one of three outcomes, decided by what the test asserts.** No
+    test is rewritten to pass. An expected literal that moves under the second rule is
+    a finding to stop on, not an edit to make.
+    1. **Deleted whole — the class is the subject.** Exactly these:
+       - `Diagram.test.tsx`: `describe("road class")`, all four cases.
+       - `geometry.test.ts`: `describe("classWidthFactor")`, all six cases;
+         `alignmentShift`'s "shifts a ramp less far than an arterial of the same lane
+         count"; and "measures each carriageway at its own road class".
+       - `export.test.ts`: "measures the road at its own class, not the default" and
+         "carries the road class and its paint rule into the file".
+       - `state.test.ts`: "sets an alignment without disturbing the road class".
+    2. **The class leaves the fixture; every assertion stands.** Here the class is a
+       loop variable, a helper default or a fixture value, for an invariant that is
+       not about class. The loop, parameter or `setLinkStyle` action goes:
+       - the class loops in `describe("alignmentShift")` and
+         `describe("alignmentReading")`;
+       - the three "…at every lane count and class" containment cases in
+         `geometry.test.ts`, whose titles lose "and class";
+       - the `style` parameter of `geometry.test.ts`'s `end()` and `carriageway()`
+         helpers, and every `{ style: DEFAULT_LINK_STYLE, … }` view literal;
+       - the two `setLinkStyle` actions in the taper fixture;
+       - the gore fixtures that set `L3` to `ramp`, in `Diagram.test.tsx` and
+         `export.test.ts`. Review round 1 set every factor to 1 and broke no literal
+         in either.
+
+       Edits forced only by a removed parameter or type are not listed:
+       `DEFAULT_LINK_STYLE` passed positionally, `linkStyle(doc, id)` fed to a
+       helper, and imports and helpers left unused. `tsc` names each one, and each
+       has exactly one fix.
+    3. **Rewritten as stated here — the class carried a claim that outlives it.**
+       - `geometry.test.ts` "draws nothing where the two casing edges agree, whatever
+         the lane counts": the 5-lane `ramp` becomes 5 lanes of `2.8` m against 4 of
+         `3.5` m. Both draw exactly `39` (`5 × 2.8 × 9/3.5 + 3`, measured in
+         floating point), so `toBe` and the empty-wedge assertion stand.
+       - "keeps every direction set inside the band, at every size": the size is
+         what this case varies, and `ramp` was its narrow one. That size becomes
+         three lanes of `2.8` m, the width a ramp lane drew at (`0.8 × 3.5`), so the
+         case still spans two band widths.
+       - "pins the face's own metrics": the cap-height bound becomes `LANE_PX`, the
+         narrowest default lane once no class narrows one, and its comment says so.
+       - `import.rs`, `layout_is_seeded_with_defaults_rather_than_derived`: the
+         `links.len() == 3` assertion and the per-view loop become
+         `assert!(doc.layout.links.is_empty())`, which is the import clause above.
+         Its junction-glyph half stays.
+       - `state.test.ts` view shapes: `{ style: "arterial", align: "offside" }` →
+         `{ align: "offside" }`, `{ style: "arterial" }` → `{}`, and
+         `{ style: "arterial", bends }` → `{ bends }`. In "is one undo step,
+         restoring the alignment the link had before", the last assertion becomes
+         `expect(view(twice)).toBeUndefined()`, because the link it starts from now
+         has no view.
+       - `Diagram.test.tsx`'s `roadGroup` helper matches `<g class="road">` rather than
+         `road road-[^"]*`. `<g class="taper road-motorway">` and
+         `<g class="bay road-arterial">` become `<g class="taper">` and
+         `<g class="bay">`. `geometry.test.ts`'s `bays[0].style` assertion goes with
+         the field.
+       - The bus-bay case "carries the road's class on its group, and the box's
+         chrome in the bay" loses the class from its title and from its comment
+         ("The class token reaches the bay…"). Its assertion is now the token-free
+         group, and the grep gate cannot see a title.
+  - Dev pass (`bun run dev`):
+    - open `motorway-ramp`; the ramp is a full-width lane on the same asphalt as the
+      mainline, and the Link panel has no Road class row;
+    - open the **pre-change** `motorway-ramp.zkai`
+      (`git show <phase base>:examples/motorway-ramp.zkai`, which carries
+      `style: ramp`), and it draws; save it, and the file has no `style` key;
+    - undo and redo an alignment change on a link with no view.
+- **Close-out:** each rule below is edited in place:
+  - `rules/road-rendering.md`: the lane-width derivation loses its factor, and the
+    "Road class paints as a class token" section goes;
+  - `rules/document-model.md`: a third removed-field example, and `LinkStyle` leaves
+    the layer table;
+  - `rules/diagram-export.md`: `strokeAllowance` and its class width;
+  - `rules/road-joints.md`: a taper's class token;
+  - `rules/network-yaml.md`: import's default class, and that it writes no view.
+
+  **Line budgets:**
+  - `road-rendering.md` 284/284 shrinks, since a section goes;
+  - `document-model.md` 144/144 and `road-joints.md` 268/268 trade prose rather than
+    grow;
+  - `network-yaml.md` 343/345 and `diagram-export.md` 304/305 change in place.
+
+  **User-facing documentation:** `README.md`'s Road rendering bullet drops "road
+  class".
+
+  **The supersession lands here, both halves in one commit.** This spec's
+  `supersedes` gains `{id: zk-004, phases: ["Phase 2 — Road class paints"]}`, and
+  `road_rendering_spec.md` Phase 2 gains `cut: <ship date>, by: zk-017`.
+  - `spec-lint` rejects the `supersedes` half without the cut (`EDGE_PHASE_NOT_CUT`),
+    which is why the draft carries neither.
+  - The cut half alone passes the linter, since it has no reverse check. But it would
+    leave zk-004 naming a `by` that claims nothing, so the two land together.
+
+  No `## 0.` note on zk-004: a phase-scoped cut leaves it `accepted`, and the edge is
+  the record. Roadmap memory: one line. One push.
