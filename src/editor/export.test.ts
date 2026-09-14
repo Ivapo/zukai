@@ -92,19 +92,20 @@ function vocabulary(): Document {
  * the palette.
  *
  * **Every new piece of chrome has to be listed here, or the gate goes vacuous.**
- * `bend-handle`/`bend-hit` are the case that made the rule explicit: **ten**
- * assertions below reuse this regex unchanged (`grep -c "not.toMatch(CHROME)"`),
- * and every one of them would have passed for a handle leaking straight into the
- * figure (link bends §2.3).
+ * `bend-handle`/`bend-hit` are the case that made the rule explicit: **every**
+ * assertion below reuses this regex unchanged, and every one of them would pass
+ * for a handle leaking straight into the figure (link bends §2.3). No count is
+ * written here: the last one went stale as tests were added.
  *
- * `node-dot` is the newest token and it polices two things at once (ramps
- * §2.11.1): the circle, which is gated on `interaction`, and the **rules that
- * paint it**, which had to leave `styles/diagram.css` — this regex is matched
- * against the whole file, embedded stylesheet included, so a rule left behind
- * fails all ten.
+ * `node-dot` and `road-arrow` each police two things at once (ramps §2.11.1, road
+ * declutter §2.1): the mark, which is gated on `interaction` — the arrow through
+ * the link's selection — and the **rule that paints it**, which had to leave
+ * `styles/diagram.css`. This regex is matched against the whole file, embedded
+ * stylesheet included, so a rule left behind fails every one of those tests.
+ * `road-arrow` is the newest token.
  */
 const CHROME =
-  /road-hit|jn-hit|marking-hit|sign-hit|bend-hit|bend-handle|node-dot|-halo|is-selected|link-preview|grid|cursor/;
+  /road-hit|jn-hit|marking-hit|sign-hit|bend-hit|bend-handle|node-dot|road-arrow|-halo|is-selected|link-preview|grid|cursor/;
 
 /**
  * The text between the **first** `<style>` and the first `</style>` — the

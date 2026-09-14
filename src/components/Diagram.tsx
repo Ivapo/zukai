@@ -1031,14 +1031,21 @@ function RoadShape({
     ];
   });
 
-  // Halfway along the road as drawn — the carriageway's own polyline, so the two
-  // halves of a two-way road point their own ways side by side, each level with
-  // the length label `lengthLabel` stands beside that same point.
-  const mid = pointAlongPolyline(points, polylineLength(points) / 2);
-  const arrow = mid && arrowTriangle(mid.at, mid.dir, Math.max(6, w * 0.45));
-
   const selected = isSelected(interaction?.selection ?? null, "link", link.id);
   const nse = hairline(interaction);
+
+  // The direction arrow is an editing mark, drawn on the **selected** link only
+  // (road declutter §2.1): no road is painted with an arrowhead down its middle,
+  // and the one reader who needs it is the Lane region readout, whose "of travel"
+  // is converted to a side of the screen by looking at it — a panel that exists
+  // only for a selected link. `selected` is false wherever `interaction` is
+  // absent, so a figure carries none, as with the node dot.
+  //
+  // Halfway along the road as drawn — the carriageway's own polyline, so a two-way
+  // road's selected half points its own way on its own side. Level with the length
+  // label, which measures that point for itself, so drawing no arrow moves no label.
+  const mid = selected ? pointAlongPolyline(points, polylineLength(points) / 2) : undefined;
+  const arrow = mid && arrowTriangle(mid.at, mid.dir, Math.max(6, w * 0.45));
 
   return (
     <g

@@ -606,7 +606,7 @@ export function Inspector({ state, dispatch }: InspectorProps) {
           The frame is the road's own travel direction: `alignmentReading` never
           sees a polyline, and since `zk-014` a bent road has no single "below".
           The reader converts to a side of the screen by looking at the arrow
-          head. Canvas units, on the bend `Position` precedent above — this is
+          head, which is drawn on the selected link alone. Canvas units, on the bend `Position` precedent above — this is
           the picture, not a claim about the world.
 
           Two decimals with the trailing zeros trimmed, which is where that

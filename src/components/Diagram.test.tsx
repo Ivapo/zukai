@@ -183,17 +183,77 @@ describe("RoadShape geometry", () => {
 
   /**
    * The direction arrow sits halfway along the road, pointing the way it runs,
-   * and is as long as it ever was: `0.45` of the 39-unit width, so `17.55`.
+   * and is as long as it ever was: `0.45` of the 39-unit width, so `17.55`. Drawn
+   * on the canvas with `L1` selected, the only place an arrow is drawn at all.
    */
   it("centres the direction arrow on the road's midpoint, apex downstream", () => {
     const [apex, b1, b2] = arrowPoints(
-      renderToStaticMarkup(<Diagram doc={straight(4)} />),
+      renderToStaticMarkup(<Diagram doc={straight(4)} interaction={interaction()} />),
     );
 
     expect(apex.x).toBeCloseTo(60 + 17.55 / 2);
     expect(apex.y).toBeCloseTo(0);
     for (const b of [b1, b2]) expect(b.x).toBeCloseTo(60 - 17.55 / 2);
     expect(b1.y).toBeCloseTo(-b2.y);
+  });
+});
+
+/**
+ * **The direction arrow is chrome, on the selected link alone** (road declutter
+ * §2.1). No road is painted with an arrowhead down its middle, so a figure carries
+ * none; the Lane region readout converts "of travel" to the screen by looking at
+ * one, and that panel exists only for a selected link.
+ */
+describe("the direction arrow is chrome on the selected link", () => {
+  /** `L1` runs `N1(0,0) → N2(120,0)` and `L2` runs back, both one lane. */
+  function twoWay(): Document {
+    return run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "addNode", pos: { x: 120, y: 0 } },
+      { type: "startLink", from: "N1" },
+      { type: "completeLink", to: "N2" },
+      { type: "startLink", from: "N2" },
+      { type: "completeLink", to: "N1" },
+      { type: "setLinkLanes", id: "L1", count: 1 },
+      { type: "setLinkLanes", id: "L2", count: 1 },
+    ).doc;
+  }
+
+  const arrows = (svg: string) => svg.match(/class="road-arrow"/g) ?? [];
+
+  /**
+   * Exactly one, and it is `L1`'s: the apex is the most easterly corner, which
+   * `L2`'s arrow — pointing west — could not have.
+   */
+  it("draws one arrow, on the selected link, pointing the way it runs", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={twoWay()} interaction={interaction()} />);
+
+    expect(arrows(svg)).toHaveLength(1);
+    const [apex, b1, b2] = arrowPoints(svg);
+    expect(apex.x).toBeGreaterThan(Math.max(b1.x, b2.x));
+  });
+
+  it("draws none when nothing is selected", () => {
+    const svg = renderToStaticMarkup(
+      <Diagram doc={twoWay()} interaction={{ ...interaction(), selection: null }} />,
+    );
+    expect(arrows(svg)).toHaveLength(0);
+  });
+
+  /** A bend's panel states a canvas position, not a side of travel. */
+  it("draws none when a bend on the link is selected rather than the link", () => {
+    const svg = renderToStaticMarkup(
+      <Diagram
+        doc={twoWay()}
+        interaction={{ ...interaction(), selection: { kind: "bend", link: "L1", index: 0 } }}
+      />,
+    );
+    expect(arrows(svg)).toHaveLength(0);
+  });
+
+  it("draws none in an export", () => {
+    expect(arrows(renderToStaticMarkup(<Diagram doc={twoWay()} />))).toHaveLength(0);
   });
 });
 
@@ -3054,7 +3114,9 @@ describe("link bends", () => {
    */
   it("puts the direction arrow halfway along the route it turns through", () => {
     const [apex, b1, b2] = arrowPoints(
-      renderToStaticMarkup(<Diagram doc={road({ x: 60, y: -40 })} />),
+      renderToStaticMarkup(
+        <Diagram doc={road({ x: 60, y: -40 })} interaction={interaction()} />,
+      ),
     );
     const base = { x: (b1.x + b2.x) / 2, y: (b1.y + b2.y) / 2 };
     const into = (Math.sqrt(5200) + 100) / 2 - Math.sqrt(5200);

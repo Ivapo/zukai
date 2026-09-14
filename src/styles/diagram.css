@@ -11,9 +11,10 @@
 
    - A rule belongs here if it paints something a FIGURE carries. Click targets,
      selection outlines, pointer styling, the in-progress link and the canvas
-     backdrop belong in `styles.css`; so does the node dot, which paints and is
-     still an editing mark rather than figure content (ramps 2.11.1). Added
-     here, any of them would ship inside every export.
+     backdrop belong in `styles.css`; so do the node dot and the selected
+     road's direction arrow, which paint and are still editing marks rather than
+     figure content (ramps 2.11.1, road declutter 2.1). Added here, any of them
+     would ship inside every export.
    - No angle brackets or ampersands anywhere in this file, not even in a
      comment: it is embedded raw inside an XML document, where either would end
      the style element or open an entity. */
@@ -116,10 +117,6 @@
   stroke-width: 1.4;
   stroke-dasharray: 7 7;
   opacity: 0.85;
-}
-
-.road-arrow {
-  fill: var(--paint-white);
 }
 
 /* ----- lane kinds ----- */

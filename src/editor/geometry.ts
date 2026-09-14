@@ -341,8 +341,9 @@ export interface AlignmentReading {
  * as direction-blind as {@link alignmentShift} — it never sees a polyline, so it
  * could not answer a screen-frame question — and since a link carries `bends` a
  * bent road has no single "below" anyway, while `right of travel` is one answer
- * for the whole road. The drawing states which way that is, with the arrow head
- * `RoadShape` paints at the link's far end.
+ * for the whole road. The canvas states which way that is, with the arrow head
+ * `RoadShape` paints halfway along the selected link — the only link this reading
+ * is ever shown for.
  *
  * `side` is nothing but the **sign** of the shift, which §2.3 already pins:
  * under `DRIVE_SIDE = 1` a positive offset draws to the visual right of travel,

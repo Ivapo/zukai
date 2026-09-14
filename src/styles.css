@@ -414,6 +414,13 @@ body {
   stroke: none;
 }
 
+/* The direction arrow is the same exception: it paints, and it is drawn only on
+   the selected link, so a figure never carries it (road declutter §2.1). */
+
+.road-arrow {
+  fill: var(--paint-white);
+}
+
 /* ----- junction glyphs ----- */
 
 .junction {
