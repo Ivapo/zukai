@@ -9,6 +9,7 @@ import {
   findNode,
   findSign,
   nextId,
+  nodeNeighbours,
   normalizeDocument,
   RawDocument,
 } from "../model/document";
@@ -25,6 +26,7 @@ import {
   Marking,
   MarkingId,
   MarkingKind,
+  Node,
   NodeId,
   NodeKind,
   Sign,
@@ -795,24 +797,59 @@ function completeLink(state: EditorState, to: NodeId): EditorState {
     "L",
   );
   const lanes = Array.from({ length: NEW_LINK_LANES }, (_, i) => defaultLane(i));
+  const links = [
+    ...doc.links,
+    { id, from_node: linkFrom, to_node: to, lanes, median_gap: 0.5 },
+  ];
   return {
     ...state,
     doc: {
       ...doc,
-      links: [
-        ...doc.links,
-        {
-          id,
-          from_node: linkFrom,
-          to_node: to,
-          lanes,
-          median_gap: 0.5,
-        },
-      ],
+      links,
+      nodes: retypeNodes({ ...doc, links }, [linkFrom, to]),
     },
     linkFrom: null,
     selection: { kind: "link", id },
   };
+}
+
+/**
+ * `doc.nodes` with each of `ids` re-typed to what its roads make it, returning
+ * **the same array** when no kind changes (ramps §2.12.2).
+ *
+ * `addNode` mints every node an `endpoint`, which `graph.rs` defines as a dangling
+ * road end — so a node joining two roads left as one is a false statement in the
+ * saved file, and paints the endpoint's paper bead in the middle of a road. The
+ * rule runs both ways between the two non-junction kinds:
+ *
+ * - reaching **two or more distinct** other nodes makes a `waypoint`, and one or
+ *   none an `endpoint`. Distinct nodes rather than incident links, because a
+ *   divided road's reversed twin at a free end is still an end
+ *   ({@link nodeNeighbours});
+ * - a `junction` is never touched, in either direction. Becoming one mints a
+ *   `Junction` record and a glyph ({@link setNodeKind}), a claim about control
+ *   that stays the human's.
+ *
+ * `doc` is the document **after** the edit, with the new link in it or the
+ * removed one gone — evaluated before, a chain and both deletes come out wrong.
+ * An id no longer in `doc.nodes` is skipped: that is the deleted node itself,
+ * as the far end of a self-loop its own delete drops.
+ *
+ * Callers pass only the nodes whose roads the action changed, so a human's pick
+ * in the Kind row holds until a link is added or removed at that node. Load and
+ * import pass through no caller: a file's kinds are its author's statement.
+ */
+function retypeNodes(doc: Document, ids: Iterable<NodeId>): Node[] {
+  let nodes = doc.nodes;
+  for (const id of new Set(ids)) {
+    const i = nodes.findIndex((n) => n.id === id);
+    if (i < 0 || nodes[i].type === "junction") continue;
+    const type = nodeNeighbours(doc, id).size >= 2 ? "waypoint" : "endpoint";
+    if (nodes[i].type === type) continue;
+    if (nodes === doc.nodes) nodes = [...nodes];
+    nodes[i] = { ...nodes[i], type };
+  }
+  return nodes;
 }
 
 /**
@@ -1577,14 +1614,21 @@ function deleteSelection(state: EditorState): EditorState {
 
   switch (selection.kind) {
     case "link": {
-      const links = { ...doc.layout.links };
-      delete links[selection.id];
+      const linkViews = { ...doc.layout.links };
+      delete linkViews[selection.id];
+      const gone = findLink(doc, selection.id);
+      const links = doc.links.filter((l) => l.id !== selection.id);
       return {
         ...state,
         doc: {
           ...doc,
-          links: doc.links.filter((l) => l.id !== selection.id),
-          layout: { ...doc.layout, links },
+          links,
+          // Its two ends may no longer join two roads (ramps §2.12.2).
+          nodes: retypeNodes(
+            { ...doc, links },
+            gone ? [gone.from_node, gone.to_node] : [],
+          ),
+          layout: { ...doc.layout, links: linkViews },
           markings: keepMarkings(doc.markings, (m) => m.link !== selection.id),
           signs: clearSignLinks(doc.signs, (l) => l === selection.id),
         },
@@ -1657,19 +1701,24 @@ function deleteSelection(state: EditorState): EditorState {
       delete junctionViews[id];
       const linkViews = { ...doc.layout.links };
       const dropped = new Set<LinkId>();
+      const far: NodeId[] = [];
       const links = doc.links.filter((l) => {
         const incident = l.from_node === id || l.to_node === id;
         if (incident) {
           delete linkViews[l.id];
           dropped.add(l.id);
+          far.push(l.from_node === id ? l.to_node : l.from_node);
         }
         return !incident;
       });
+      const nodes = doc.nodes.filter((n) => n.id !== id);
       return {
         ...state,
         doc: {
           ...doc,
-          nodes: doc.nodes.filter((n) => n.id !== id),
+          // The far end of every dropped road may have been a joint only
+          // because of it (ramps §2.12.2).
+          nodes: retypeNodes({ ...doc, nodes, links }, far),
           links,
           // The node's own junction record goes, and no neighbour's needs
           // touching: a `Junction` names only the node it is attached to.

@@ -2371,3 +2371,158 @@ describe("the grid stops at the reducer", () => {
     expect(moved.doc.layout.links.L1?.bends).toEqual([off2]);
   });
 });
+
+/**
+ * A node joining two roads is not a dangling road end, so the actions that change
+ * a node's roads re-derive its kind — between `endpoint` and `waypoint` only, and
+ * never on anything else (ramps §2.12.2).
+ */
+describe("a node's kind follows the roads at it", () => {
+  /** `N1` → `N2` → `N3` in a row, as `L1` and `L2`. */
+  function chain(): EditorState {
+    return run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "addNode", pos: { x: 100, y: 0 } },
+      { type: "addNode", pos: { x: 200, y: 0 } },
+      { type: "startLink", from: "N1" },
+      { type: "completeLink", to: "N2" },
+      { type: "startLink", from: "N2" },
+      { type: "completeLink", to: "N3" },
+    );
+  }
+
+  function kinds(state: EditorState): Record<string, string> {
+    return Object.fromEntries(state.doc.nodes.map((n) => [n.id, n.type]));
+  }
+
+  it("makes the middle of a chain a waypoint, and leaves its ends alone", () => {
+    expect(kinds(chain())).toEqual({ N1: "endpoint", N2: "waypoint", N3: "endpoint" });
+  });
+
+  /** A divided road's reversed twin reaches the same one node: still an end. */
+  it("leaves both ends of a reversed twin pair as endpoints", () => {
+    const twin = run(
+      twoNodesLinked(),
+      { type: "startLink", from: "N2" },
+      { type: "completeLink", to: "N1" },
+    );
+
+    expect(twin.doc.links).toHaveLength(2);
+    expect(kinds(twin)).toEqual({ N1: "endpoint", N2: "endpoint" });
+  });
+
+  it("never retypes a junction, nor touches its record", () => {
+    const junction = run(
+      twoNodesLinked(),
+      { type: "setNodeKind", id: "N2", kind: "junction" },
+      { type: "addNode", pos: { x: 20, y: 0 } },
+    );
+    const joined = run(
+      junction,
+      { type: "startLink", from: "N2" },
+      { type: "completeLink", to: "N3" },
+    );
+
+    expect(joined.doc.links).toHaveLength(2);
+    expect(kinds(joined).N2).toBe("junction");
+    expect(joined.doc.junctions).toBe(junction.doc.junctions);
+  });
+
+  it("keeps a waypoint a waypoint when a third road joins it", () => {
+    const three = run(
+      chain(),
+      { type: "addNode", pos: { x: 100, y: 100 } },
+      { type: "startLink", from: "N2" },
+      { type: "completeLink", to: "N4" },
+    );
+
+    expect(kinds(three).N2).toBe("waypoint");
+    expect(kinds(three).N4).toBe("endpoint");
+  });
+
+  it("returns the node to an endpoint when a road at it is deleted", () => {
+    const noL2 = run(
+      chain(),
+      { type: "select", selection: { kind: "link", id: "L2" } },
+      { type: "deleteSelection" },
+    );
+    expect(noL2.doc.links.map((l) => l.id)).toEqual(["L1"]);
+    expect(kinds(noL2)).toEqual({ N1: "endpoint", N2: "endpoint", N3: "endpoint" });
+
+    const noN3 = run(
+      chain(),
+      { type: "select", selection: { kind: "node", id: "N3" } },
+      { type: "deleteSelection" },
+    );
+    expect(noN3.doc.links.map((l) => l.id)).toEqual(["L1"]);
+    expect(kinds(noN3)).toEqual({ N1: "endpoint", N2: "endpoint" });
+  });
+
+  it("retypes in the same undo step as the link that caused it", () => {
+    const undone = reducer(chain(), { type: "undo" });
+
+    expect(undone.doc.links.map((l) => l.id)).toEqual(["L1"]);
+    expect(kinds(undone).N2).toBe("endpoint");
+  });
+
+  /** The rule re-derives on an edit to the roads, never on every change. */
+  it("holds a human's pick until the roads at that node change", () => {
+    const picked = run(
+      chain(),
+      { type: "setNodeKind", id: "N2", kind: "endpoint" },
+      { type: "moveNode", id: "N2", pos: { x: 100, y: 50 } },
+    );
+    expect(kinds(picked).N2).toBe("endpoint");
+
+    const rejoined = run(
+      picked,
+      { type: "addNode", pos: { x: 100, y: 100 } },
+      { type: "startLink", from: "N2" },
+      { type: "completeLink", to: "N4" },
+    );
+    expect(kinds(rejoined).N2).toBe("waypoint");
+  });
+
+  it("leaves doc.nodes identical when no kind changes", () => {
+    const fresh = run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "addNode", pos: { x: 10, y: 0 } },
+      { type: "startLink", from: "N1" },
+    );
+    const linked = reducer(fresh, { type: "completeLink", to: "N2" });
+
+    expect(linked.doc.links).toHaveLength(1);
+    expect(linked.doc.nodes).toBe(fresh.doc.nodes);
+  });
+
+  /** A file's kinds are its author's statement, and load passes through no rule. */
+  it("keeps a loaded endpoint that joins two roads an endpoint", () => {
+    const link = (id: string, from_node: string, to_node: string) => ({
+      id,
+      from_node,
+      to_node,
+      lanes: [],
+      median_gap: 0.5,
+    });
+    const raw: RawDocument = {
+      schema_version: SCHEMA_VERSION,
+      metadata: { name: "hand-edited" },
+      nodes: [
+        { id: "N1", type: "endpoint" },
+        { id: "N2", type: "endpoint" },
+        { id: "N3", type: "endpoint" },
+      ],
+      links: [link("L1", "N1", "N2"), link("L2", "N2", "N3")],
+    };
+
+    const loaded = reducer(initialState(), {
+      type: "loadDocument",
+      doc: raw,
+      path: "/p/hand.zkai",
+    });
+
+    expect(kinds(loaded).N2).toBe("endpoint");
+  });
+});
