@@ -280,18 +280,18 @@ is a third `<text>`, hence a third arm of `needsText` — `rules/diagram-export.
 (`LANE_PX`, `ROAD_MARGIN`, `UNITS_PER_METRE`, `MIN_ROAD_WIDTH`, `DRIVE_SIDE`,
 `SCHEMATIC_MEDIAN`, `MITER_LIMIT`, `LABEL_GAP`) plus `lengthLabel`/`formatLength` and
 `bendInsertion` — under `geometry.test.ts`; `linkPolyline` is `document.ts`'s.
-`Diagram.tsx` holds `RoadShape`, `HatchPattern`/`hasShoulder`, the derived label
-layer and two chrome marks — `BendHandle`, and `arrowTriangle`'s direction arrow,
-drawn on the **selected** link alone — through `renderToStaticMarkup`; the joint
-shapes are `rules/road-joints.md`'s. Paint is `diagram.css`, chrome paint (the
-arrow's fill too) and `user-select: none` are `styles.css`; the six link actions
+`Diagram.tsx` holds `RoadShape`, `HatchPattern`/`hasShoulder`, the label layer and
+two chrome marks, `BendHandle` and the **selected** link's direction arrow, through
+`renderToStaticMarkup`. The casing is butt-capped at **every** end; the round shape a
+joint needs is a `road-joint` disc drawn under all roads, `rules/road-joints.md`'s with
+the other joint shapes. Paint is `diagram.css`, chrome paint and `user-select: none`
+`styles.css` (`.road-hit` round-capped, `.road-halo` flat); the six link actions
 (`setLaneKind`, `setLinkLanes`, `setLinkAlign`, `setLinkLength`, `addBend`,
 `moveBend`) are `state.ts`, and the controls `Inspector.tsx`.
 This rule has **two** model additions, in different layers for different reasons:
 `LinkView.align` in `layout.rs` (presentation) and `Link.length` in `graph.rs`
-(semantic), both mirrored in `types.ts`, the first read through
-`linkAlign`. Neither needed a version bump — a field is free, a variant is not,
-which is why the `gore` glyph next door did; nor did removing `LinkView.style`. The one
-cross-subsystem obligation is `strokeAllowance` (`export.tsx`), which must keep
-measuring roads at their own lane widths or wide roads
-clip in exports; `export.test.ts` pins a 3-lane road's at `15`.
+(semantic), both mirrored in `types.ts`, the first read through `linkAlign`. Neither
+needed a version bump — a field is free, a variant is not, which is why the `gore`
+glyph next door did; nor did removing `LinkView.style`. The one cross-subsystem
+obligation is `strokeAllowance` (`export.tsx`), which must keep measuring roads at
+their own lane widths or wide roads clip in exports; `export.test.ts` pins `15`.

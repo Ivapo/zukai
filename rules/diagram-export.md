@@ -134,20 +134,22 @@ margin = EXPORT_PAD (24) + strokeAllowance(doc)
 strokeAllowance = max(2, …roadWidth(link.lanes) / 2)
 ```
 
-The road casing is drawn at `roadWidth` with a round linecap, so it overhangs each
-polyline end by half that — **37.5 units at 8 default lanes**, which is why a flat
-24 clipped the end-cap off every road of **6** default lanes or more; 5 overhangs
-exactly 24 and lands flush. `roadWidth` sums each `Lane.width` rather than
+The road casing is drawn at `roadWidth`, so it overhangs its polyline by half that
+— **37.5 units at 8 default lanes**, which is why a flat 24 clipped the (then round)
+end-cap off every road of **6** default lanes or more; 5 lands flush. The ends are
+flat now (ramps §2.12.1), yet a flat end on a road that is not axis-aligned still
+puts its corners up to that half-width sideways past the polyline end, which
+`getBBox` does not count. `roadWidth` sums each `Lane.width` rather than
 multiplying a lane count, so the allowance follows a document whose lanes are
 wider than the default, and nothing else scales a road's width — there is no road
 class (`rules/road-rendering.md`). `.jn-ring` is the one stroke not
 modelled and needs none — it is centred so its outer edge lands on the coincident
 `.jn-edge` circle, pure geometry `getBBox` already has.
 
-**A taper wedge, a gore, a bus bay, painted text, a sign plate and a length label
-need no allowance either, and that is a conclusion rather than luck.** `getBBox`
-excludes stroke but *includes* fill, and all six are fill inside the measured
-`<g>`. A wedge's corners sit on the casing rim the allowance is derived from; a
+**A taper wedge, a joint disc, a gore, a bus bay, painted text, a sign plate and a
+length label need no allowance either, and that is a conclusion rather than luck.**
+`getBBox` excludes stroke but *includes* fill, and all seven are fill inside the
+measured `<g>`. A wedge's corners and a disc's rim sit on the casing's half-width; a
 gore's sit inside the lane region; a plate is fill with a 1-unit outline, half of
 which is under the `2` floor; a length label sits beside the road with no stroke
 at all. **A bay is the one that reaches outside its road**, a lane past the casing

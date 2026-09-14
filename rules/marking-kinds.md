@@ -97,8 +97,8 @@ so selection feels identical and a `stop_line`'s markup is byte-for-byte what
 Phase 1 emitted. **The paint takes no `vector-effect`**, unlike `.jn-stopbar` and
 the roads' hairlines: a marking scales with its road, so what it *paints* is
 byte-identical between canvas and export — hit target and halo being
-interaction-only either way. **`.marking-halo` is butt-capped** where `.road-halo`
-is round: a halo matches the shape it highlights, and round caps here balloon past
+interaction-only either way. **`.marking-halo` is butt-capped**, as `.road-halo`
+is now: a halo matches the shape it highlights, and round caps here balloon past
 the lane the marking spans.
 
 ### The turn arrow: one shaft, one branch per direction

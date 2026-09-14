@@ -4,6 +4,7 @@ sources:
   - src/components/Diagram.tsx
   - src/editor/export.tsx
   - src/editor/geometry.ts
+  - src/model/document.ts
   - src/model/types.ts
   - src/styles.css
   - src/styles/diagram.css
@@ -13,8 +14,8 @@ covers: >
   three things measure to, the pad that follows the arms inside it, taper
   wedges at a through joint, the gore between two separating arms — its
   triangle, its chevrons, and the one derivation that faces them at the driver —
-  the butt cap its two owners share, and the dots that mark a node once per
-  drawn road end, on the canvas only
+  the flat road end and the joint disc under the roads, and the dots that mark a
+  node once per drawn road end, on the canvas only
 max_lines: 268
 generated: 2026-08-14
 ---
@@ -42,17 +43,14 @@ link's `from_node`, so traffic **leaves** along this arm.
 from the node whichever way traffic runs. `id` is `gorePair`'s tie-break and,
 since the movement arcs went, all it is; `outbound` is `goreFlow`'s only input.
 
-**`dir` is read off the segment *adjacent* to the node**, not off the node pair, so
-a link's bends re-aim its arm and the pad follows — likewise `taperWedges`, whose
-collinearity test then sees the bent joint and draws no wedge. Both are the feature
-working (`specs/link_bends_spec.md` §2.5), not a regression to chase.
+**`dir` is read off the segment *adjacent* to the node**, so a link's bends re-aim
+its arm and the pad follows, and `taperWedges` sees the bent joint and draws no
+wedge — the feature working (`specs/link_bends_spec.md` §2.5), not a regression.
 
-**`Arm`, `junctionArms` and both radii live in `geometry.ts`**, not the render body
-— `drawnPolyline`'s move one step on, and for its reason: a marking anchored to a
-link's far end measures its clearance from the **rim of the glyph these arms size**,
-and where a glyph reaches is not a render-time question. The radii are pure, so the
-drawing is byte-identical across the move — the gate on such a lift being
-`Diagram.test.tsx` passing untouched.
+**`Arm`, `junctionArms` and both radii live in `geometry.ts`**, not the render body,
+for `drawnPolyline`'s reason: a marking anchored to a link's far end measures its
+clearance from the **rim of the glyph these arms size**, which is not a render-time
+question. The lift's gate was `Diagram.test.tsx` passing untouched.
 
 **Three things meet at that rim: two measure to it, the third sizes it.** The two
 share one expression, `rayCircleExit(origin - center, dir, r)`:
@@ -94,10 +92,23 @@ filters on nothing but the links touching a node, so it answers here too.
   dot at the node; no layout entry returns nothing.
 - **One `<g>` holds every dot and halo**, so `onNodePointerDown` stays on one
   element and either dot grabs the node; a zero displacement emits no `cx`/`cy`.
-- **A figure carries none of them** (ramps §2.11.1) — a bead on a road running off
-  the frame says the road stops there, false of every fragment. They are gated on
-  `interaction` and `.node-dot` lives in `styles.css`, so every rule above is a
-  *canvas* fact.
+- **A figure carries none of them** (ramps §2.11.1): a bead on a road running off
+  the frame says it stops there. Gated on `interaction`, with `.node-dot` in
+  `styles.css`, so every rule above is a *canvas* fact.
+
+## Every road ends flat; a disc under the roads fills a joint (ramps §2.12.1)
+
+`.road-casing` is butt-capped: the later link's round cap painted over the earlier
+link's lines at every node — a bead on a straight waypoint, a knob on an aligned T.
+A bend's round corner is `jointDiscs` instead, a `<circle class="road-joint">` per
+distinct arm origin (`SAME_POINT`; the widest arm's `width / 2` where they
+coincide), emitted **before the first road**: it covers no paint, and an overlap
+away from a joint (a ramp over a shoulder) draws as before. Only where no one owns
+the joint — **not a `junction`** (pad, ring, gore), **not `tapered`** (it would bulge
+past the wedge), and **`nodeNeighbours` ≥ 2**, so a divided free end stays flat.
+Kept, not defects: an inside sliver and edge lines stopping over the disc at a bend;
+a divided bend's median half-disc. On the canvas `.road-hit` is round-capped, or a
+press on the disc's outside corner pans; `.road-halo` ends flat with the road.
 
 ## The pad is the roads, not a disc — and it stays inside the rim
 
@@ -176,7 +187,7 @@ Then, **per side independently**, the two ends' casing edges are compared as
 applies, **never world points**. Equal ⇒ nothing to draw; otherwise the **inset**
 link is the one nearer the road's other side (smaller on the nearside, larger on
 the offside) and the wedge runs `TAPER_LENGTH` (24) along it. Lane drop, lane
-addition and either alignment fall out of that alone. Four things it pins:
+addition and either alignment fall out of that alone. Three things it pins:
 
 - **The geometry stays additive.** A wedge only paints asphalt into space the
   inset link left empty; it never erases asphalt a uniform stroke laid down,
@@ -184,22 +195,17 @@ addition and either alignment fall out of that alone. Four things it pins:
 - **It is bounded by the *casing* edges**, because a wedge is asphalt. Its own edge
   line is inset 1.5 from the hypotenuse (`taperEdge`), mirroring `RoadShape`'s
   `edgeInset`; the lane-region edge is a silent 1.5-unit error at every joint.
-- **A wedge forces butt caps** on **both** links; the gore below is the other owner.
-  `stroke-linecap` is a whole-path property, so a capped link is flat at its
-  **other** end too — under the pad at a junction, better schematic reading at a free one.
-- **8° is derived, not picked.** Butt caps notch a bend's outside by
-  `(roadWidth/2)·tan(θ/2)` — 1.36 units at 8°, against the 1.33 they remove; 15°
-  inverts the trade at ≈2.6.
+- **8° is derived, not picked.** A tapered joint has no disc, so its flat ends notch
+  a bend's outside by `(roadWidth/2)·tan(θ/2)` — 1.36 units at 8°, against the 1.33
+  round-cap bulge they avoid; 15° inverts the trade at ≈2.6.
 
-The wedge is a `<polygon class="road-taper">` in a bare `<g class="taper">`. It
-carries no class token because there is no road class (`rules/road-rendering.md`):
-every road paints the one `--asphalt`, so a wedge cannot differ from its road. Only a joint
-drawing one is touched, so a document with no width step emits byte-identical
-markup. **A divided road's lane drop does not taper** — four links on the node is
-not a through joint, a named non-goal.
+The wedge is a `<polygon class="road-taper">` in a bare `<g class="taper">`, with no
+class token because there is no road class (`rules/road-rendering.md`). **A divided
+road's lane drop does not taper** — four links on the node is not a through joint, a
+named non-goal.
 
 **A bus bay's two tapers are not joints.** They share `taperEdge` and the
-`.road-taper` token and nothing else: no node, no `taperWedges` test, no butt cap.
+`.road-taper` token and nothing else: no node, no `taperWedges` test, no joint disc.
 They belong to one marking on one link — `rules/marking-kinds.md`.
 
 ## Gores: the paint between two arms that separate
@@ -228,13 +234,9 @@ diverge and a merge: the geometry is identical, and the pair rule ignores traffi
   Its base is open and unlined: that blunt end is the physical nose.
 - **`GORE_LENGTH` (36) is scaled by the glyph's Size**, unlike `TAPER_LENGTH`, or
   the control would be inert on a pad-less glyph. Lengthening only slides the base.
-- **Every arm of the glyph takes `.road-casing--butt`**, the wedge's own modifier
-  out of the one set `tapers` builds — uncapped, a round cap paints a half-disc
-  straight across those edge lines. Keyed to the **glyph** (with `node.type`, a
-  stale view being hand-reachable): not to `gorePair`, which runs downstream in
-  `GoreShape`, and not to an arm count, which would cap a plain three-link
-  waypoint. The largest cap is often on the arm the pair does *not* pick — §1's
-  4-lane approach. Placed **before** the through-joint return, a gore having three.
+- **No round asphalt crosses those edge lines.** Every arm ends flat, and a gore
+  node is a `junction`, so it draws no joint disc either — once a round cap on §1's
+  4-lane approach, an arm `gorePair` does not even pick.
 
 ### The chevrons, and the one place a gore reads the traffic
 
@@ -272,16 +274,15 @@ been widened and renamed `needsHatch` only while a gore reached the same pattern
 ## Where each piece lives
 
 `geometry.ts` owns the pure half — `Arm`/`junctionArms`, `padRadius`/`ringRadius`/
-`junctionRadius`, `rayCircleExit`, `padShape`/`rayPadExit`, `JointEnd`,
-`taperWedge`/`taperWedges`/
-`taperEdge`, `GoreArm`/`gorePair`/`gore`/`rayIntersection`,
-`GoreFlow`/`goreFlow`/`goreChevrons`, and the three lengths plus the two chevron
-constants — under `geometry.test.ts`. `Diagram.tsx` turns those into markup:
-`jointEnd`, `tapers`, `TaperShape`, `GoreShape`, `diamondHalf` and the stop-bar
-loop in `JunctionGlyphShape`, tested through `renderToStaticMarkup`. The gate on
-the outline is `geometry.test.ts`'s own `inside(rings, p)` and **not**
-`rayPadExit`, or a bug in the helper could mask a bug in the rings it measures.
-Paint is `diagram.css`; `gore` is mirrored in `types.ts` and `layout.rs`.
+`junctionRadius`, `rayCircleExit`, `padShape`/`rayPadExit`, `jointDiscs`, `JointEnd`,
+`taperWedge`/`taperWedges`/`taperEdge`, `GoreArm`/`gorePair`/`gore`/`rayIntersection`,
+`GoreFlow`/`goreFlow`/`goreChevrons`, the three lengths and two chevron constants —
+under `geometry.test.ts`; `nodeNeighbours` is `document.ts`'. `Diagram.tsx` makes
+markup: `jointEnd`, `tapers`, `TaperShape`, `GoreShape`, `diamondHalf` and the
+stop-bar loop in `JunctionGlyphShape`, tested through `renderToStaticMarkup`. The
+outline's gate is `geometry.test.ts`'s own `inside(rings, p)`, **not** `rayPadExit`,
+or a bug in the helper could mask a bug in the rings it measures. Paint is
+`diagram.css`; `gore` is mirrored in `types.ts` and `layout.rs`.
 Nothing here reaches `state.ts` — a joint is derived from the links meeting at a
 node, so there is no action and nothing to undo. `strokeAllowance` (`export.tsx`)
 needs nothing from either shape: `measureDiagram` frames the *drawn* tree, and

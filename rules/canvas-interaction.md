@@ -174,20 +174,20 @@ a cell. Before it the dot sat at world `36i + 0.5/k` against `snap`'s `36i`.
 absent from an exported figure by construction** — `export.tsx:diagramInner`
 renders `<Diagram doc={doc} />` with no such prop, so there is no filter anyone can
 forget (`rules/diagram-export.md`). What hangs off it: the five `…PointerDown`
-callbacks, the fat invisible hit paths (`.road-hit`, `.marking-hit`, `.jn-hit`,
-`.sign-hit`, `.bend-hit`), the selection halos, `.link-preview`, the bend handles,
-**`.node-dot`**, **`.road-arrow`** — through `selected`, so on the selected link
-alone — and `vector-effect="non-scaling-stroke"` on every hairline.
+callbacks, the fat invisible hit paths (`.marking-hit`, `.jn-hit`, `.sign-hit`,
+`.bend-hit`, and `.road-hit`, round-capped where the road is flat, or a press on a
+joint disc's outside corner falls through and pans — ramps §2.12.1), the selection
+halos, `.link-preview`, the bend handles, **`.node-dot`**, **`.road-arrow`** —
+through `selected`, so on the selected link alone — and `vector-effect` on hairlines.
 
 Two rules keep it honest. Chrome paint lives in `src/styles.css`, **never** in
 `styles/diagram.css`, which travels inside every exported file — the dot's and the
 arrow's rules too, the pieces that *paint* and are chrome anyway: a bead on a cut end
 says a road stops there, and no road is painted with an arrowhead (ramps §2.11.1,
 road declutter §2.1). And every chrome class must be in `export.test.ts`'s `CHROME`
-regex — twelve tests reuse it, all passing for markup that leaks into the figure
-while its class is unlisted. Measured: a bend handle leaked into every export passed
-that file unchanged before `bend-handle`/`bend-hit` were added, and with `node-dot`
-unlisted an ungated dot fails 4 tests rather than 13.
+regex — twelve tests reuse it, all passing for leaked markup whose class is unlisted.
+Measured: a bend handle leaked into every export passed that file unchanged before
+`bend-handle`/`bend-hit` were added; an unlisted `node-dot` fails 4 tests, not 13.
 
 A marking and a sign each carry an unconditional `stopPropagation`, making them
 small **dead zones for the node tool** — nudging the click is the whole remedy.

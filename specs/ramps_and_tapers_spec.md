@@ -55,7 +55,7 @@ phases:
     by: null
   - name: "Phase 10 — Where two roads meet, neither paints over the other"
     reviewed: 2026-09-14
-    shipped: null
+    shipped: 2026-09-14
     cut: null
     by: null
   - name: "Phase 11 — A node that joins two roads is a waypoint"
@@ -477,6 +477,15 @@ modifier class. Three consequences, stated rather than discovered:
   a notch on the outside of the bend that the round caps used to fill. That is
   what sizes `TAPER_MAX_BEND` above, and why 8° rather than 15°: at the tolerance
   limit the notch is no deeper than the overhang the cap change removes.
+
+> **CORRECTED 2026-09-14 — every casing is butt-capped now, and the modifier class
+> is gone; see §2.12.1.** True when written, and what it produced still holds: no
+> round asphalt bulges past a wedge. Phase 10 reached it by a wider rule. The
+> round cap left *every* road, since the later road's cap painted over the earlier
+> road's lines at every joint. The round shape a bend needs became a joint disc
+> drawn under all roads, which a tapered joint is denied for exactly the bulge
+> above. So the second consequence no longer holds: a joint of equal width now
+> carries a `road-joint` disc.
 
 `TAPER_LENGTH` is a world-unit build constant in the manner of
 `SCHEMATIC_MEDIAN` (`geometry.ts:218`), not a converted model quantity: nothing
@@ -1034,6 +1043,13 @@ are *literal continuations of the two roads' own edge lines* (Phase 4's as-built
 note), so a cap that crosses a leg crosses an edge line that is drawn to be
 continuous. The fix is the modifier class that exists — `.road-casing--butt`, on
 the arms of a `gore` glyph — not a new mechanism.
+
+> **CORRECTED 2026-09-14 — the modifier class is gone, and the rule is wider; see
+> §2.12.1.** True when written, and what it produced still holds: no round cap
+> crosses a gore's edge lines. Phase 10 butt-capped every casing, so the gore's
+> arms need no rule of their own. A gore node is a `junction`, so it also gets no
+> joint disc. Keying to the glyph rather than to `gorePair`, argued below, is
+> therefore now moot rather than wrong.
 
 **Every arm of the glyph, not the two the gore chose** (decided in review round 1,
 2026-08-14, on a measurement). The tempting reading is that this is about the pair
