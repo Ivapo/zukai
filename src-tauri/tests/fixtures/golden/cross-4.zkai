@@ -134,23 +134,6 @@ layout:
       pos:
         x: 250.0
         y: 0.0
-  links:
-    L1:
-      style: arterial
-    L2:
-      style: arterial
-    L3:
-      style: arterial
-    L4:
-      style: arterial
-    L5:
-      style: arterial
-    L6:
-      style: arterial
-    L7:
-      style: arterial
-    L8:
-      style: arterial
   junctions:
     N5:
       glyph: generic

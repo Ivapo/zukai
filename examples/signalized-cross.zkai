@@ -128,23 +128,6 @@ layout:
       pos:
         x: -180.0
         y: 0.0
-  links:
-    E_in:
-      style: arterial
-    E_out:
-      style: arterial
-    N_in:
-      style: arterial
-    N_out:
-      style: arterial
-    S_in:
-      style: arterial
-    S_out:
-      style: arterial
-    W_in:
-      style: arterial
-    W_out:
-      style: arterial
   junctions:
     J:
       glyph: signalized_cross

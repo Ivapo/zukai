@@ -80,13 +80,6 @@ layout:
       pos:
         x: 216.0
         y: 144.0
-  links:
-    MAIN_E:
-      style: motorway
-    MAIN_W:
-      style: motorway
-    RAMP:
-      style: ramp
   junctions:
     G:
       glyph: gore

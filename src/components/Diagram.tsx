@@ -9,14 +9,13 @@
  */
 
 import type React from "react";
-import { linkStyle, nodePos } from "../model/document";
+import { nodePos } from "../model/document";
 import {
   Document,
   JunctionGlyph,
   LaneKind,
   Link,
   LinkId,
-  LinkStyle,
   Marking,
   Node,
   NodeId,
@@ -165,7 +164,6 @@ export function Diagram({
           <RoadShape
             key={link.id}
             link={link}
-            style={linkStyle(doc, link.id)}
             points={pts}
             butt={butt.has(link.id)}
             replaced={replaced[link.id]}
@@ -262,7 +260,7 @@ export function Diagram({
         // land on each other otherwise (bus stops §2.8).
         const run = lengthLabel(
           pts,
-          roadWidth(link.lanes, linkStyle(doc, link.id)),
+          roadWidth(link.lanes),
           bayClearance(bays, link.id, pts),
         );
         if (!run) return null;
@@ -517,14 +515,13 @@ function jointEnd(
     away,
     nearside: { x: -t.y, y: t.x },
     offset: lateralShift(doc, link, offsets),
-    width: roadWidth(link.lanes, linkStyle(doc, link.id)),
+    width: roadWidth(link.lanes),
   };
 }
 
-/** A wedge as it is drawn: its corners, and the class of the link it closes. */
+/** A wedge as it is drawn: its corners. */
 interface Taper {
   corners: [Vec2, Vec2, Vec2];
-  style: LinkStyle;
 }
 
 /**
@@ -593,12 +590,7 @@ function tapers(
 
     const cut = taperWedges(a, b, TAPER_LENGTH);
     if (cut.length === 0) continue;
-    for (const w of cut) {
-      // `inset` is one of the two arguments by identity, which is how the wedge
-      // finds the link it runs along — and so the road class it paints as.
-      const link = w.inset === a ? into : from;
-      wedges.push({ corners: w.corners, style: linkStyle(doc, link.id) });
-    }
+    for (const w of cut) wedges.push({ corners: w.corners });
     butt.add(into.id);
     butt.add(from.id);
   }
@@ -609,10 +601,9 @@ function tapers(
 /**
  * The asphalt wedge at a width step, and the edge line on its hypotenuse.
  *
- * The road class reaches it as a token on the group, exactly as `RoadShape`
- * emits one — so `.road-local .road-taper` and the class-scoped `.road-edge`
- * width both apply with no rule of their own, and the wedge cannot come to paint
- * a different asphalt from the road it closes.
+ * It paints the one asphalt `.road-taper` gives every wedge, which is the
+ * asphalt every road's casing is — so the wedge cannot come to paint a different
+ * surface from the road it closes.
  */
 function TaperShape({
   wedge,
@@ -624,7 +615,7 @@ function TaperShape({
   const [a, b, c] = wedge.corners;
   const [e0, e1] = taperEdge(wedge.corners, 1.5);
   return (
-    <g className={`taper road-${wedge.style}`}>
+    <g className="taper">
       <polygon
         className="road-taper"
         points={`${a.x},${a.y} ${b.x},${b.y} ${c.x},${c.y}`}
@@ -647,10 +638,9 @@ function TaperShape({
  *
  * **In the wedge layer rather than the marking layer**, because it is asphalt:
  * drawn beside its own stop, a bay would cover any marking of a neighbouring road
- * listed before it. Like {@link TaperShape} it takes the road class as a token on
- * its group, so `.road-local .road-taper` and the class-scoped `.road-edge` width
- * reach it with no rule of its own, and a second token on each element names it in
- * the markup and for tests. The mouth paints as a **divider** because that is what
+ * listed before it. Like {@link TaperShape} it paints through `.road-taper` and
+ * `.road-edge`, so it is the road's own asphalt and line, and a second token on each
+ * element names it in the markup and for tests. The mouth paints as a **divider** because that is what
  * it is — the boundary between the running lane and the bay (OQ-8).
  *
  * No pointer handler, and no `pointer-events` rule: along the box the stop's own
@@ -666,7 +656,7 @@ function BayShape({
 }) {
   const nse = hairline(interaction);
   return (
-    <g className={`bay road-${bay.style}`}>
+    <g className="bay">
       <polygon
         className="road-taper road-bay"
         points={bay.polygon.map((p) => `${p.x},${p.y}`).join(" ")}
@@ -803,7 +793,7 @@ function MarkingShape({
           {markingRun(form.stop.word, "BUS")}
         </>
       ) : form.along ? (
-        // The style rides on a class token from the model, as the road class
+        // The style rides on a class token from the model, as a lane kind's
         // does, so `diagram.css` carries the dashes and the double line's colour
         // and an exported file inherits both with no exporter change.
         <path
@@ -945,16 +935,14 @@ function markingRun(run: TextRun, content: string) {
  * instead: a `lane_line` marking with no lane, which is the human saying the road
  * is two-way. `replaced` is where that reaches this function.
  *
- * The road class reaches the paint as a class token rather than a computed
- * attribute, so `diagram.css` carries the colour and line treatment and an
- * exported file inherits both with no exporter change (§2.3). Its *width* factor
- * cannot travel that way — CSS can replace a computed `strokeWidth`, not scale
- * it — so it enters through `laneBands`/`roadWidth`, upstream of every quantity
- * below.
+ * **There is no road class.** Every road paints the one asphalt and line
+ * treatment, and its width is its lanes and nothing else, through
+ * `laneBands`/`roadWidth` — upstream of every quantity below (road declutter
+ * §2.2). What once told a motorway from an arterial is a `shoulder` lane; what
+ * tells a ramp apart is its lane count, its gore and its chevrons.
  */
 function RoadShape({
   link,
-  style,
   points,
   butt,
   replaced,
@@ -962,7 +950,6 @@ function RoadShape({
   interaction,
 }: {
   link: Link;
-  style: LinkStyle;
   points: Vec2[];
   butt?: boolean;
   /** Boundary offsets a lane line has taken over — see {@link laneLineOffsets}. */
@@ -971,8 +958,8 @@ function RoadShape({
   cuts?: [number, number][];
   interaction?: Interaction;
 }) {
-  const bands = laneBands(link.lanes, style);
-  const w = roadWidth(link.lanes, style);
+  const bands = laneBands(link.lanes);
+  const w = roadWidth(link.lanes);
   const casing = polylinePath(points);
   const edgeInset = w / 2 - 1.5;
   // The kerb-side edge — `leftEdge`'s name comes from the y-up formula, and lane
@@ -1049,7 +1036,7 @@ function RoadShape({
 
   return (
     <g
-      className={`road road-${style}${selected ? " is-selected" : ""}`}
+      className={`road${selected ? " is-selected" : ""}`}
       onPointerDown={
         interaction && ((e: React.PointerEvent) => interaction.onLinkPointerDown(e, link))
       }

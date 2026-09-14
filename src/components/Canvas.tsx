@@ -9,7 +9,6 @@ import {
   linkPolyline,
   isNetworkFile,
   isZkaiFile,
-  linkStyle,
   nodePos,
 } from "../model/document";
 import {
@@ -367,7 +366,7 @@ export function Canvas({ state, dispatch }: CanvasProps) {
     const points = drawnPolyline(doc, link, carriageways(doc));
     if (!points || points.length < 2) return null;
     const { along, offset } = nearestOnPolyline(points, worldPoint(e));
-    const bands = laneBands(link.lanes, linkStyle(doc, link.id));
+    const bands = laneBands(link.lanes);
     return {
       position: anchoredAlong(polylineLength(points), along, anchor) / UNITS_PER_METRE,
       lane:

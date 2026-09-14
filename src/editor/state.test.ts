@@ -305,15 +305,16 @@ describe("link alignment", () => {
     return state.doc.layout.links.L1;
   }
 
-  it("sets an alignment without disturbing the road class", () => {
-    const set = reducer(twoNodesLinked(), {
-      type: "setLinkAlign",
-      id: "L1",
-      align: "offside",
-    });
+  /**
+   * A new link gets **no** layout entry: a straight centred road is what an
+   * absent one draws, and `{}` would save as `L1: {}` — bytes that say nothing
+   * (road declutter §2.3).
+   */
+  it("mints no layout entry for a link it creates", () => {
+    const linked = twoNodesLinked();
 
-    expect(view(set)).toEqual({ style: "arterial", align: "offside" });
-    expect(set.dirty).toBe(true);
+    expect(linked.doc.links.map((l) => l.id)).toEqual(["L1"]);
+    expect("L1" in linked.doc.layout.links).toBe(false);
   });
 
   /**
@@ -332,8 +333,8 @@ describe("link alignment", () => {
 
     expect(view(back).align).toBeUndefined();
     expect("align" in view(back)).toBe(false);
-    // …and the rest of the entry survives the round trip untouched.
-    expect(view(back)).toEqual({ style: "arterial" });
+    // …and the entry the first call minted is left empty, not deleted.
+    expect(view(back)).toEqual({});
   });
 
   it("is one undo step, restoring the alignment the link had before", () => {
@@ -347,21 +348,20 @@ describe("link alignment", () => {
     const once = reducer(flipped, { type: "undo" });
     expect(view(once).align).toBe("nearside");
 
+    // Back to the link as `completeLink` left it — with no layout entry at all.
     const twice = reducer(once, { type: "undo" });
-    expect(view(twice).align).toBeUndefined();
+    expect(view(twice)).toBeUndefined();
   });
 
-  /** A link with no layout entry — imported, or hand-edited — still aligns. */
+  /** A link with no layout entry — every new or imported one — still aligns. */
   it("creates a layout entry for a link that has none", () => {
-    const linked = twoNodesLinked();
-    const bare = {
-      ...linked,
-      doc: { ...linked.doc, layout: { ...linked.doc.layout, links: {} } },
-    };
+    const bare = twoNodesLinked();
+    expect(view(bare)).toBeUndefined();
 
     const set = reducer(bare, { type: "setLinkAlign", id: "L1", align: "offside" });
 
-    expect(view(set)).toEqual({ style: "arterial", align: "offside" });
+    expect(view(set)).toEqual({ align: "offside" });
+    expect(set.dirty).toBe(true);
   });
 });
 
@@ -2081,28 +2081,22 @@ describe("bends", () => {
   });
 
   /**
-   * `bends` is optional and so is the `LinkView` itself. `completeLink` and the
-   * importer both always write a view, but a hand-edited or normalized document
-   * need not — and a bend placed on such a link must not silently go nowhere.
+   * `bends` is optional and so is the `LinkView` itself. Neither `completeLink`
+   * nor the importer writes a view, so a bend placed on a fresh link must not
+   * silently go nowhere.
    */
   it("mints the LinkView a link may not have", () => {
     const bare = road();
-    const stripped: EditorState = {
-      ...bare,
-      doc: { ...bare.doc, layout: { ...bare.doc.layout, links: {} } },
-    };
+    expect("L1" in bare.doc.layout.links).toBe(false);
 
-    const bent = reducer(stripped, {
+    const bent = reducer(bare, {
       type: "addBend",
       link: "L1",
       index: 0,
       pos: { x: 50, y: 40 },
     });
 
-    expect(bent.doc.layout.links.L1).toEqual({
-      style: "arterial",
-      bends: [{ x: 50, y: 40 }],
-    });
+    expect(bent.doc.layout.links.L1).toEqual({ bends: [{ x: 50, y: 40 }] });
   });
 
   it("mints the selection for the bend it inserted", () => {
@@ -2184,7 +2178,7 @@ describe("bends", () => {
       );
       const gone = reducer(one, { type: "deleteSelection" });
 
-      expect(gone.doc.layout.links.L1).toEqual({ style: "arterial" });
+      expect(gone.doc.layout.links.L1).toEqual({});
       expect("bends" in gone.doc.layout.links.L1).toBe(false);
       expect(route(gone)).toEqual([{ x: 0, y: 0 }, { x: 100, y: 0 }]);
     });

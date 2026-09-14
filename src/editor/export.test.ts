@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Document, LinkStyle, MarkingKind, SignKind } from "../model/types";
+import { Document, MarkingKind, SignKind } from "../model/types";
 import {
   EXPORT_PAD,
   diagramInner,
@@ -25,15 +25,6 @@ function road(lanes: number): Document {
     { type: "completeLink", to: "N2" },
     { type: "setLinkLanes", id: "L1", count: lanes },
   ).doc;
-}
-
-/** {@link road}, at a road class other than the default. */
-function classed(lanes: number, style: LinkStyle): Document {
-  return run({ ...initialState(), doc: road(lanes) }, {
-    type: "setLinkStyle",
-    id: "L1",
-    style,
-  }).doc;
 }
 
 /** {@link road} with one sign standing clear of it, carrying `label`. */
@@ -167,21 +158,6 @@ describe("strokeAllowance", () => {
   });
 
   /**
-   * The road class is part of the drawn width, so the frame has to know about
-   * it: today every factor is at most 1, so a miss would only over-pad, but a
-   * class that ever drew wider than the default would clip its own end caps —
-   * the regression this function exists to prevent.
-   */
-  it("measures the road at its own class, not the default", () => {
-    const ramp = classed(4, "ramp");
-
-    expect(strokeAllowance(ramp)).toBe(
-      roadWidth(ramp.links[0].lanes, "ramp") / 2,
-    );
-    expect(strokeAllowance(ramp)).toBeLessThan(strokeAllowance(road(4)));
-  });
-
-  /**
    * A marking needs **no** widening, and this confirms it rather than pre-empting
    * it (markings spec §2.10). The allowance reads only `doc.links`, so nothing a
    * marking carries can move it at all — and nothing needs to: paint is painted
@@ -283,23 +259,6 @@ describe("diagramSvg", () => {
     // The limit is stated rather than left to the default, because the same
     // number lives in `geometry.ts` as `MITER_LIMIT` and clamps the offset.
     expect(css).toContain("stroke-miterlimit: 4");
-  });
-
-  /**
-   * The road class travels as a class token plus a rule in the embedded
-   * stylesheet, so an exported file paints it with no exporter change at all —
-   * the claim that made class-in-CSS the right mechanism (road spec 2.3). A
-   * computed inline colour would have needed the export path to know about road
-   * classes; a `url()` reference would have failed the assertions above.
-   */
-  it("carries the road class and its paint rule into the file", () => {
-    const svg = diagramSvg(classed(2, "ramp"), null);
-
-    expect(svg).toContain('<g class="road road-ramp">');
-    expect(embeddedCss(svg)).toContain(".road-ramp .road-casing");
-    expect(embeddedCss(svg)).toContain("--asphalt-2");
-    expectSelfContained(svg);
-    expect(embeddedCss(svg)).not.toMatch(/[<&]/);
   });
 
   /**
@@ -585,7 +544,6 @@ describe("gores in an exported file", () => {
       { type: "setLinkLanes", id: "L1", count: 4 },
       { type: "setLinkLanes", id: "L2", count: 3 },
       { type: "setLinkLanes", id: "L3", count: 1 },
-      { type: "setLinkStyle", id: "L3", style: "ramp" },
       { type: "setLinkAlign", id: "L1", align: "offside" },
       { type: "setLinkAlign", id: "L2", align: "offside" },
       { type: "setNodeKind", id: "N2", kind: "junction" },

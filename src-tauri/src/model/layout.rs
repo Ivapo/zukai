@@ -42,7 +42,8 @@ pub struct Layout {
     /// Canvas placement per node.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub nodes: BTreeMap<NodeId, NodeView>,
-    /// Rendering style and routing per link.
+    /// Alignment and routing per link — only for the links that carry one, so a
+    /// plain straight centred road has no entry at all.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub links: BTreeMap<LinkId, LinkView>,
     /// Glyph choice per junction (keyed by the junction's node id).
@@ -60,12 +61,15 @@ pub struct NodeView {
     pub pos: Vec2,
 }
 
-/// How a link is drawn and routed on the canvas.
+/// How a link is placed and routed on the canvas.
+///
+/// **There is deliberately no road class.** A `style` of four values drew two
+/// looks, and the narrower one made lane count — the thing road width tells a
+/// reader — ambiguous (road declutter §2.2). It left the way `rotation` left
+/// [`JunctionView`]: nothing derives `deny_unknown_fields`, so an older file's
+/// `style:` key is ignored on the way in and absent on the way out.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LinkView {
-    /// Road class, driving stroke width/colour.
-    #[serde(default)]
-    pub style: LinkStyle,
     /// Which of the link's own edges stays put on its polyline.
     ///
     /// Elided when centred, so a document that has never set an alignment
@@ -107,21 +111,6 @@ impl LinkAlign {
     fn is_centre(&self) -> bool {
         matches!(self, Self::Centre)
     }
-}
-
-/// Road class of a link, a rendering hint only.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum LinkStyle {
-    /// Grade-separated motorway / freeway.
-    Motorway,
-    /// Major urban road (the default).
-    #[default]
-    Arterial,
-    /// Minor / local street.
-    Local,
-    /// On/off ramp or slip road.
-    Ramp,
 }
 
 /// How a junction node is drawn. This is the render hint that turns a plain
@@ -197,7 +186,6 @@ mod tests {
     /// A link view carrying the given alignment and nothing else unusual.
     fn view(align: LinkAlign) -> LinkView {
         LinkView {
-            style: LinkStyle::Motorway,
             align,
             bends: Vec::new(),
         }

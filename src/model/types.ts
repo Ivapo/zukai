@@ -167,9 +167,6 @@ export interface Vec2 {
   y: number;
 }
 
-/** Road class of a link, a rendering hint only. */
-export type LinkStyle = "motorway" | "arterial" | "local" | "ramp";
-
 /**
  * Which of a link's own edges stays put on its polyline — `centre` (the
  * default) draws the road centred on it, as every road was drawn before this
@@ -201,9 +198,12 @@ export interface NodeView {
   pos: Vec2;
 }
 
-/** How a link is drawn and routed. */
+/**
+ * How a link is placed and routed. Every field is optional and so is the view
+ * itself: a straight centred road has none, and nothing creates one until an
+ * alignment or a bend is set. There is no road class (road declutter §2.2).
+ */
 export interface LinkView {
-  style: LinkStyle;
   /** Absent means `centre`; Rust elides the key for a centred link. */
   align?: LinkAlign;
   bends?: Vec2[];

@@ -2,12 +2,10 @@
 
 import {
   DEFAULT_LANE_WIDTH,
-  DEFAULT_LINK_STYLE,
   findLink,
   findNode,
   linkAlign,
   linkPolyline,
-  linkStyle,
   nodePos,
 } from "../model/document";
 import {
@@ -18,7 +16,6 @@ import {
   LinkAlign,
   LinkEnd,
   LinkId,
-  LinkStyle,
   LineStyle,
   Marking,
   NodeId,
@@ -122,10 +119,10 @@ export const ROAD_MARGIN = 3;
 export const UNITS_PER_METRE = LANE_PX / DEFAULT_LANE_WIDTH;
 
 /**
- * Drawn width of a road of one default lane at the default road class — what an
- * empty `lanes` array gets, and the fallback width for a junction with no arms
- * to measure (`Diagram.tsx`). A narrower class draws narrower than this: a
- * 1-lane ramp is 10.2, deliberately *not* floored back up to 12 (§2.2).
+ * Drawn width of a road of one default lane — what an empty `lanes` array gets,
+ * and the fallback width for a junction with no arms to measure (`Diagram.tsx`).
+ * A lane narrower than the default draws narrower than this, deliberately *not*
+ * floored back up to 12 (§2.2).
  */
 export const MIN_ROAD_WIDTH = DEFAULT_LANE_WIDTH * UNITS_PER_METRE + ROAD_MARGIN;
 
@@ -191,30 +188,6 @@ export function gridPattern(view: ViewTransform): { cell: number; origin: Vec2 }
   return { cell, origin: { x: view.tx - cell / 2, y: view.ty - cell / 2 } };
 }
 
-/** Per-class lane-width multipliers. Exhaustive, so a new `LinkStyle` won't build. */
-const CLASS_WIDTH_FACTOR: Record<LinkStyle, number> = {
-  motorway: 1,
-  arterial: 1,
-  local: 0.9,
-  ramp: 0.8,
-};
-
-/**
- * How much narrower a road of this class draws — modest by design, and never
- * large enough to confuse lane count: road width is how a reader counts lanes,
- * so a 2-lane motorway must still read narrower than a 4-lane local street. The
- * rest of what makes a class legible is colour and line treatment, which live in
- * `diagram.css` (§2.3).
- *
- * It is applied to the per-lane widths rather than to the finished road width,
- * so `roadWidth`, `laneBands`, the dividers, the edge inset, the junction arms
- * and the export allowance all inherit it from one derivation. Falls back to 1
- * for a style a hand-edited document invented.
- */
-export function classWidthFactor(style: LinkStyle): number {
-  return CLASS_WIDTH_FACTOR[style] ?? 1;
-}
-
 /**
  * One lane's slice of the road, in **world units** — the metre conversion has
  * already happened, so every consumer is in drawing space. `offset` is the band
@@ -237,22 +210,18 @@ export interface LaneBand {
  *
  * **An empty `lanes` array is treated as one default lane** — a floor on the
  * lane *count*, deliberately not a `Math.max(MIN_ROAD_WIDTH, …)` clamp on the
- * resulting width. The two differ once a road class narrows its lanes: a 1-lane
- * ramp is 10.2 units, which an output clamp would round back up to a 1-lane
- * arterial's 12 and so cancel the class distinction it was meant to show. Only a
- * hand-edited or imported document can get here — the Inspector clamps the count
- * to 1..8 — which is why it needs a floor rather than an assertion.
+ * resulting width, which would round a road of narrow lanes back up and so make
+ * its width stop saying how many lanes it has. Only a hand-edited or imported
+ * document can get here — the Inspector clamps the count to 1..8 — which is why
+ * it needs a floor rather than an assertion.
  *
- * **The road class enters here and nowhere else.** Scaling the finished width
- * instead would narrow the casing while the band-derived dividers stayed put and
- * spilled outside it; scaling in metres, before the conversion, drifts three
- * times as often (measured). So each lane's already-converted width takes the
- * factor, and `ROAD_MARGIN` — the casing lip, not a lane — never does.
+ * **Nothing else scales a lane.** There is no road class (road declutter §2.2):
+ * road width is how a reader counts lanes, so a lane draws at its own metres and
+ * no factor narrows it.
  */
-function laneWidths(lanes: Lane[], style: LinkStyle): number[] {
-  const factor = classWidthFactor(style);
-  if (lanes.length === 0) return [DEFAULT_LANE_WIDTH * UNITS_PER_METRE * factor];
-  return lanes.map((l) => l.width * UNITS_PER_METRE * factor);
+function laneWidths(lanes: Lane[]): number[] {
+  if (lanes.length === 0) return [DEFAULT_LANE_WIDTH * UNITS_PER_METRE];
+  return lanes.map((l) => l.width * UNITS_PER_METRE);
 }
 
 /**
@@ -266,11 +235,8 @@ function laneWidths(lanes: Lane[], style: LinkStyle): number[] {
  * The boundary between two adjacent bands is a lane divider; the outermost two
  * are the carriageway edges.
  */
-export function laneBands(
-  lanes: Lane[],
-  style: LinkStyle = DEFAULT_LINK_STYLE,
-): LaneBand[] {
-  const widths = laneWidths(lanes, style);
+export function laneBands(lanes: Lane[]): LaneBand[] {
+  const widths = laneWidths(lanes);
   let edge = widths.reduce((s, w) => s + w, 0) / 2;
   return widths.map((width) => {
     const offset = edge - width / 2;
@@ -280,11 +246,8 @@ export function laneBands(
 }
 
 /** Total drawn road width in world units: every lane, plus the casing lip. */
-export function roadWidth(
-  lanes: Lane[],
-  style: LinkStyle = DEFAULT_LINK_STYLE,
-): number {
-  return laneWidths(lanes, style).reduce((s, w) => s + w, 0) + ROAD_MARGIN;
+export function roadWidth(lanes: Lane[]): number {
+  return laneWidths(lanes).reduce((s, w) => s + w, 0) + ROAD_MARGIN;
 }
 
 /**
@@ -305,13 +268,9 @@ export function roadWidth(
  * `offside` shifts **positive** and an offside-aligned road hangs to the
  * nearside of its own polyline, with `nearside` the mirror.
  */
-export function alignmentShift(
-  lanes: Lane[],
-  style: LinkStyle,
-  align: LinkAlign,
-): number {
+export function alignmentShift(lanes: Lane[], align: LinkAlign): number {
   if (align === "centre") return 0;
-  const half = (roadWidth(lanes, style) - ROAD_MARGIN) / 2;
+  const half = (roadWidth(lanes) - ROAD_MARGIN) / 2;
   return align === "offside" ? half : -half;
 }
 
@@ -358,10 +317,9 @@ export interface AlignmentReading {
  */
 export function alignmentReading(
   lanes: Lane[],
-  style: LinkStyle,
   align: LinkAlign,
 ): AlignmentReading {
-  const shift = alignmentShift(lanes, style, align);
+  const shift = alignmentShift(lanes, align);
   // `-0 === 0`, so a negated zero lands here rather than reading `left`.
   if (shift === 0) return { side: "on", offset: 0 };
   return { side: shift > 0 ? "right" : "left", offset: Math.abs(shift) };
@@ -406,7 +364,7 @@ export const TAPER_MAX_BEND = 8;
  *
  * The number is written twice — here and as `.road-casing`'s
  * `stroke-miterlimit` in `diagram.css` — because a CSS rule cannot read a
- * constant, the same reason the road class's width factor does not live there.
+ * constant.
  *
  * Past the limit the two differ in *kind*: this clamps the **distance** along
  * the same bisector, where SVG bevels. That is accepted. A hairpin that sharp is
@@ -419,9 +377,8 @@ export const MITER_LIMIT = 4;
  * How close two casing-edge offsets must be to count as the same edge.
  *
  * The pairs that *should* agree do agree exactly today — two `offside`-aligned
- * roads both put that edge on the polyline, and a 5-lane ramp and a 4-lane
- * arterial both draw exactly 39 wide (checked across every class and lane
- * count). This is a tolerance rather than `===` because nothing guarantees that
+ * roads both put that edge on the polyline, and five lanes of 2.8 m and four of
+ * 3.5 m both draw exactly 39 wide. This is a tolerance rather than `===` because nothing guarantees that
  * of a document whose lanes carry arbitrary widths, and because the alternative
  * is worse than a missed wedge: a step below 1e-6 world units would emit a
  * zero-area polygon and butt-cap two roads over a difference no one can see.
@@ -453,7 +410,7 @@ export interface TaperWedge {
   corners: [Vec2, Vec2, Vec2];
   /**
    * The inset end — the very {@link JointEnd} that was passed in, so a caller
-   * can map it back to the link it came from (and to that link's road class).
+   * can map it back to the link it came from.
    */
   inset: JointEnd;
 }
@@ -958,8 +915,8 @@ export function carriageways(doc: Document): Record<LinkId, number> {
     // satisfy that test trivially without being a divided road.
     if (a.from_node === a.to_node) continue;
     if (a.from_node !== b.to_node || a.to_node !== b.from_node) continue;
-    offsets[a.id] = carriagewayOffset(doc, a);
-    offsets[b.id] = carriagewayOffset(doc, b);
+    offsets[a.id] = carriagewayOffset(a);
+    offsets[b.id] = carriagewayOffset(b);
   }
 
   return offsets;
@@ -969,17 +926,17 @@ export function carriageways(doc: Document): Record<LinkId, number> {
  * One carriageway's step out from the shared centreline — always positive, per
  * {@link carriageways}.
  *
- * The width term is the link's *drawn* width, road class and all, so the gap
- * left for the median is the median and nothing else. Each link uses its own
- * `median_gap`; on the document the UI produces they always agree, and where a
- * hand-edited one disagrees the drawn gap is the mean of the two separations.
+ * The width term is the link's *drawn* width, so the gap left for the median is
+ * the median and nothing else. Each link uses its own `median_gap`; on the
+ * document the UI produces they always agree, and where a hand-edited one
+ * disagrees the drawn gap is the mean of the two separations.
  */
-function carriagewayOffset(doc: Document, link: Link): number {
+function carriagewayOffset(link: Link): number {
   const separation = Math.max(
     SCHEMATIC_MEDIAN,
     link.median_gap * UNITS_PER_METRE,
   );
-  const w = roadWidth(link.lanes, linkStyle(doc, link.id));
+  const w = roadWidth(link.lanes);
   return DRIVE_SIDE * (w / 2 + separation / 2);
 }
 
@@ -1145,7 +1102,7 @@ export function lateralShift(
 ): number {
   return (
     (offsets[link.id] ?? 0) +
-    alignmentShift(link.lanes, linkStyle(doc, link.id), linkAlign(doc, link.id))
+    alignmentShift(link.lanes, linkAlign(doc, link.id))
   );
 }
 
@@ -1221,7 +1178,7 @@ export function junctionArms(
       dir: { x: dx / len, y: dy / len },
       origin: n0,
       outbound: touchesStart,
-      width: roadWidth(link.lanes, linkStyle(doc, link.id)),
+      width: roadWidth(link.lanes),
     });
   }
   return arms;
@@ -2059,7 +2016,7 @@ export function markingAnchor(
   const at = pointAlongPolyline(points, along);
   if (!at) return undefined;
 
-  const bands = laneBands(link.lanes, linkStyle(doc, link.id));
+  const bands = laneBands(link.lanes);
   let span: LaneBand;
   if (
     marking.kind.type === "bus_stop" ||
@@ -2133,7 +2090,7 @@ export const MARKING_PITCH = LANE_PX / 3;
  * other way round: the cells then tile the span *exactly*, with no partial cell
  * at either end. That is what makes containment a property of the construction
  * rather than a clamp each kind has to remember — a shape occupying any fraction
- * of its own cell is inside the lane at every lane count and every road class,
+ * of its own cell is inside the lane at every lane count and every lane width,
  * and a stripe on the verge is the failure this rules out.
  */
 function spanCells(span: LaneBand): { centres: number[]; pitch: number } {
@@ -2366,7 +2323,7 @@ export interface TurnArrow {
   /**
    * How wide to stroke the shaft and the stems. Derived from the band and so
    * carried here rather than set in `diagram.css`, exactly as a lane band's own
-   * width is: an arrow in a narrow ramp lane is a narrower arrow.
+   * width is: an arrow in a narrow lane is a narrower arrow.
    */
   stroke: number;
 }
@@ -2532,8 +2489,8 @@ export function markingArrow(
  * beside the road with no band to derive from, and one size across the whole
  * drawing is what keeps a plate and a painted word reading as the same hand.
  *
- * Sized so a run's cap height clears the narrowest band it can land in — a ramp
- * lane is 7.2 units — with asphalt showing either side. Settled in the app
+ * Sized so a run's cap height clears a default lane — `LANE_PX`, 9 units, the
+ * narrowest band a control can author — with asphalt showing either side. Settled in the app
  * (signs spec §2.4).
  */
 export const TEXT_SIZE = 6;
@@ -2727,7 +2684,7 @@ export function lengthLabel(
  *
  * A sign is a **symbol, not a scale model** (signs spec §2.7): it stands beside
  * the road rather than on it, so unlike a turn arrow's proportions it is not
- * derived from a lane band — the same sign beside a narrow ramp is the same sign.
+ * derived from a lane band — the same sign beside a narrow road is the same sign.
  * A schematic build constant in the manner of {@link GORE_LENGTH}, and settled in
  * the app as {@link MARKING_PITCH} was.
  *
@@ -3072,7 +3029,7 @@ export function laneLine(
   const points = drawnPolyline(doc, link, offsets);
   if (!points || points.length < 2) return undefined;
 
-  const bands = laneBands(link.lanes, linkStyle(doc, link.id));
+  const bands = laneBands(link.lanes);
   const offset = boundaryOffset(bands, marking.lane);
   if (offset === undefined) return undefined;
 
@@ -3111,7 +3068,7 @@ export function laneLineOffsets(doc: Document): Record<LinkId, number[]> {
     const link = findLink(doc, m.link);
     if (!link) continue;
     const offset = boundaryOffset(
-      laneBands(link.lanes, linkStyle(doc, link.id)),
+      laneBands(link.lanes),
       m.lane,
     );
     if (offset === undefined) continue;
@@ -3251,7 +3208,7 @@ export function busStop(
   const span: LaneBand =
     form === "bay"
       ? {
-          offset: roadWidth(link.lanes, linkStyle(doc, link.id)) / 2 - 1.5 + b / 2,
+          offset: roadWidth(link.lanes) / 2 - 1.5 + b / 2,
           width: b,
         }
       : anchor.span;
@@ -3277,8 +3234,6 @@ export function busStop(
 export interface BusBay {
   /** The link it opens off, which {@link BusBay.cut} is measured along. */
   link: LinkId;
-  /** That link's class, which the bay paints as — a taper wedge's posture. */
-  style: LinkStyle;
   /** The asphalt: the casing edge over the whole opening, then the bay's outer edge back. */
   polygon: Vec2[];
   /** Its edge lines: the taper line in, the outer edge line, the taper line out. */
@@ -3325,8 +3280,7 @@ export function busBays(
     if (!foot) continue;
     const { link, points, total, anchor, centre } = foot;
 
-    const style = linkStyle(doc, link.id);
-    const e = roadWidth(link.lanes, style) / 2;
+    const e = roadWidth(link.lanes) / 2;
     const b = anchor.span.width;
     const box: [number, number] = [
       centre - BUS_STOP_LENGTH / 2,
@@ -3344,7 +3298,6 @@ export function busBays(
 
     bays.push({
       link: link.id,
-      style,
       polygon: [...casing, ...[...outer].reverse()],
       edges: [
         taperEdge([outer[0], beside[0], casing[0]], 1.5),

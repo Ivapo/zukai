@@ -25,7 +25,6 @@
 :root,
 .zukai-diagram {
   --asphalt: #2b2f36;
-  --asphalt-2: #23272d;
 
   --paper: #e7ebee;
   --island: #c9d6c9;
@@ -75,8 +74,7 @@
    element turns: SVG bevels a join once `1 / sin` of half the included angle
    passes this limit, and that is the same quantity the offset clamps on, so the
    asphalt and the paint change behaviour at one angle rather than two. Written
-   twice because a CSS rule cannot read a constant - the road class's width
-   factor is here for the same reason (road spec 2.3).
+   twice because a CSS rule cannot read a constant.
 
    `stroke-linecap` is untouched: that is about a road's *ends*, and
    `.road-casing--butt` below depends on it. */
@@ -302,34 +300,6 @@
   stroke-linecap: butt;
 }
 
-/* ----- road class ----- */
-
-/* Motorway and arterial take the base treatment above; the local pair is the
-   lighter, thinner-lined one. Only paint lives here. The class also carries a
-   modest width factor, and that cannot: a CSS rule can replace a computed
-   stroke-width but not scale one, so it lives in `editor/geometry.ts`, upstream
-   of the casing, the edge inset and the lane dividers alike (road spec 2.3). */
-
-.road-local .road-casing,
-.road-ramp .road-casing {
-  stroke: var(--asphalt-2);
-}
-
-.road-local .road-taper,
-.road-ramp .road-taper {
-  fill: var(--asphalt-2);
-}
-
-.road-local .road-edge,
-.road-ramp .road-edge {
-  stroke-width: 1.2;
-}
-
-.road-local .road-shoulder-line,
-.road-ramp .road-shoulder-line {
-  stroke-width: 1.5;
-}
-
 /* The node's own dot is NOT here, though it paints: it is an editing mark rather
    than something the road does, so it is chrome and lives in `styles.css`
    (ramps 2.11.1). */
@@ -472,7 +442,7 @@
 }
 
 /* White letters on red - the one place a label is not ink, and it rides on the
-   group's own kind token, the way `.road-local .road-casing` recolours a road. */
+   group's own kind token, the way a lane band takes its kind's colour. */
 .sign-stop .sign-label {
   fill: var(--paint-white);
 }

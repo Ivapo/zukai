@@ -1,7 +1,6 @@
 /** Editor state and the reducer that drives all document edits. */
 
 import {
-  DEFAULT_LINK_STYLE,
   defaultLane,
   emptyDocument,
   findJunction,
@@ -23,7 +22,6 @@ import {
   LinkAlign,
   LinkEnd,
   LinkId,
-  LinkStyle,
   Marking,
   MarkingId,
   MarkingKind,
@@ -135,7 +133,6 @@ export type EditAction =
   | { type: "cancelLink" }
   | { type: "setLinkLanes"; id: LinkId; count: number }
   | { type: "setLaneKind"; id: LinkId; lane: LaneIdx; kind: LaneKind }
-  | { type: "setLinkStyle"; id: LinkId; style: LinkStyle }
   | { type: "setLinkAlign"; id: LinkId; align: LinkAlign }
   // `length?`, not `length: number | null`: absent is the one representation,
   // and here it is also the whole meaning — a road that states no length. The
@@ -533,9 +530,6 @@ function editReducer(state: EditorState, action: EditAction): EditorState {
     case "setLaneKind":
       return setLaneKind(state, action.id, action.lane, action.kind);
 
-    case "setLinkStyle":
-      return setLinkStyle(state, action.id, action.style);
-
     case "setLinkAlign":
       return setLinkAlign(state, action.id, action.align);
 
@@ -815,10 +809,6 @@ function completeLink(state: EditorState, to: NodeId): EditorState {
           median_gap: 0.5,
         },
       ],
-      layout: {
-        ...doc.layout,
-        links: { ...doc.layout.links, [id]: { style: DEFAULT_LINK_STYLE } },
-      },
     },
     linkFrom: null,
     selection: { kind: "link", id },
@@ -1381,25 +1371,6 @@ function setLaneKind(
   };
 }
 
-function setLinkStyle(
-  state: EditorState,
-  id: LinkId,
-  style: LinkStyle,
-): EditorState {
-  const { doc } = state;
-  const view = doc.layout.links[id] ?? { style };
-  return {
-    ...state,
-    doc: {
-      ...doc,
-      layout: {
-        ...doc.layout,
-        links: { ...doc.layout.links, [id]: { ...view, style } },
-      },
-    },
-  };
-}
-
 /**
  * Hold one of a link's edges on its polyline, or put it back on the centreline.
  *
@@ -1415,9 +1386,7 @@ function setLinkAlign(
   align: LinkAlign,
 ): EditorState {
   const { doc } = state;
-  const { align: _dropped, ...view } = doc.layout.links[id] ?? {
-    style: DEFAULT_LINK_STYLE,
-  };
+  const { align: _dropped, ...view } = doc.layout.links[id] ?? {};
   return {
     ...state,
     doc: {
@@ -1483,15 +1452,13 @@ function setLinkLength(
  * in-memory encoding of a document that saves as a straight chord.
  *
  * It also **mints the `LinkView` a link may not have**. `bends` is optional and
- * so is the view itself: `completeLink` and the importer both always write one,
- * but a hand-edited or normalized document need not, and a bend placed on such a
- * link must not silently go nowhere. {@link setLinkStyle}'s fallback shape.
+ * so is the view itself: neither `completeLink` nor the importer writes one, since
+ * a straight centred road is what an absent view draws, so a bend placed on a
+ * fresh link must not silently go nowhere. {@link setLinkAlign} mints the same way.
  */
 function withBends(state: EditorState, id: LinkId, bends: Vec2[]): EditorState {
   const { doc } = state;
-  const { bends: _dropped, ...view } = doc.layout.links[id] ?? {
-    style: DEFAULT_LINK_STYLE,
-  };
+  const { bends: _dropped, ...view } = doc.layout.links[id] ?? {};
   return {
     ...state,
     doc: {

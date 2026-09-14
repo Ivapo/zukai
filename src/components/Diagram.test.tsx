@@ -14,7 +14,6 @@ import {
   UNITS_PER_METRE,
   alignmentReading,
   carriageways,
-  classWidthFactor,
   drawnPolyline,
   junctionArms,
   markingText,
@@ -26,21 +25,17 @@ import {
   signPlate,
 } from "../editor/geometry";
 import { Action, EditorState, initialState, reducer } from "../editor/state";
-import { findLink, linkStyle, nodePos } from "../model/document";
+import { findLink, nodePos } from "../model/document";
 import {
   Document,
   LaneKind,
   LineStyle,
   LinkAlign,
-  LinkStyle,
   Marking,
   SignKind,
   Vec2,
 } from "../model/types";
 import { Diagram, Interaction } from "./Diagram";
-
-/** Every road class the Inspector offers. */
-const LINK_STYLES: LinkStyle[] = ["motorway", "arterial", "local", "ramp"];
 
 /** Apply a sequence of actions, as the UI would dispatch them. */
 function run(state: EditorState, ...actions: Action[]): EditorState {
@@ -254,114 +249,6 @@ describe("the direction arrow is chrome on the selected link", () => {
 
   it("draws none in an export", () => {
     expect(arrows(renderToStaticMarkup(<Diagram doc={twoWay()} />))).toHaveLength(0);
-  });
-});
-
-describe("road class", () => {
-  /** A `lanes`-lane link drawn due east from the origin, at road class `style`. */
-  function classed(style: LinkStyle, lanes = 4): Document {
-    return run(
-      initialState(),
-      { type: "addNode", pos: { x: 0, y: 0 } },
-      { type: "addNode", pos: { x: 120, y: 0 } },
-      { type: "startLink", from: "N1" },
-      { type: "completeLink", to: "N2" },
-      { type: "setLinkLanes", id: "L1", count: lanes },
-      { type: "setLinkStyle", id: "L1", style },
-    ).doc;
-  }
-
-  /** Every `y` a road drawn due east paints its `cls` lines at. */
-  function offsets(svg: string, cls: string): number[] {
-    return [...svg.matchAll(new RegExp(`class="${cls}" d="M 0 (\\S+) L`, "g"))]
-      .map((m) => Number(m[1]))
-      .sort((a, b) => a - b);
-  }
-
-  /** The casing's drawn width. */
-  function casingWidth(svg: string): number {
-    return Number(svg.match(/class="road-casing"[^>]*stroke-width="(\S+?)"/)![1]);
-  }
-
-  it("tags the road group with its class, for every class", () => {
-    for (const style of LINK_STYLES) {
-      const svg = renderToStaticMarkup(<Diagram doc={classed(style)} />);
-      expect(svg).toContain(`<g class="road road-${style}">`);
-    }
-  });
-
-  /**
-   * An imported or hand-edited document need not carry a `LinkView` at all, and
-   * the drawing still has to pick a class — the same default the Inspector shows.
-   */
-  it("falls back to arterial for a link with no layout entry", () => {
-    const doc = classed("ramp");
-    const bare: Document = {
-      ...doc,
-      layout: { ...doc.layout, links: {} },
-    };
-
-    expect(renderToStaticMarkup(<Diagram doc={bare} />)).toContain(
-      '<g class="road road-arterial">',
-    );
-  });
-
-  /**
-   * The width factor has to reach the *lane-derived* geometry, not just the
-   * casing. Scaling the finished width alone narrows the asphalt while the
-   * dividers stay at full pitch and spill outside it — a broken drawing that a
-   * casing-and-edges check would pass (road spec 2.3).
-   */
-  it("narrows a ramp's casing, edge lines and lane dividers together", () => {
-    const plain = renderToStaticMarkup(<Diagram doc={classed("arterial")} />);
-    const ramp = renderToStaticMarkup(<Diagram doc={classed("ramp")} />);
-    const f = classWidthFactor("ramp");
-
-    // The casing carries the lane region, which scales, plus the unscaled lip.
-    expect(casingWidth(ramp)).toBeLessThan(casingWidth(plain));
-    expect(casingWidth(ramp) - ROAD_MARGIN).toBeCloseTo(
-      f * (casingWidth(plain) - ROAD_MARGIN),
-    );
-
-    const rampEdges = offsets(ramp, "road-edge");
-    const rampDividers = offsets(ramp, "road-divider");
-    expect(rampEdges).toHaveLength(2);
-    expect(rampDividers).toHaveLength(3);
-
-    // Every lane-derived line moved inward by the same factor. The edge lines
-    // sit at the lane region's half-span, so they scale with it as cleanly as
-    // the dividers do — the casing is the only quantity carrying the lip.
-    const plainEdges = offsets(plain, "road-edge");
-    const plainDividers = offsets(plain, "road-divider");
-    for (let i = 0; i < rampEdges.length; i++) {
-      expect(rampEdges[i]).toBeCloseTo(f * plainEdges[i]);
-    }
-    for (let i = 0; i < rampDividers.length; i++) {
-      expect(rampDividers[i]).toBeCloseTo(f * plainDividers[i]);
-    }
-
-    // And the paint stays on the road: no divider outside its own edge lines.
-    for (const d of rampDividers) {
-      expect(Math.abs(d)).toBeLessThan(Math.abs(rampEdges[0]));
-    }
-  });
-
-  /** `junctionArms` measures each approach, so the class sizes the pad too. */
-  it("sizes a junction pad from the class of the roads meeting it", () => {
-    const pad = (style: LinkStyle) =>
-      padR(
-        run(
-          initialState(),
-          { type: "addNode", pos: { x: 0, y: 0 } },
-          { type: "addNode", pos: { x: 120, y: 0 } },
-          { type: "startLink", from: "N1" },
-          { type: "completeLink", to: "N2" },
-          { type: "setLinkStyle", id: "L1", style },
-          { type: "setNodeKind", id: "N2", kind: "junction" },
-        ).doc,
-      );
-
-    expect(pad("ramp")).toBeLessThan(pad("arterial"));
   });
 });
 
@@ -796,11 +683,7 @@ describe("link alignment", () => {
       const svg = renderToStaticMarkup(<Diagram doc={doc} />);
       const casing = svg.match(/class="road-casing" d="M 0 (\S+) L/)!;
       const drawnY = Number(casing[1]);
-      const reading = alignmentReading(
-        findLink(doc, "L1")!.lanes,
-        linkStyle(doc, "L1"),
-        align,
-      );
+      const reading = alignmentReading(findLink(doc, "L1")!.lanes, align);
 
       expect(drawnY).not.toBe(0);
       expect(reading.side).toBe(drawnY > 0 ? "right" : "left");
@@ -828,8 +711,6 @@ describe("tapers", () => {
       { type: "completeLink", to: "N3" },
       { type: "setLinkLanes", id: "L1", count: 4 },
       { type: "setLinkLanes", id: "L2", count: 3 },
-      { type: "setLinkStyle", id: "L1", style: "motorway" },
-      { type: "setLinkStyle", id: "L2", style: "motorway" },
       { type: "setLinkAlign", id: "L1", align: "offside" },
       { type: "setLinkAlign", id: "L2", align: "offside" },
       ...extra,
@@ -863,9 +744,8 @@ describe("tapers", () => {
       '<polygon class="road-taper" points="120,37.5 120,28.5 144,28.5"></polygon>',
     );
     expect(svg.match(/road-taper"/g)).toHaveLength(1);
-    // Painted in the class of the link it closes, by the same class token the
-    // road group carries — so `.road-local .road-taper` needs no rule of its own.
-    expect(svg).toContain('<g class="taper road-motorway">');
+    // A group with no class token: every wedge paints the one asphalt.
+    expect(svg).toContain('<g class="taper">');
   });
 
   /**
@@ -1368,9 +1248,6 @@ describe("gores", () => {
       { type: "setLinkLanes", id: "L1", count: 4 },
       { type: "setLinkLanes", id: "L2", count: 3 },
       { type: "setLinkLanes", id: "L3", count: 1 },
-      { type: "setLinkStyle", id: "L1", style: "motorway" },
-      { type: "setLinkStyle", id: "L2", style: "motorway" },
-      { type: "setLinkStyle", id: "L3", style: "ramp" },
       { type: "setLinkAlign", id: "L1", align: "offside" },
       { type: "setLinkAlign", id: "L2", align: "offside" },
       { type: "setNodeKind", id: "N2", kind: "junction" },
@@ -1903,7 +1780,7 @@ describe("road markings", () => {
 
     /** The first road group's markup — everything `RoadShape` drew, and nothing else. */
     function roadGroup(svg: string): string {
-      return svg.match(/<g class="road road-[^"]*">[\s\S]*?<\/g>/)![0];
+      return svg.match(/<g class="road">[\s\S]*?<\/g>/)![0];
     }
 
     /** Its `road-edge` paths, in the order drawn: the kerb pieces, then the offside edge. */
@@ -2092,7 +1969,7 @@ describe("road markings", () => {
       expect(elsewhere).toEqual(none);
     });
 
-    it("carries the road's class on its group, and the box's chrome in the bay", () => {
+    it("draws the bay as a plain group, and the box's chrome in the bay", () => {
       const doc = roadOf(240, [bay(120)]);
       const selected: Interaction = {
         ...interaction(),
@@ -2100,9 +1977,9 @@ describe("road markings", () => {
       };
       const live = renderToStaticMarkup(<Diagram doc={doc} interaction={selected} />);
 
-      // The class token reaches the bay the way it reaches a taper wedge, so the
-      // asphalt and the edge-line width need no rule of their own.
-      expect(live).toContain('<g class="bay road-arterial">');
+      // No class token on the group: the bay paints the road's own asphalt and
+      // line through `.road-taper` and `.road-edge`, as a taper wedge does.
+      expect(live).toContain('<g class="bay">');
       expect(live).toContain(
         '<path class="marking-hit" d="M 97.5 18 L 142.5 18" stroke-width="9">',
       );

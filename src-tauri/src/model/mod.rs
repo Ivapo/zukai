@@ -107,9 +107,8 @@ pub struct Metadata {
 mod tests {
     use super::decoration::{LinkEnd, Marking, MarkingKind, Sign, SignKind, TurnDirection};
     use super::graph::{Junction, JunctionControl, Lane, Link, Node, NodeKind};
-    use super::layout::{
-        JunctionGlyph, JunctionView, Layout, LinkAlign, LinkStyle, LinkView, NodeView, Vec2,
-    };
+    use super::ids::LinkId;
+    use super::layout::{JunctionGlyph, JunctionView, Layout, LinkAlign, LinkView, NodeView, Vec2};
     use super::*;
 
     /// A small but non-trivial document exercising every part of the model:
@@ -191,7 +190,6 @@ mod tests {
             links: [(
                 "L1".into(),
                 LinkView {
-                    style: LinkStyle::Arterial,
                     align: LinkAlign::Offside,
                     bends: vec![Vec2::new(50.0, 10.0)],
                 },
@@ -277,6 +275,41 @@ mod tests {
         let back = serde_yaml::to_string(&junction).expect("serialize");
         assert!(!back.contains("movements"), "{back}");
         assert!(!back.contains("M_L1_L2"), "{back}");
+    }
+
+    /// A `.zkai` saved while [`LinkView`] still carried a road class, and must
+    /// still load — the same removed-field direction as `movements:` above, and
+    /// asserted in both halves for the same reason: a class-only view comes in
+    /// as an empty one, and the key is gone on the way back out.
+    #[test]
+    fn a_zkai_saved_with_a_road_class_still_loads_and_writes_none() {
+        let yaml = concat!(
+            "links:\n",
+            "  MAIN:\n    style: motorway\n    align: offside\n",
+            "  RAMP:\n    style: ramp\n",
+        );
+
+        let layout: Layout = serde_yaml::from_str(yaml).expect("deserialize");
+
+        assert_eq!(
+            layout.links[&LinkId::from("MAIN")],
+            LinkView {
+                align: LinkAlign::Offside,
+                bends: Vec::new(),
+            }
+        );
+        assert_eq!(
+            layout.links[&LinkId::from("RAMP")],
+            LinkView {
+                align: LinkAlign::Centre,
+                bends: Vec::new(),
+            }
+        );
+
+        let back = serde_yaml::to_string(&layout).expect("serialize");
+        assert!(!back.contains("style"), "{back}");
+        assert!(!back.contains("motorway"), "{back}");
+        assert!(!back.contains("ramp"), "{back}");
     }
 
     #[test]

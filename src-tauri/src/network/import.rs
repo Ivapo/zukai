@@ -42,7 +42,7 @@ use std::fs;
 use crate::model::decoration::{LinkEnd, Marking, MarkingKind, TurnDirection};
 use crate::model::graph::{Junction, Lane, Link, Node, NodeKind};
 use crate::model::ids::{LaneIdx, LinkId};
-use crate::model::layout::{JunctionView, LinkAlign, LinkStyle, LinkView, NodeView};
+use crate::model::layout::{JunctionView, NodeView};
 use crate::model::Document;
 
 use super::{
@@ -159,26 +159,15 @@ pub fn network_to_document(net: NetworkFile) -> Result<Document, String> {
         }
     }
 
-    // Before the loop below consumes the links: the arrows need each approach's
+    // Before the links are consumed below: the arrows need each approach's
     // lane *count* to read the file's lane numbering in Zukai's.
     doc.markings = lane_arrows(&net.junctions, &net.links);
 
-    for link in net.links {
-        // `geometry` and `lateral_offset` stop here. `median_gap` does not: it
-        // is a road property Assimilator applies itself, not a shift already
-        // baked into the polyline.
-        doc.layout.links.insert(
-            link.id.clone(),
-            LinkView {
-                // Defaults, never derived. A road class inferred from a speed
-                // limit is a guess dressed as a fact.
-                style: LinkStyle::default(),
-                align: LinkAlign::default(),
-                bends: Vec::new(),
-            },
-        );
-        doc.links.push(import_link(link));
-    }
+    // `geometry` and `lateral_offset` stop here. `median_gap` does not: it is a
+    // road property Assimilator applies itself, not a shift already baked into
+    // the polyline. No link gets a layout entry: a centred, straight road is
+    // what an absent one draws, and an entry saying so is bytes that say nothing.
+    doc.links = net.links.into_iter().map(import_link).collect();
 
     doc.junctions = net.junctions.into_iter().map(import_junction).collect();
 
@@ -618,19 +607,16 @@ mod tests {
         assert_ne!(drawn, LAYOUT_EXTENT, "import must not enlarge");
     }
 
-    /// Layout is seeded with defaults, not inferred. Deriving a road class from
-    /// a speed limit, or a glyph from a control type, is a guess dressed as a
-    /// fact — and the human is about to redraw all of it anyway.
+    /// Layout is seeded with defaults, not inferred. Deriving a glyph from a
+    /// control type is a guess dressed as a fact — and the human is about to
+    /// redraw all of it anyway.
     #[test]
     fn layout_is_seeded_with_defaults_rather_than_derived() {
         let doc = import(T_JUNCTION);
 
-        assert_eq!(doc.layout.links.len(), 3);
-        for view in doc.layout.links.values() {
-            assert_eq!(view.style, LinkStyle::Arterial);
-            assert_eq!(view.align, LinkAlign::Centre);
-            assert!(view.bends.is_empty());
-        }
+        // No link carries a view: a straight centred road is what an absent one
+        // draws, so an import writes none (road declutter §2.3).
+        assert!(doc.layout.links.is_empty());
 
         // One junction-kind node, one glyph, and it is the generic one even
         // though the file says `rule: priority` and a `priority_cross` glyph

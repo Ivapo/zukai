@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_LANE_WIDTH,
-  DEFAULT_LINK_STYLE,
   DEFAULT_MEDIAN_GAP,
   defaultLane,
   emptyDocument,
@@ -17,7 +16,6 @@ import {
   LinkEnd,
   LinkId,
   LineStyle,
-  LinkStyle,
   LinkView,
   Marking,
   NodeId,
@@ -71,7 +69,6 @@ import {
   busBays,
   busStop,
   carriageways,
-  classWidthFactor,
   distance,
   drawnPolyline,
   formatLength,
@@ -317,126 +314,13 @@ describe("bandAt and boundaryAt", () => {
   });
 });
 
-describe("classWidthFactor", () => {
-  const NARROWER: LinkStyle[] = ["local", "ramp"];
-
-  it("leaves motorway and arterial at the unfactored width", () => {
-    for (let n = 1; n <= 8; n++) {
-      expect(roadWidth(defaults(n), "motorway")).toBe(roadWidth(defaults(n)));
-      expect(roadWidth(defaults(n), "arterial")).toBe(roadWidth(defaults(n)));
-    }
-    expect(classWidthFactor("motorway")).toBe(1);
-    expect(classWidthFactor("arterial")).toBe(1);
-  });
-
-  it("keeps the factor modest enough never to confuse lane count", () => {
-    for (const style of NARROWER) {
-      const f = classWidthFactor(style);
-      expect(f).toBeGreaterThanOrEqual(0.8);
-      expect(f).toBeLessThan(1);
-    }
-    // The property that matters: more lanes always beats a wider class.
-    expect(roadWidth(defaults(3), "ramp")).toBeGreaterThan(
-      roadWidth(defaults(2), "motorway"),
-    );
-  });
-
-  /**
-   * The factor's definition: it scales each lane's drawn width, one step
-   * upstream of everything derived from them. Exact, and deliberately asserted
-   * per band rather than on the summed road width — this is the half a
-   * scale-the-finished-width implementation gets wrong, leaving the dividers at
-   * full pitch and spilling them outside a narrowed casing (road spec 2.3).
-   */
-  it("scales every lane band exactly, for every class and lane count", () => {
-    for (const style of NARROWER) {
-      const f = classWidthFactor(style);
-      for (let n = 1; n <= 8; n++) {
-        const plain = laneBands(defaults(n));
-        const scaled = laneBands(defaults(n), style);
-
-        expect(scaled).toHaveLength(plain.length);
-        for (let i = 0; i < plain.length; i++) {
-          expect(scaled[i].width).toBe(f * plain[i].width);
-        }
-      }
-    }
-  });
-
-  /**
-   * `ROAD_MARGIN` is the casing lip, not a lane, so it is *not* scaled: the road
-   * width is not proportional to the factor, only its lane region is, and the
-   * two differ by `ROAD_MARGIN * (1 - factor)` at every lane count.
-   *
-   * `toBeCloseTo`, not `toBe`, and the reason is measured rather than assumed.
-   * Two float effects put the aggregate identity up to 1 ulp off: regrouping
-   * (`sum(w * f)` differs from `f * sum(w)` at local n=3, n=7 and ramp n=8 —
-   * the same drift the metre conversion has, one level up) and the margin round
-   * trip (`(region + 3) - 3` differs from `region` at ramp n=1, n=2). Neither is
-   * avoidable by regrouping — scaling in metres before converting drifts three
-   * times as often. The exact claim lives in the per-band test above.
-   */
-  it("scales the lane region and leaves the casing lip alone", () => {
-    for (const style of NARROWER) {
-      const f = classWidthFactor(style);
-      for (let n = 1; n <= 8; n++) {
-        const plain = roadWidth(defaults(n));
-        const scaled = roadWidth(defaults(n), style);
-
-        expect(scaled - ROAD_MARGIN).toBeCloseTo(f * (plain - ROAD_MARGIN));
-        expect(scaled - f * plain).toBeCloseTo(ROAD_MARGIN * (1 - f));
-        // Which is to say: the road width itself is *not* proportional.
-        expect(scaled).not.toBe(f * plain);
-      }
-    }
-  });
-
-  /**
-   * The `MIN_ROAD_WIDTH` interaction. The one-lane floor is on the lane *count*;
-   * had it been a `Math.max(MIN_ROAD_WIDTH, ...)` clamp on the result, a 1-lane
-   * ramp would round back up to a 1-lane arterial's 12 and the class would be
-   * silently cancelled in exactly the case it reads most clearly (spec 2.2).
-   */
-  it("draws a 1-lane ramp strictly narrower than a 1-lane arterial", () => {
-    expect(roadWidth(defaults(1), "ramp")).toBeLessThan(roadWidth(defaults(1)));
-    expect(roadWidth(defaults(1), "ramp")).toBeLessThan(MIN_ROAD_WIDTH);
-    expect(roadWidth(defaults(1), "ramp")).toBeCloseTo(10.2);
-    // And the floor still applies to the count, not the width.
-    expect(roadWidth([], "ramp")).toBe(roadWidth([defaultLane(0)], "ramp"));
-  });
-
-  /**
-   * Contiguity is `toBeCloseTo` here where the default-lane case above asserts
-   * `toBe`: a shared boundary is reached from either side as `offset ± width/2`,
-   * and once the class factor makes the widths non-integral those two
-   * reconstructions can land 1 ulp apart. That is a rounding artefact of the
-   * midpoint form, not a gap in the road.
-   */
-  it("keeps lane 0 on the nearside under a narrowed class", () => {
-    const bands = laneBands(defaults(4), "ramp");
-
-    expect(bands[0].offset).toBe(Math.max(...bands.map((b) => b.offset)));
-    expect(bands[0].offset).toBe(-bands[bands.length - 1].offset);
-    for (let i = 1; i < bands.length; i++) {
-      expect(bands[i].offset + bands[i].width / 2).toBeCloseTo(
-        bands[i - 1].offset - bands[i - 1].width / 2,
-      );
-    }
-  });
-});
-
 describe("alignmentShift", () => {
-  const ALIGNED: LinkAlign[] = ["nearside", "offside"];
-  const STYLES: LinkStyle[] = ["motorway", "arterial", "local", "ramp"];
-
   it("leaves a centred link exactly where it was, whatever it carries", () => {
-    for (const style of STYLES) {
-      for (let n = 1; n <= 8; n++) {
-        expect(alignmentShift(defaults(n), style, "centre")).toBe(0);
-      }
+    for (let n = 1; n <= 8; n++) {
+      expect(alignmentShift(defaults(n), "centre")).toBe(0);
     }
     // An empty lane array is one default lane everywhere else, and here too.
-    expect(alignmentShift([], DEFAULT_LINK_STYLE, "centre")).toBe(0);
+    expect(alignmentShift([], "centre")).toBe(0);
   });
 
   /**
@@ -447,16 +331,14 @@ describe("alignmentShift", () => {
    * artefact and never be diagnosed, which is why this is asserted exactly.
    */
   it("shifts by the lane region's half-span, not half the road width", () => {
-    for (const style of STYLES) {
-      for (let n = 1; n <= 8; n++) {
-        const lanes = defaults(n);
-        const w = roadWidth(lanes, style);
-        const half = (w - ROAD_MARGIN) / 2;
+    for (let n = 1; n <= 8; n++) {
+      const lanes = defaults(n);
+      const w = roadWidth(lanes);
+      const half = (w - ROAD_MARGIN) / 2;
 
-        expect(alignmentShift(lanes, style, "offside")).toBe(half);
-        expect(half).not.toBe(w / 2);
-        expect(w / 2 - half).toBeCloseTo(ROAD_MARGIN / 2);
-      }
+      expect(alignmentShift(lanes, "offside")).toBe(half);
+      expect(half).not.toBe(w / 2);
+      expect(w / 2 - half).toBeCloseTo(ROAD_MARGIN / 2);
     }
   });
 
@@ -468,34 +350,19 @@ describe("alignmentShift", () => {
    * which is the trap the road spec hit four times.
    */
   it("sends offside positive and nearside its exact negation", () => {
-    for (const style of STYLES) {
-      for (let n = 1; n <= 8; n++) {
-        const lanes = defaults(n);
-        const off = alignmentShift(lanes, style, "offside");
-        const near = alignmentShift(lanes, style, "nearside");
+    for (let n = 1; n <= 8; n++) {
+      const lanes = defaults(n);
+      const off = alignmentShift(lanes, "offside");
+      const near = alignmentShift(lanes, "nearside");
 
-        expect(off).toBeGreaterThan(0);
-        expect(near).toBe(-off);
-        // Which is to say: the aligned edge lands on the polyline. Lane 0's own
-        // outer boundary is the nearside edge, and the shift cancels it.
-        const bands = laneBands(lanes, style);
-        const nearsideEdge = bands[0].offset + bands[0].width / 2;
-        expect(nearsideEdge + near).toBeCloseTo(0);
-        expect(nearsideEdge - off).toBeCloseTo(0);
-      }
-    }
-  });
-
-  /** It is a width, so it carries the road class like every other width. */
-  it("shifts a ramp less far than an arterial of the same lane count", () => {
-    for (const align of ALIGNED) {
-      const arterial = alignmentShift(defaults(4), "arterial", align);
-      const ramp = alignmentShift(defaults(4), "ramp", align);
-
-      expect(Math.abs(ramp)).toBeLessThan(Math.abs(arterial));
-      expect(Math.abs(ramp)).toBeCloseTo(
-        classWidthFactor("ramp") * Math.abs(arterial),
-      );
+      expect(off).toBeGreaterThan(0);
+      expect(near).toBe(-off);
+      // Which is to say: the aligned edge lands on the polyline. Lane 0's own
+      // outer boundary is the nearside edge, and the shift cancels it.
+      const bands = laneBands(lanes);
+      const nearsideEdge = bands[0].offset + bands[0].width / 2;
+      expect(nearsideEdge + near).toBeCloseTo(0);
+      expect(nearsideEdge - off).toBeCloseTo(0);
     }
   });
 });
@@ -511,17 +378,14 @@ describe("alignmentShift", () => {
  * sits beside the `aligned` fixture in `Diagram.test.tsx`.
  */
 describe("alignmentReading", () => {
-  const STYLES: LinkStyle[] = ["motorway", "arterial", "local", "ramp"];
   const ALIGNMENTS: LinkAlign[] = ["centre", "nearside", "offside"];
 
   it("reads a centred link as sitting on the line, with nothing to report", () => {
-    for (const style of STYLES) {
-      for (let n = 1; n <= 8; n++) {
-        expect(alignmentReading(defaults(n), style, "centre")).toEqual({
-          side: "on",
-          offset: 0,
-        });
-      }
+    for (let n = 1; n <= 8; n++) {
+      expect(alignmentReading(defaults(n), "centre")).toEqual({
+        side: "on",
+        offset: 0,
+      });
     }
   });
 
@@ -532,34 +396,30 @@ describe("alignmentReading", () => {
    * the half of the mirror a signed test cannot state.
    */
   it("sends offside right of travel and nearside left, the same distance", () => {
-    for (const style of STYLES) {
-      for (let n = 1; n <= 8; n++) {
-        const lanes = defaults(n);
-        const off = alignmentReading(lanes, style, "offside");
-        const near = alignmentReading(lanes, style, "nearside");
+    for (let n = 1; n <= 8; n++) {
+      const lanes = defaults(n);
+      const off = alignmentReading(lanes, "offside");
+      const near = alignmentReading(lanes, "nearside");
 
-        expect(off.side).toBe("right");
-        expect(near.side).toBe("left");
-        expect(near.offset).toBe(off.offset);
-      }
+      expect(off.side).toBe("right");
+      expect(near.side).toBe("left");
+      expect(near.offset).toBe(off.offset);
     }
   });
 
   /** The magnitude is the shift's, so the panel cannot drift from the drawing. */
   it("reports the shift's own magnitude, which is the lane region's half-span", () => {
-    for (const style of STYLES) {
-      for (let n = 1; n <= 8; n++) {
-        const lanes = defaults(n);
-        for (const align of ALIGNMENTS) {
-          const { offset } = alignmentReading(lanes, style, align);
+    for (let n = 1; n <= 8; n++) {
+      const lanes = defaults(n);
+      for (const align of ALIGNMENTS) {
+        const { offset } = alignmentReading(lanes, align);
 
-          expect(offset).toBe(Math.abs(alignmentShift(lanes, style, align)));
-          expect(offset).toBeGreaterThanOrEqual(0);
-        }
-        expect(alignmentReading(lanes, style, "offside").offset).toBe(
-          (roadWidth(lanes, style) - ROAD_MARGIN) / 2,
-        );
+        expect(offset).toBe(Math.abs(alignmentShift(lanes, align)));
+        expect(offset).toBeGreaterThanOrEqual(0);
       }
+      expect(alignmentReading(lanes, "offside").offset).toBe(
+        (roadWidth(lanes) - ROAD_MARGIN) / 2,
+      );
     }
   });
 
@@ -576,16 +436,14 @@ describe("alignmentReading", () => {
    */
   it("says a road that has not moved is on the line, whatever it claims", () => {
     for (const align of ALIGNMENTS) {
-      expect(alignmentReading(widths(0), DEFAULT_LINK_STYLE, align)).toEqual({
+      expect(alignmentReading(widths(0), align)).toEqual({
         side: "on",
         offset: 0,
       });
     }
-    expect(
-      Object.is(alignmentShift(widths(0), DEFAULT_LINK_STYLE, "nearside"), -0),
-    ).toBe(true);
+    expect(Object.is(alignmentShift(widths(0), "nearside"), -0)).toBe(true);
     // And the empty array really is the ordinary road, not this one.
-    expect(alignmentReading([], DEFAULT_LINK_STYLE, "nearside").side).toBe("left");
+    expect(alignmentReading([], "nearside").side).toBe("left");
   });
 });
 
@@ -640,20 +498,15 @@ describe("tapers", () => {
    * `arriving` for the link that ends there, `!arriving` for the one that
    * starts. Both carry the same nearside, which is what a through joint means.
    */
-  function end(
-    lanes: number,
-    align: LinkAlign,
-    arriving: boolean,
-    style: LinkStyle = DEFAULT_LINK_STYLE,
-  ): JointEnd {
+  function end(lanes: number, align: LinkAlign, arriving: boolean): JointEnd {
     const ls = defaults(lanes);
-    const offset = alignmentShift(ls, style, align);
+    const offset = alignmentShift(ls, align);
     return {
       at: { x: 120, y: offset },
       away: arriving ? { x: -1, y: 0 } : { x: 1, y: 0 },
       nearside: { x: 0, y: 1 },
       offset,
-      width: roadWidth(ls, style),
+      width: roadWidth(ls),
     };
   }
 
@@ -712,7 +565,7 @@ describe("tapers", () => {
     // The casing rim, not the 4-lane road's painted nearside edge.
     expect(wedges[0].corners[0].y).toBe(roadWidth(defaults(4)) / 2 + 18);
     expect(wedges[0].corners[0].y).not.toBe(
-      alignmentShift(defaults(4), DEFAULT_LINK_STYLE, "offside") * 2,
+      alignmentShift(defaults(4), "offside") * 2,
     );
     // It runs along the downstream link — the narrow one, which leaves the node.
     expect(wedges[0].inset.away).toEqual({ x: 1, y: 0 });
@@ -742,16 +595,20 @@ describe("tapers", () => {
   });
 
   /**
-   * The rule compares **casing-edge offsets**, not lane counts. A 5-lane ramp
-   * and a 4-lane arterial draw the same 39 units wide, so a joint between them
+   * The rule compares **casing-edge offsets**, not lane counts. Five lanes of
+   * 2.8 m and four of 3.5 m draw the same 39 units wide, so a joint between them
    * is not a width step however different the two roads are.
    */
   it("draws nothing where the two casing edges agree, whatever the lane counts", () => {
-    const ramp = end(5, "centre", true, "ramp");
-    const arterial = end(4, "centre", false);
+    const five: JointEnd = {
+      ...end(5, "centre", true),
+      width: roadWidth(widths(2.8, 2.8, 2.8, 2.8, 2.8)),
+    };
+    const four = end(4, "centre", false);
 
-    expect(ramp.width).toBe(arterial.width);
-    expect(taperWedges(ramp, arterial, TAPER_LENGTH)).toEqual([]);
+    expect(five.width).toBe(four.width);
+    expect(five.width).toBe(39);
+    expect(taperWedges(five, four, TAPER_LENGTH)).toEqual([]);
   });
 
   /**
@@ -1566,22 +1423,6 @@ describe("carriageways", () => {
     expect(DEFAULT_MEDIAN_GAP * UNITS_PER_METRE).toBeLessThan(SCHEMATIC_MEDIAN);
   });
 
-  it("measures each carriageway at its own road class", () => {
-    const links = [link("L1", "N1", "N2"), link("L2", "N2", "N1")];
-    const off = carriageways(
-      net(links, { L1: { style: "ramp" }, L2: { style: "ramp" } }),
-    );
-    const w = roadWidth(defaults(2), "ramp");
-
-    expect(off.L1).toBe(w / 2 + SCHEMATIC_MEDIAN / 2);
-    // A ramp pair sits closer together because its asphalt is narrower — the
-    // median between them is the same 6 units. (`toBeCloseTo`: subtracting the
-    // half-width back off a narrowed road is the float round trip the class
-    // factor already documents.)
-    expect(off.L1).toBeLessThan(OFFSET_2);
-    expect(off.L1 - w / 2).toBeCloseTo(SCHEMATIC_MEDIAN / 2);
-  });
-
   /**
    * **What is invariant is the distance to each segment's line, not to the
    * vertex.** This test used to assert `distance(spine[i], drawn[i])` was
@@ -1599,7 +1440,7 @@ describe("carriageways", () => {
     const bend = { x: 60, y: 20 };
     const off = carriageways(
       net([link("L1", "N1", "N2"), link("L2", "N2", "N1")], {
-        L1: { style: DEFAULT_LINK_STYLE, bends: [bend] },
+        L1: { bends: [bend] },
       }),
     );
 
@@ -2129,12 +1970,12 @@ describe("drawnPolyline", () => {
    * test of either alone passes while the other is silently dropped.
    */
   it("adds the carriageway offset and the alignment shift, on one link", () => {
-    const doc = twoWay(3, { L1: { style: DEFAULT_LINK_STYLE, align: "offside" } });
+    const doc = twoWay(3, { L1: { align: "offside" } });
     const offsets = carriageways(doc);
     const drawn = drawnPolyline(doc, doc.links[0], offsets)!;
 
     const carriageway = roadWidth(defaults(3)) / 2 + SCHEMATIC_MEDIAN / 2;
-    const shift = alignmentShift(defaults(3), DEFAULT_LINK_STYLE, "offside");
+    const shift = alignmentShift(defaults(3), "offside");
 
     expect(offsets.L1).toBe(carriageway);
     expect(shift).toBe((roadWidth(defaults(3)) - ROAD_MARGIN) / 2);
@@ -2175,8 +2016,8 @@ describe("markingTeeth and markingZebra", () => {
   }
 
   /** The whole lane region of `n` default lanes — a carriageway-wide marking. */
-  function carriageway(n: number, style: LinkStyle = DEFAULT_LINK_STYLE) {
-    const bands = laneBands(defaults(n), style);
+  function carriageway(n: number) {
+    const bands = laneBands(defaults(n));
     return anchor(
       0,
       bands.reduce((s, b) => s + b.width, 0),
@@ -2251,28 +2092,21 @@ describe("markingTeeth and markingZebra", () => {
   /**
    * The failure this rules out is a stripe on the verge. Containment is a
    * property of the tiling rather than a clamp, so it has to hold at every lane
-   * count *and* every road class — `ramp` narrows each lane to 0.8, which is
-   * where a pitch computed from a nominal lane width would spill.
+   * count.
    */
-  it("keeps every point inside the span, at every lane count and class", () => {
-    const styles: LinkStyle[] = ["motorway", "arterial", "local", "ramp"];
-    for (const style of styles) {
-      for (let n = 1; n <= 8; n++) {
-        const spans = [
-          ...laneBands(defaults(n), style),
-          carriageway(n, style).span,
-        ];
-        for (const span of spans) {
-          const lo = span.offset - span.width / 2;
-          const hi = span.offset + span.width / 2;
-          for (const shape of [
-            ...markingTeeth(anchor(span.offset, span.width)),
-            ...markingZebra(anchor(span.offset, span.width)),
-          ]) {
-            for (const p of shape) {
-              expect(p.y).toBeGreaterThan(lo);
-              expect(p.y).toBeLessThan(hi);
-            }
+  it("keeps every point inside the span, at every lane count", () => {
+    for (let n = 1; n <= 8; n++) {
+      const spans = [...laneBands(defaults(n)), carriageway(n).span];
+      for (const span of spans) {
+        const lo = span.offset - span.width / 2;
+        const hi = span.offset + span.width / 2;
+        for (const shape of [
+          ...markingTeeth(anchor(span.offset, span.width)),
+          ...markingZebra(anchor(span.offset, span.width)),
+        ]) {
+          for (const p of shape) {
+            expect(p.y).toBeGreaterThan(lo);
+            expect(p.y).toBeLessThan(hi);
           }
         }
       }
@@ -2461,28 +2295,26 @@ describe("markingArrow", () => {
   /**
    * The failure this rules out is paint on the verge, and `ARROW_REACH` alone is
    * what rules it out — which is why it has to hold for every direction at every
-   * lane count and class, `ramp` at 0.8 being the narrowest lane drawn.
+   * lane count.
    *
    * The stems are **stroked** and the heads **filled**, so paint reaches half a
    * stroke past a stem point and exactly to a head point. Both are checked, since
    * a single tolerance would let the tighter of the two slide.
    */
-  it("keeps every branch inside the band, at every lane count and class", () => {
-    for (const style of ["motorway", "arterial", "local", "ramp"] as LinkStyle[]) {
-      for (let n = 1; n <= 8; n++) {
-        for (const band of laneBands(defaults(n), style)) {
-          const a = markingArrow(anchor(band.offset, band.width), ALL)!;
-          const lo = band.offset - band.width / 2;
-          const hi = band.offset + band.width / 2;
+  it("keeps every branch inside the band, at every lane count", () => {
+    for (let n = 1; n <= 8; n++) {
+      for (const band of laneBands(defaults(n))) {
+        const a = markingArrow(anchor(band.offset, band.width), ALL)!;
+        const lo = band.offset - band.width / 2;
+        const hi = band.offset + band.width / 2;
 
-          for (const p of [...a.shaft, ...a.branches.flatMap((b) => b.stem)]) {
-            expect(p.y - a.stroke / 2).toBeGreaterThan(lo);
-            expect(p.y + a.stroke / 2).toBeLessThan(hi);
-          }
-          for (const p of a.branches.flatMap((b) => b.head)) {
-            expect(p.y).toBeGreaterThan(lo);
-            expect(p.y).toBeLessThan(hi);
-          }
+        for (const p of [...a.shaft, ...a.branches.flatMap((b) => b.stem)]) {
+          expect(p.y - a.stroke / 2).toBeGreaterThan(lo);
+          expect(p.y + a.stroke / 2).toBeLessThan(hi);
+        }
+        for (const p of a.branches.flatMap((b) => b.head)) {
+          expect(p.y).toBeGreaterThan(lo);
+          expect(p.y).toBeLessThan(hi);
         }
       }
     }
@@ -2574,10 +2406,14 @@ describe("markingArrow", () => {
    * Sizes four to six are asserted **contained only**. Whether they also come out
    * disjoint is OQ-7 — left visibly untested rather than silently, so a stagger
    * that happens to separate five heads does not fail the suite for it.
+   *
+   * At two band widths: default lanes, and lanes of 2.8 m — the 7.2 units a ramp
+   * lane drew at while a road class could narrow one, and a width an imported
+   * network can still carry.
    */
   it("keeps every direction set inside the band, at every size", () => {
-    for (const style of ["motorway", "ramp"] as LinkStyle[]) {
-      for (const band of laneBands(defaults(3), style)) {
+    for (const lanes of [defaults(3), widths(2.8, 2.8, 2.8)]) {
+      for (const band of laneBands(lanes)) {
         const lo = band.offset - band.width / 2;
         const hi = band.offset + band.width / 2;
 
@@ -2714,22 +2550,20 @@ describe("markingArrow", () => {
      * a rear branch exactly as it bounds a forward one. Same two tolerances —
      * stems stroked, heads filled.
      */
-    it("keeps every rear branch inside the band, at every lane count and class", () => {
-      for (const style of ["motorway", "arterial", "local", "ramp"] as LinkStyle[]) {
-        for (let n = 1; n <= 8; n++) {
-          for (const band of laneBands(defaults(n), style)) {
-            const a = markingArrow(anchor(band.offset, band.width), ["through"], ALL)!;
-            const lo = band.offset - band.width / 2;
-            const hi = band.offset + band.width / 2;
+    it("keeps every rear branch inside the band, at every lane count", () => {
+      for (let n = 1; n <= 8; n++) {
+        for (const band of laneBands(defaults(n))) {
+          const a = markingArrow(anchor(band.offset, band.width), ["through"], ALL)!;
+          const lo = band.offset - band.width / 2;
+          const hi = band.offset + band.width / 2;
 
-            for (const p of [...a.shaft, ...a.branches.flatMap((b) => b.stem)]) {
-              expect(p.y - a.stroke / 2).toBeGreaterThan(lo);
-              expect(p.y + a.stroke / 2).toBeLessThan(hi);
-            }
-            for (const p of a.branches.flatMap((b) => b.head)) {
-              expect(p.y).toBeGreaterThan(lo);
-              expect(p.y).toBeLessThan(hi);
-            }
+          for (const p of [...a.shaft, ...a.branches.flatMap((b) => b.stem)]) {
+            expect(p.y - a.stroke / 2).toBeGreaterThan(lo);
+            expect(p.y + a.stroke / 2).toBeLessThan(hi);
+          }
+          for (const p of a.branches.flatMap((b) => b.head)) {
+            expect(p.y).toBeGreaterThan(lo);
+            expect(p.y).toBeLessThan(hi);
           }
         }
       }
@@ -2821,9 +2655,9 @@ describe("textWidth and markingText", () => {
     expect(ADVANCE).toBe(1232 / 2000);
     expect(CAP_HEIGHT).toBe(1400 / 2000);
     expect(TEXT_SIZE).toBe(6);
-    // Cap height clears the narrowest band text can land in - a ramp lane, which
-    // is `LANE_PX * classWidthFactor("ramp")` - with asphalt showing either side.
-    expect(TEXT_SIZE * CAP_HEIGHT).toBeLessThan(LANE_PX * classWidthFactor("ramp"));
+    // Cap height clears a default lane - `LANE_PX`, the narrowest lane a control
+    // can author once no road class narrows one - with asphalt showing either side.
+    expect(TEXT_SIZE * CAP_HEIGHT).toBeLessThan(LANE_PX);
   });
 
   it("sets a string as wide as its characters", () => {
@@ -3458,12 +3292,12 @@ describe("markingAnchor, its distance and a bus stop's kerb", () => {
     const stop = { type: "bus_stop", form: "in_lane" } as const;
 
     expect(anchorOf(road(3, painted(stop, 2)))!.span).toEqual(
-      laneBands(defaults(3), DEFAULT_LINK_STYLE)[0],
+      laneBands(defaults(3))[0],
     );
     // Two lanes have no lane 2, so a stop tested after the out-of-range skip
     // would not be drawn at all.
     expect(anchorOf(road(2, painted(stop, 2)))!.span).toEqual(
-      laneBands(defaults(2), DEFAULT_LINK_STYLE)[0],
+      laneBands(defaults(2))[0],
     );
   });
 
@@ -3471,7 +3305,7 @@ describe("markingAnchor, its distance and a bus stop's kerb", () => {
     const arrow = painted({ type: "turn_arrow", directions: ["through"] }, 2);
 
     expect(anchorOf(road(3, arrow))!.span).toEqual(
-      laneBands(defaults(3), DEFAULT_LINK_STYLE)[2],
+      laneBands(defaults(3))[2],
     );
   });
 });
@@ -3547,8 +3381,6 @@ describe("busBays, and the stop a bay takes out of the running lane", () => {
     ]);
     expect(bays[0].cut).toEqual([73.5, 166.5]);
     expect(cuts).toEqual({ L1: [[73.5, 166.5]] });
-    // It paints in the road's own class, the way a taper wedge does.
-    expect(bays[0].style).toBe(DEFAULT_LINK_STYLE);
   });
 
   /**
@@ -4576,7 +4408,7 @@ describe("node dots", () => {
    * order, so permuting the links legitimately permutes the array.
    */
   it("draws the same dots for every order of a three-arm fan", () => {
-    const aligned: LinkView = { style: DEFAULT_LINK_STYLE, align: "offside" };
+    const aligned: LinkView = { align: "offside" };
     const nodes = { N1: ORIGIN, N2: { x: 120, y: 0 }, N3: { x: 90, y: 90 }, N4: { x: 0, y: 130 } };
     const links = [road("L1", "N1", "N2"), road("L2", "N1", "N3"), road("L3", "N1", "N4")];
     const views = { L1: aligned, L2: aligned, L3: aligned };
@@ -4609,7 +4441,7 @@ describe("node dots", () => {
    */
   it("draws an aligned undivided road's dot off the node", () => {
     const doc = lay({ N1: ORIGIN, N2: { x: 120, y: 0 } }, [road("L1", "N1", "N2")], {
-      L1: { style: DEFAULT_LINK_STYLE, align: "offside" },
+      L1: { align: "offside" },
     });
 
     expect(dots(doc, "N1")).toEqual([{ x: 0, y: (21 - ROAD_MARGIN) / 2 }]);

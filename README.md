@@ -20,7 +20,7 @@ Early, but it draws. What works today:
 - **Drawing** — place nodes, connect them with directed roads, bend a road
   around a point you drag onto it, and delete; pan, zoom, undo and redo.
 - **Road rendering** — asphalt casing with painted edge lines, lane dividers
-  scaled to lane count, road class, lane kinds (bus, cycle, hard shoulder), and
+  scaled to lane count, lane kinds (bus, cycle, hard shoulder), and
   two-way carriageways that don't sit on top of each other.
 - **Junctions** — a pad that follows the roads meeting at it, plus roundabout,
   signalized and priority glyphs, control and right-of-way rule.

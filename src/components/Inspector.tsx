@@ -8,7 +8,6 @@ import {
   findNode,
   findSign,
   linkAlign,
-  linkStyle,
 } from "../model/document";
 import {
   JunctionControl,
@@ -21,7 +20,6 @@ import {
   LinkAlign,
   LinkEnd,
   LinkId,
-  LinkStyle,
   Marking,
   MarkingId,
   MarkingKind,
@@ -43,7 +41,6 @@ interface InspectorProps {
 }
 
 const NODE_KINDS: NodeKind[] = ["endpoint", "junction", "waypoint"];
-const LINK_STYLES: LinkStyle[] = ["motorway", "arterial", "local", "ramp"];
 /**
  * Which edge of the road stays on its polyline. `nearside` and `offside` name
  * the road's own sides, the same way the lane rows below do — the point of the
@@ -527,9 +524,8 @@ export function Inspector({ state, dispatch }: InspectorProps) {
   const link = findLink(doc, selection.id);
   if (!link) return <aside className="inspector" />;
   const laneCount = link.lanes.length;
-  const style = linkStyle(doc, link.id);
   const align = linkAlign(doc, link.id);
-  const reading = alignmentReading(link.lanes, style, align);
+  const reading = alignmentReading(link.lanes, align);
   return (
     <aside className="inspector">
       <div className="inspector-head">
@@ -569,20 +565,6 @@ export function Inspector({ state, dispatch }: InspectorProps) {
         <LaneKinds link={link.id} lanes={link.lanes} dispatch={dispatch} />
       </Field>
 
-      <Field label="Road class">
-        <div className="segmented segmented-wrap">
-          {LINK_STYLES.map((s) => (
-            <button
-              key={s}
-              className={`seg${style === s ? " is-active" : ""}`}
-              onClick={() => dispatch({ type: "setLinkStyle", id: link.id, style: s })}
-            >
-              {s}
-            </button>
-          ))}
-        </div>
-      </Field>
-
       <Field label="Alignment">
         <div className="segmented segmented-wrap">
           {LINK_ALIGNS.map((a) => (
@@ -606,14 +588,15 @@ export function Inspector({ state, dispatch }: InspectorProps) {
           The frame is the road's own travel direction: `alignmentReading` never
           sees a polyline, and since `zk-014` a bent road has no single "below".
           The reader converts to a side of the screen by looking at the arrow
-          head, which is drawn on the selected link alone. Canvas units, on the bend `Position` precedent above — this is
-          the picture, not a claim about the world.
+          head, which is drawn on the selected link alone. Canvas units, on the
+          bend `Position` precedent above — this is the picture, not a claim
+          about the world.
 
           Two decimals with the trailing zeros trimmed, which is where that
           precedent stops: a bend position is snapped to the grid, while a lane
-          region's half-span is fractional by construction (a 4-lane ramp is
-          14.4, a 3-lane local 12.15). `centre` gets its own sentence — the
-          template would read "on of travel, 0 off the line". */}
+          region's half-span is fractional by construction (a 3-lane road is
+          13.5, a single imported lane of 3.25 m 4.18). `centre` gets its own
+          sentence — the template would read "on of travel, 0 off the line". */}
       <Field label="Lane region">
         <div className="readout">
           {reading.side === "on"
