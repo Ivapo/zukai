@@ -36,15 +36,20 @@ lets the Inspector's five text fields be typed into without switching tools.
 |---|---|---|
 | `select` | clear the selection, begin a pan | select it, and begin its drag |
 | `node` | `addNode` at the pointer | falls through to select-and-drag |
-| `link` | cancel any half-drawn link | `startLink`, then `completeLink` |
+| `link` | cancel any half-drawn link | `startLink`, then `completeLink` (retypes both ends) |
 | `marking` | *(nothing — the click is lost)* | on a **road**: `addMarking` |
 | `sign` | `addSign` at the pointer | on a **sign**: select and drag it |
 
 Two asymmetries are deliberate. The **marking** tool claims the event on a road
-(`stopPropagation`), or the click would reach the background and pan instead; every
-other tool lets a road's event fall through. And the **sign** tool on a sign selects
-rather than dropping a second one — the node tool's rule, since a sign minted
-beneath the first would be invisible, where a road has room for two markings.
+(`stopPropagation`), or the click would pan; every other tool lets it fall through.
+The **sign** tool on a sign selects rather than dropping a second — the node tool's
+rule, as a sign minted beneath the first would be invisible.
+
+**Adding or removing a road retypes the nodes at it** (ramps §2.12.2). `completeLink`
+and `deleteSelection`'s link and node arms hand the nodes whose roads changed to
+`state.ts:retypeNodes`, reading the post-edit document: two or more distinct
+neighbours (`nodeNeighbours`) make a `waypoint`, fewer an `endpoint`. A `junction`
+is never touched, and a Kind-row pick holds until that node's roads next change.
 
 ## Selection: five arms, and the fifth has no id
 
@@ -163,10 +168,8 @@ off-grid without fighting anything. `state.test.ts` asserts all six write the
 position given exactly — covering one lets a snap in the other five pass.
 
 **The dots and the pointer are one lattice, which took moving the tile.** A
-`<pattern>` clips its content to its own tile, so a circle at the tile origin
-draws a quarter of a dot — the neighbours draw their own and never fill it in.
-`geometry.ts:gridPattern` keeps the circle centred and pulls the **tile** back half
-a cell. Before it the dot sat at world `36i + 0.5/k` against `snap`'s `36i`.
+`<pattern>` clips content to its tile, so a circle at the tile origin draws a
+quarter dot; `geometry.ts:gridPattern` keeps it centred and pulls the **tile** back.
 
 ## Chrome: what exists only on the canvas
 
@@ -186,8 +189,6 @@ arrow's rules too, the pieces that *paint* and are chrome anyway: a bead on a cu
 says a road stops there, and no road is painted with an arrowhead (ramps §2.11.1,
 road declutter §2.1). And every chrome class must be in `export.test.ts`'s `CHROME`
 regex — twelve tests reuse it, all passing for leaked markup whose class is unlisted.
-Measured: a bend handle leaked into every export passed that file unchanged before
-`bend-handle`/`bend-hit` were added; an unlisted `node-dot` fails 4 tests, not 13.
 
 A marking and a sign each carry an unconditional `stopPropagation`, making them
 small **dead zones for the node tool** — nudging the click is the whole remedy.
@@ -201,7 +202,6 @@ small **dead zones for the node tool** — nudging the click is the whole remedy
 tool buttons. The pure arithmetic is `geometry.ts` — `screenToWorld`,
 `zoomAbout`, `nearestOnPolyline`, `pointAlongPolyline`, `bendInsertion`,
 `bandAt`, `boundaryAt`, `anchoredAlong`, `GRID_PITCH`, `snap`, `gridPattern`,
-`nodeDots` — and that is the only part with tests (`geometry.test.ts`). **There is
-no `Canvas.test.tsx`**, and `renderToStaticMarkup` can see a rendered element but
-not whether it carries a callback, so the gestures themselves are covered by a
-`bun run dev` pass and nothing else.
+`nodeDots` — the only part with tests. **There is no `Canvas.test.tsx`**, and
+`renderToStaticMarkup` cannot see whether an element carries a callback, so the
+gestures are covered by a `bun run dev` pass and nothing else.

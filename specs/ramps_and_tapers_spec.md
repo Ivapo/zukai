@@ -60,7 +60,7 @@ phases:
     by: null
   - name: "Phase 11 — A node that joins two roads is a waypoint"
     reviewed: 2026-09-14
-    shipped: null
+    shipped: 2026-09-14
     cut: null
     by: null
   - name: "Phase 12 — A node's dot shows while it is being edited"

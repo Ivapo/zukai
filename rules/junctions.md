@@ -150,14 +150,14 @@ behaviourally, the cost of getting it wrong being an undo step that undoes nothi
 Two of the three decorations need a cascade answer and a `Junction` is
 deliberately not one: a `Marking` is **dropped** (`keepMarkings`), a `Sign`
 **keeps its place with `associated_link` cleared** (`clearSignLinks`), and a
-`Junction` is **untouched** — it names a node, never a link.
+`Junction` is **untouched** — it names a node, never a link. The link arm omits
+`junctions:` (once a `dropMovements` `map` needing an identity pre-check), so
+`doc.junctions` stays identical by construction; the node arm filters its own record.
 
-That third row was a `dropMovements` helper until Phase 4, and its removal is
-worth a line because of *how* it was written: it rewrote junctions with a `map`,
-so array identity had to be recovered with a pre-check or every link deletion in a
-document with a junction handed history a fresh `doc.junctions`. The link arm now
-omits `junctions:` entirely, so the identity holds by construction; the node arm
-still filters out the deleted node's own record.
+**Nor does a road edit make or unmake one.** `completeLink` and both link-removing
+`deleteSelection` arms retype nodes through `state.ts:retypeNodes`, between
+`endpoint` and `waypoint` only: becoming a junction mints a record and a glyph,
+which stays the human's `setNodeKind` call (ramps §2.12.2).
 
 ## The panel
 
