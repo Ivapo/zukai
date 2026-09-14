@@ -47,6 +47,7 @@ import {
   goreChevrons,
   goreFlow,
   gorePair,
+  jointDiscs,
   junctionArms,
   keptPieces,
   laneBands,
@@ -139,10 +140,13 @@ export function Diagram({
   // The two links of a divided road step off their shared centreline before
   // anything is drawn from them — the roads and the junction arms alike.
   const offsets = carriageways(doc);
-  // Where a road changes width. The roads have to know first: a joint that
-  // draws a wedge butt-caps both its links, or the wide one's round cap bulges
-  // outside the freshly painted taper line (§2.4).
-  const { wedges, butt } = tapers(doc, offsets);
+  // Where a road changes width, and where two roads meet with no glyph or wedge
+  // to own the joint. Every casing ends flat, so the round shape a joint needs is
+  // a disc drawn under every road: a disc drawn anywhere later would paint over
+  // some road's lines, the defect it exists to cure (ramps §2.12.1). A tapered
+  // joint gets none, or the wide road's disc bulges outside the taper line (§2.4).
+  const { wedges, tapered } = tapers(doc, offsets);
+  const discs = jointDiscs(doc, offsets, tapered);
   // Which boundaries a human has painted a lane line on. The roads have to know
   // this too: a lane line *replaces* the divider it lands on rather than being
   // drawn over it, or the dashes show through the gaps (markings OQ-3).
@@ -157,6 +161,10 @@ export function Diagram({
     <g className="diagram">
       {hasShoulder(doc) && <HatchPattern />}
 
+      {discs.map((d, i) => (
+        <circle key={i} className="road-joint" cx={d.at.x} cy={d.at.y} r={d.r} />
+      ))}
+
       {doc.links.map((link) => {
         const pts = drawnPolyline(doc, link, offsets);
         if (!pts) return null;
@@ -165,7 +173,6 @@ export function Diagram({
             key={link.id}
             link={link}
             points={pts}
-            butt={butt.has(link.id)}
             replaced={replaced[link.id]}
             cuts={cuts[link.id]}
             interaction={interaction}
@@ -525,9 +532,10 @@ interface Taper {
 }
 
 /**
- * Every taper wedge in the document, and the links whose casing must be
- * butt-capped — by a wedge at a through joint, or by a `gore` glyph at the node
- * they meet. The cap has two owners and one set.
+ * Every taper wedge in the document, and the nodes it drew one at — where
+ * {@link jointDiscs} must draw no disc, since a disc of the wide road bulges
+ * outside the wedge's hypotenuse (§2.4, §2.12.1). The flat ends a wedge needs are
+ * no longer this function's business: every casing has them.
  *
  * A **through joint** is a node with exactly two incident links, one ending
  * there and one starting there — three or more is a junction or a gore, not a
@@ -542,37 +550,18 @@ interface Taper {
  * (`N1→N2`, `N2→N3` with N3 placed back beside N1) is not a twin, yet its frames
  * oppose; and a twin whose bends leave the node the other way passes the bend
  * guard. Both are preconditions (§2.4).
- *
- * A **gore** caps for the wedge's own reason and by a different rule: its legs
- * are literal continuations of the two roads' edge lines, so a round cap
- * crossing one crosses a line drawn to be continuous. Keyed to the **glyph**,
- * not to the pair `gorePair` picks — that runs inside `GoreShape`, downstream of
- * here, and at §1's exit the largest of the three caps is on the arm the pair
- * does *not* choose, the 4-lane approach (§2.11.2).
  */
 function tapers(
   doc: Document,
   offsets: Record<LinkId, number>,
-): { wedges: Taper[]; butt: Set<LinkId> } {
+): { wedges: Taper[]; tapered: Set<NodeId> } {
   const wedges: Taper[] = [];
-  const butt = new Set<LinkId>();
+  const tapered = new Set<NodeId>();
 
   for (const node of doc.nodes) {
     const incident = doc.links.filter(
       (l) => l.from_node === node.id || l.to_node === node.id,
     );
-    // Before the through-joint test, not after: a gore node has three incident
-    // links, so a check placed below the early return would fire only on
-    // two-link gores. Two tests and not one — the node layer reads
-    // `layout.junctions` only inside its junction branch, and a hand-edited
-    // `.zkai` can leave a stale view behind on a node that is no longer one.
-    if (
-      node.type === "junction" &&
-      doc.layout.junctions[node.id]?.glyph === "gore"
-    ) {
-      for (const l of incident) butt.add(l.id);
-    }
-
     if (incident.length !== 2) continue;
     // A self-loop is excluded by asking for the *other* end to be elsewhere.
     const into = incident.find(
@@ -591,11 +580,10 @@ function tapers(
     const cut = taperWedges(a, b, TAPER_LENGTH);
     if (cut.length === 0) continue;
     for (const w of cut) wedges.push({ corners: w.corners });
-    butt.add(into.id);
-    butt.add(from.id);
+    tapered.add(node.id);
   }
 
-  return { wedges, butt };
+  return { wedges, tapered };
 }
 
 /**
@@ -944,14 +932,12 @@ function markingRun(run: TextRun, content: string) {
 function RoadShape({
   link,
   points,
-  butt,
   replaced,
   cuts,
   interaction,
 }: {
   link: Link;
   points: Vec2[];
-  butt?: boolean;
   /** Boundary offsets a lane line has taken over — see {@link laneLineOffsets}. */
   replaced?: number[];
   /** Stretches of the kerb-side edge line a bus bay has opened — see {@link busBays}. */
@@ -1048,16 +1034,11 @@ function RoadShape({
       {selected && (
         <path className="road-halo" d={casing} strokeWidth={w + 6} />
       )}
-      {/* `stroke-linecap` is a property of the whole path, so a link
-          butt-capped at a tapered end is butt-capped at its other end too.
-          Where that meets a junction the pad covers it; where it is a free
-          endpoint the road now ends flat rather than domed — the better
-          schematic reading anyway (§2.4). */}
-      <path
-        className={`road-casing${butt ? " road-casing--butt" : ""}`}
-        d={casing}
-        strokeWidth={w}
-      />
+      {/* Every casing ends flat. A free end reads as a road running off the
+          frame, not stopping; where roads meet, the round shape the joint needs
+          is a `road-joint` disc under every road, so no road's end paints over
+          another's lines (ramps §2.12.1). */}
+      <path className="road-casing" d={casing} strokeWidth={w} />
       {/* Lane bands sit on the asphalt and under every painted line, so a
           shoulder's hatch and a bus lane's tint read as surface, not marking. */}
       {painted.map((b, i) => (

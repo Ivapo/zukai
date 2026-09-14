@@ -6,6 +6,7 @@ import {
   findNode,
   linkAlign,
   linkPolyline,
+  nodeNeighbours,
   nodePos,
 } from "../model/document";
 import {
@@ -340,8 +341,8 @@ export const TAPER_LENGTH = 24;
  * How far a joint may bend and still count as one road continuing through it,
  * in **degrees**. Beyond it a corner is a corner and no wedge is drawn.
  *
- * **Derived, not picked.** The butt caps a wedge forces (`.road-casing--butt`)
- * leave a notch on the *outside* of a bend of depth `(roadWidth / 2) · tan(θ/2)`
+ * **Derived, not picked.** The butt caps at a wedge's joint, which gets no joint
+ * disc ({@link jointDiscs}), leave a notch on the *outside* of a bend of depth `(roadWidth / 2) · tan(θ/2)`
  * — 1.36 units at 8° for a 4-lane road, the same order as the ≈1.33-unit
  * round-cap overhang the butt cap removes, so the trade is never a loss and
  * falls to zero as the joint straightens. A larger tolerance inverts it (15°
@@ -381,7 +382,7 @@ export const MITER_LIMIT = 4;
  * 3.5 m both draw exactly 39 wide. This is a tolerance rather than `===` because nothing guarantees that
  * of a document whose lanes carry arbitrary widths, and because the alternative
  * is worse than a missed wedge: a step below 1e-6 world units would emit a
- * zero-area polygon and butt-cap two roads over a difference no one can see.
+ * zero-area polygon and withhold a joint's disc over a difference no one can see.
  */
 const SAME_EDGE = 1e-6;
 
@@ -1241,6 +1242,55 @@ export function nodeDots(
     if (!dots.some((d) => distance(d, arm.origin) < SAME_POINT)) dots.push(arm.origin);
   }
   return dots;
+}
+
+/** A filled asphalt circle under the roads at a joint — see {@link jointDiscs}. */
+export interface JointDisc {
+  at: Vec2;
+  r: number;
+}
+
+/**
+ * The round asphalt a joint needs, now that every casing ends flat (ramps spec
+ * §2.12.1). Flat ends alone open a notch on the outside of any road that turns at
+ * a node, `(w/2)·tan(θ/2)`; a disc per arm origin, of half that arm's width, fills
+ * exactly the corner the round cap used to — and at a straight joint lies wholly
+ * inside both casings, where it cannot be seen.
+ *
+ * **Only where no one else owns the joint.** A node qualifies when it is not a
+ * `junction` (a pad, ring or gore covers it), `tapered` does not hold it (a disc of
+ * the wide road would bulge outside the wedge's hypotenuse, §2.4's bulge again),
+ * and its links reach **at least two distinct other nodes** — so a divided road's
+ * free end, a reversed twin pair reaching one node, stays flat on both
+ * carriageways ({@link nodeNeighbours}).
+ *
+ * One disc per distinct origin under {@link SAME_POINT}, as {@link nodeDots} counts
+ * them, at the **widest** arm's radius where origins coincide.
+ *
+ * The caller draws these **before the first road**. That is what makes the fix a
+ * fix rather than a new overpaint: a disc can cover no road's paint, while the
+ * roads keep their document order, so an overlap away from any joint — a ramp
+ * across a mainline's shoulder — draws exactly as it did.
+ */
+export function jointDiscs(
+  doc: Document,
+  offsets: Record<LinkId, number>,
+  tapered: Set<NodeId>,
+): JointDisc[] {
+  const discs: JointDisc[] = [];
+  for (const node of doc.nodes) {
+    if (node.type === "junction" || tapered.has(node.id)) continue;
+    if (nodeNeighbours(doc, node.id).size < 2) continue;
+    const here: JointDisc[] = [];
+    for (const arm of junctionArms(doc, node.id, offsets)) {
+      const r = arm.width / 2;
+      const same = here.find((d) => distance(d.at, arm.origin) < SAME_POINT);
+      if (!same) here.push({ at: arm.origin, r });
+      else if (r > same.r) same.r = r;
+    }
+    discs.push(...here);
+  }
+  return discs;
 }
 
 /**

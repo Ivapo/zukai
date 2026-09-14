@@ -768,18 +768,16 @@ describe("tapers", () => {
   });
 
   /**
-   * The round cap has to go with the wedge: `.road-casing` is `stroke-linecap:
-   * round`, so the 4-lane link would paint a half-disc of asphalt 19.5 units
-   * past N2 — outside the taper line just painted, and unremovable by any added
-   * polygon. **Both** links take the modifier, since either can overhang.
+   * No round shape at a wedge: every casing ends flat, and a tapered joint is the
+   * one through joint that gets no joint disc — a disc of the 4-lane road would
+   * paint a half-disc of asphalt 19.5 units past N2, outside the taper line just
+   * painted (§2.4, §2.12.1).
    */
-  it("butt-caps both links of a tapered joint, and only those", () => {
+  it("draws the wedge of a tapered joint and no joint disc", () => {
     const svg = renderToStaticMarkup(<Diagram doc={laneDrop()} />);
 
-    expect(svg.match(/road-casing road-casing--butt/g)).toHaveLength(2);
-
-    const plain = renderToStaticMarkup(<Diagram doc={straightPair(4, 4)} />);
-    expect(plain).not.toContain("road-casing--butt");
+    expect(svg).toContain('class="road-taper"');
+    expect(svg).not.toContain("road-joint");
   });
 
   /** Two links of `a` then `b` lanes, in a straight line, centred and unaligned. */
@@ -799,17 +797,41 @@ describe("tapers", () => {
   }
 
   /**
-   * A document with no width step draws exactly what it drew before tapers
-   * existed — no polygon, no modifier class, and the casing markup unchanged
-   * down to the attribute.
+   * A joint with no width step draws no wedge, and its casing markup is what it
+   * was before tapers existed, down to the attribute. What it gains is the joint
+   * disc every wedge-free joint of two roads carries (§2.12.1).
    */
-  it("leaves a joint of equal width exactly as it was", () => {
+  it("draws no wedge at a joint of equal width, only its joint disc", () => {
     const svg = renderToStaticMarkup(<Diagram doc={straightPair(4, 4)} />);
 
     expect(svg).not.toContain("taper");
     expect(svg).toContain(
       '<path class="road-casing" d="M 0 0 L 120 0" stroke-width="39"></path>',
     );
+    expect(svg).toContain('<circle class="road-joint" cx="120" cy="0" r="19.5"></circle>');
+  });
+
+  /**
+   * The discs go **under every road**, which is the whole fix: drawn anywhere
+   * later, a disc would paint over some road's lines — the bead it replaces.
+   * Each needle is asserted present first, since `indexOf` of an absent one is
+   * `-1` and would pass any ordering (§2.11.1's lesson).
+   */
+  it("draws a joint's discs before the first road", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={straightPair(3, 3)} />);
+
+    expect(svg).toContain("road-joint");
+    expect(svg).toContain("road-casing");
+    expect(svg.lastIndexOf("road-joint")).toBeLessThan(svg.indexOf("road-casing"));
+  });
+
+  /** A joint's round shape is a disc under the roads, never a road's own cap. */
+  it("carries no cap modifier on any road, tapered, gored or plain", () => {
+    for (const doc of [laneDrop(), straightPair(4, 4), straightPair(4, 3)]) {
+      const svg = renderToStaticMarkup(<Diagram doc={doc} />);
+      expect(svg).toContain("road-casing");
+      expect(svg).not.toContain("road-casing--butt");
+    }
   });
 
   /** A centred lane change closes half the difference on each side. */
@@ -841,7 +863,6 @@ describe("tapers", () => {
     );
 
     expect(svg).not.toContain("road-taper");
-    expect(svg).not.toContain("road-casing--butt");
   });
 
   /**
@@ -867,7 +888,6 @@ describe("tapers", () => {
     const svg = renderToStaticMarkup(<Diagram doc={doc} />);
 
     expect(svg).not.toContain("road-taper");
-    expect(svg).not.toContain("road-casing--butt");
   });
 
   /**
@@ -897,7 +917,6 @@ describe("tapers", () => {
 
     for (const svg of [corner(4, 4), corner(4, 3)]) {
       expect(svg).not.toContain("road-taper");
-      expect(svg).not.toContain("road-casing--butt");
     }
   });
 });
@@ -1177,6 +1196,14 @@ describe("the priority badge", () => {
     ).doc;
   }
 
+  /** A junction's pad owns its joint, so a T draws no joint disc (§2.12.1). */
+  it("draws no joint disc at a T junction", () => {
+    const svg = renderToStaticMarkup(<Diagram doc={junction(2, 2)} />);
+
+    expect(svg).toContain("jn-pad");
+    expect(svg).not.toContain("road-joint");
+  });
+
   /**
    * On a straight-through junction the tips north and south leave the pad at the
    * road's own edge, so the diamond shrinks to it: 10.5 where `rp * 0.85` alone
@@ -1263,18 +1290,19 @@ describe("gores", () => {
   }
 
   /**
-   * **Three, not two, and the count is the phase.** A gore's legs are literal
-   * continuations of the two roads' edge lines, so a round cap crossing one
-   * crosses a line drawn to be continuous — the defect §2.4 already removed one
-   * node type along. Keying the rule to `gorePair` instead lands on **two**, and
-   * it is the one wrong answer that looks right: the arm it leaves out here is
-   * the 4-lane approach, the *widest* road at the node and so the largest cap of
-   * the three, painting to `y = 37.5` against a mainline edge line at `27`.
+   * **No round shape on any of the three arms.** A gore's legs are literal
+   * continuations of the two roads' edge lines, so round asphalt crossing one
+   * crosses a line drawn to be continuous — and the widest arm, the 4-lane
+   * approach, would paint to `y = 37.5` against a mainline edge line at `27`
+   * (§2.11.2). Every casing now ends flat, and a gore node is a `junction`, so no
+   * joint disc stands in for the cap either (§2.12.1).
    */
-  it("butt-caps every arm of a gore, not just the two the triangle uses", () => {
+  it("draws no joint disc at a gore, and no cap modifier on any arm", () => {
     const svg = renderToStaticMarkup(<Diagram doc={exit()} />);
 
-    expect(svg.match(/road-casing road-casing--butt/g)).toHaveLength(3);
+    expect(svg.match(/class="road-casing"/g)).toHaveLength(3);
+    expect(svg).not.toContain("road-joint");
+    expect(svg).not.toContain("road-casing--butt");
   });
 
   /** A gore is the paint *between* two arms, so there is nothing to pad. */

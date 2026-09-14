@@ -143,9 +143,11 @@ describe("strokeAllowance", () => {
     expect(strokeAllowance(initialState().doc)).toBe(2);
   });
 
-  it("leaves room for the round end-cap of the widest road allowed", () => {
-    // The regression this exists for: a flat 24-unit margin clipped the cap off
-    // every road of 5 lanes or more.
+  it("leaves room for the casing's overhang on the widest road allowed", () => {
+    // The regression this exists for: a flat 24-unit margin clipped the round
+    // end-cap off every road of 5 lanes or more. The cap is flat now, but the
+    // casing still overhangs its polyline by half its width, sideways and at a
+    // flat end's corners on a road that is not axis-aligned, like this one.
     for (let lanes = 1; lanes <= 8; lanes++) {
       const doc = road(lanes);
       const margin = EXPORT_PAD + strokeAllowance(doc);
@@ -517,11 +519,28 @@ describe("tapers in an exported file", () => {
 
     expect(svg).toContain('class="road-taper"');
     expect(css).toContain(".road-taper");
-    expect(css).toContain(".road-casing--butt");
+    expect(css).not.toContain(".road-casing--butt");
     expectSelfContained(svg);
     expect(css).not.toMatch(/[<&]/);
     expect(svg).not.toMatch(CHROME);
     expect(svg).not.toMatch(/vector-effect/);
+  });
+
+  /**
+   * **Every road's asphalt ends flat**, which is the figure's half of §2.12.1: a
+   * round cap drawn by the later road paints over the earlier road's lines at
+   * every joint. Asserted on the `.road-casing` rule's own block, because the file
+   * as a whole still says `round` — `.road-edge` keeps its round cap.
+   */
+  it("ends every casing flat, in the casing's own rule", () => {
+    const css = embeddedCss(diagramSvg(tapered(), null));
+    const block = css.match(/(?:^|\n)\.road-casing \{([^}]*)\}/);
+
+    expect(block).not.toBeNull();
+    expect(block![1]).toContain("stroke-linecap: butt;");
+    expect(block![1]).not.toContain("round");
+    expect(css).not.toContain(".road-casing--butt");
+    expect(css).toContain(".road-joint");
   });
 });
 
@@ -581,16 +600,16 @@ describe("gores in an exported file", () => {
   });
 
   /**
-   * `stroke-linecap` is a property of the **whole path**, so a gore arm stops
-   * being domed at its *far* end too — named rather than discovered (§2.4
-   * recorded the same consequence for a taper, and calls a flat free end the
-   * better schematic reading). `gored()`'s `N1` is exactly such an end: L1 is a
-   * default-class 4-lane link aligned `offside`, so its lane region hangs 18
-   * below its polyline and the casing draws `M 0 18 L 120 18`.
+   * **Every free end is flat**, a gore arm's far end among them — §2.4 called a
+   * flat free end the better schematic reading, and §2.12.1 made it uniform: a
+   * fragment's road runs off the frame, and a dome says it stops. `gored()`'s `N1`
+   * is such an end: L1 is a 4-lane link aligned `offside`, so its lane region
+   * hangs 18 below its polyline and the casing draws `M 0 18 L 120 18`, with no
+   * modifier because no road needs one.
    */
-  it("flattens a gore arm's far end too, a cap being a whole-path property", () => {
+  it("draws every free end flat, a gore arm's far end included", () => {
     expect(diagramInner(gored())).toContain(
-      '<path class="road-casing road-casing--butt" d="M 0 18 L 120 18"',
+      '<path class="road-casing" d="M 0 18 L 120 18"',
     );
   });
 

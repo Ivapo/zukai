@@ -7,11 +7,12 @@ import {
   findJunction,
   isNetworkFile,
   isZkaiFile,
+  nodeNeighbours,
   normalizeDocument,
   RawDocument,
   withExtension,
 } from "./document";
-import { JunctionGlyph, SCHEMA_VERSION } from "./types";
+import { Document, JunctionGlyph, Link, SCHEMA_VERSION } from "./types";
 
 describe("normalizeDocument", () => {
   it("fills every missing collection and layout sub-map (the load-crash case)", () => {
@@ -224,5 +225,33 @@ describe("JunctionGlyph", () => {
     const retired: JunctionGlyph = "t_junction";
 
     expect(retired).toBe("t_junction");
+  });
+});
+
+describe("nodeNeighbours", () => {
+  function linked(...pairs: [string, string][]): Document {
+    const links: Link[] = pairs.map(([from_node, to_node], i) => ({
+      id: `L${i + 1}`,
+      from_node,
+      to_node,
+      lanes: [],
+      median_gap: 0,
+    }));
+    return { ...emptyDocument("neighbours"), links };
+  }
+
+  /** What tells a divided road's free end from a joint (ramps spec §2.12.1). */
+  it("counts a reversed twin pair's far node once", () => {
+    const doc = linked(["N1", "N2"], ["N2", "N1"]);
+
+    expect(nodeNeighbours(doc, "N1")).toEqual(new Set(["N2"]));
+    expect(nodeNeighbours(doc, "N2")).toEqual(new Set(["N1"]));
+  });
+
+  it("counts nothing for a self-loop, and each other node once", () => {
+    const doc = linked(["N2", "N2"], ["N1", "N2"], ["N2", "N3"]);
+
+    expect(nodeNeighbours(doc, "N2")).toEqual(new Set(["N1", "N3"]));
+    expect(nodeNeighbours(linked(["N1", "N1"]), "N1").size).toBe(0);
   });
 });

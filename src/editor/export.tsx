@@ -50,10 +50,12 @@ export const PNG_SCALE = 2;
  * Half the widest stroke in the document, so no cap or edge is clipped.
  *
  * Bounds come from `getBBox`, which measures path geometry and **excludes**
- * stroke width. The dominant overhang is the road casing: drawn at
- * `roadWidth(lanes)` with a round linecap, it extends half that past each
- * polyline end — 37.5 world units for a road of 8 default lanes, so a flat
- * 24-unit margin would have sliced the end-cap off every road of 6 default
+ * stroke width. The dominant overhang is the road casing, drawn at
+ * `roadWidth(lanes)`. Its ends are flat, but that does not mean nothing
+ * overhangs: on a road that is not axis-aligned a flat end's corners sit up to
+ * half that width sideways past the polyline end, and the half-width runs the
+ * whole road's length besides — 37.5 world units for a road of 8 default lanes,
+ * so a flat 24-unit margin would clip the asphalt of every road of 6 default
  * lanes or more (5 lands flush, overhanging exactly 24). Deriving the allowance
  * from `roadWidth` means neither a change to `LANE_PX` nor a document whose
  * lanes are wider than the default can silently reintroduce that.

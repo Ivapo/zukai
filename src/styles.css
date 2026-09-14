@@ -308,16 +308,23 @@ body {
 /* ----- roads ----- */
 /* The painted road itself is in `styles/diagram.css`. */
 
+/* Round caps, unlike the flat road it covers: at a bend the joint disc's outside
+   corner lies past both roads' flat ends, and the disc has no handler, so a
+   press there would fall through to the background and pan. A cap of radius
+   `(w + 8) / 2` covers the disc's `w / 2` and gives the press back to a road. */
 .road-hit {
   fill: none;
   stroke: transparent;
+  stroke-linecap: round;
   cursor: pointer;
 }
 
+/* Flat at the ends because the road is, round at a corner because the halo
+   should not spike past a bend: a halo matches the shape it highlights. */
 .road-halo {
   fill: none;
   stroke: var(--paint-yellow);
-  stroke-linecap: round;
+  stroke-linecap: butt;
   stroke-linejoin: round;
   opacity: 0.55;
 }
@@ -365,9 +372,8 @@ body {
   cursor: pointer;
 }
 
-/* Butt caps, like the bar it sits under — `.road-halo` takes round ones because
-   the road does, and the rule is the same both times: a halo matches the shape
-   it highlights. Round caps here would balloon past the lane the marking spans,
+/* Butt caps, like the bar it sits under — and like `.road-halo`, whose road ends
+   flat too: a halo matches the shape it highlights. Round caps here would balloon past the lane the marking spans,
    over the divider into the next lane and past the edge line onto the verge,
    which misreports the span at exactly the moment the user is looking at it. */
 .marking-halo {

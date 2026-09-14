@@ -77,6 +77,7 @@ import {
   goreFlow,
   gorePair,
   gridPattern,
+  jointDiscs,
   junctionArms,
   junctionRadius,
   keptPieces,
@@ -4459,5 +4460,120 @@ describe("node dots", () => {
     // Hand-edited, and the same case the node layer already guards with `if (!p)`.
     const doc = lay({ N2: { x: 120, y: 0 } }, [road("L1", "N1", "N2")]);
     expect(dots(doc, "N1")).toEqual([]);
+  });
+});
+
+describe("joint discs", () => {
+  /** Nodes of the given kinds (waypoint unless named), laid where given. */
+  function lay(
+    nodes: Record<NodeId, Vec2>,
+    links: Link[],
+    kinds: Record<NodeId, "junction" | "endpoint"> = {},
+  ): Document {
+    const base = emptyDocument("joint discs");
+    return {
+      ...base,
+      nodes: Object.keys(nodes).map((id) => ({ id, type: kinds[id] ?? ("waypoint" as const) })),
+      links,
+      layout: {
+        ...base.layout,
+        nodes: Object.fromEntries(Object.entries(nodes).map(([id, pos]) => [id, { pos }])),
+      },
+    };
+  }
+
+  function road(id: LinkId, from: NodeId, to: NodeId, lanes = 3): Link {
+    return { id, from_node: from, to_node: to, lanes: defaults(lanes), median_gap: DEFAULT_MEDIAN_GAP };
+  }
+
+  /** The discs with the offsets the renderer passes, and nothing tapered. */
+  function discs(doc: Document, tapered: NodeId[] = []) {
+    return jointDiscs(doc, carriageways(doc), new Set(tapered));
+  }
+
+  const ORIGIN = { x: 0, y: 0 };
+  const THROUGH = { N1: ORIGIN, N2: { x: 120, y: 0 }, N3: { x: 240, y: 0 } };
+
+  it("puts one disc of half the road's width at a straight centred waypoint", () => {
+    const doc = lay(THROUGH, [road("L1", "N1", "N2"), road("L2", "N2", "N3")]);
+
+    expect(discs(doc)).toEqual([{ at: { x: 120, y: 0 }, r: roadWidth(defaults(3)) / 2 }]);
+  });
+
+  it("puts discs where a node's links reach three distinct nodes", () => {
+    const doc = lay({ ...THROUGH, N4: { x: 120, y: 120 } }, [
+      road("L1", "N1", "N2"),
+      road("L2", "N2", "N3"),
+      road("L3", "N2", "N4"),
+    ]);
+
+    expect(discs(doc)).toEqual([{ at: { x: 120, y: 0 }, r: 15 }]);
+  });
+
+  it("puts none at a free end", () => {
+    const doc = lay({ N1: ORIGIN, N2: { x: 120, y: 0 } }, [road("L1", "N1", "N2")]);
+
+    expect(discs(doc)).toEqual([]);
+  });
+
+  /**
+   * **Distinct neighbours, not incident links.** A divided road's free end has
+   * two incident links, a reversed twin pair, and both reach one node — so it is
+   * an end, and stays flat on both carriageways.
+   */
+  it("puts none at a divided road's end, whose twins reach one node", () => {
+    const doc = lay({ N1: ORIGIN, N2: { x: 120, y: 0 } }, [
+      road("L1", "N1", "N2"),
+      road("L2", "N2", "N1"),
+    ]);
+
+    expect(discs(doc)).toEqual([]);
+  });
+
+  it("puts none at a junction, whose glyph owns the joint", () => {
+    const doc = lay(THROUGH, [road("L1", "N1", "N2"), road("L2", "N2", "N3")], {
+      N2: "junction",
+    });
+
+    expect(discs(doc)).toEqual([]);
+  });
+
+  it("puts none at a node that drew a taper wedge", () => {
+    const doc = lay(THROUGH, [road("L1", "N1", "N2", 4), road("L2", "N2", "N3", 3)]);
+
+    expect(discs(doc, ["N2"])).toEqual([]);
+  });
+
+  /**
+   * One per carriageway, read off the drawn polylines rather than re-derived from
+   * the offset — deriving the expectation as the code does would test it against
+   * a copy of itself.
+   */
+  it("puts two discs at a straight divided waypoint, one on each carriageway", () => {
+    const doc = lay(THROUGH, [
+      road("L1", "N1", "N2", 2),
+      road("L2", "N2", "N1", 2),
+      road("L3", "N2", "N3", 2),
+      road("L4", "N3", "N2", 2),
+    ]);
+    const offsets = carriageways(doc);
+    const east = drawnPolyline(doc, doc.links[0], offsets)!;
+    const west = drawnPolyline(doc, doc.links[1], offsets)!;
+
+    expect(discs(doc)).toEqual([
+      { at: east[east.length - 1], r: 10.5 },
+      { at: west[0], r: 10.5 },
+    ]);
+  });
+
+  /** Where origins coincide the disc takes the widest arm, whichever comes first. */
+  it("puts one disc at the wider radius where origins of two widths coincide", () => {
+    const nodes = { N1: ORIGIN, N2: { x: 120, y: 0 }, N3: { x: 120, y: 120 } };
+    const narrowFirst = lay(nodes, [road("L1", "N1", "N2", 3), road("L2", "N2", "N3", 4)]);
+    const wideFirst = lay(nodes, [road("L1", "N1", "N2", 4), road("L2", "N2", "N3", 3)]);
+
+    for (const doc of [narrowFirst, wideFirst]) {
+      expect(discs(doc)).toEqual([{ at: { x: 120, y: 0 }, r: 19.5 }]);
+    }
   });
 });

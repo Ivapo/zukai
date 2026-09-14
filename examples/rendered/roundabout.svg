@@ -78,24 +78,24 @@
    asphalt and the paint change behaviour at one angle rather than two. Written
    twice because a CSS rule cannot read a constant.
 
-   `stroke-linecap` is untouched: that is about a road's *ends*, and
-   `.road-casing--butt` below depends on it. */
+   Its ends are flat. A round cap is a half-disc of asphalt past the node, and
+   the road drawn later paints it over the earlier road's lines - a dark bead on
+   every straight joint. It also reads as a road that stops, where a fragment's
+   road runs off the frame (ramps spec 2.12.1). */
 .road-casing {
   fill: none;
   stroke: var(--asphalt);
-  stroke-linecap: round;
+  stroke-linecap: butt;
   stroke-linejoin: miter;
   stroke-miterlimit: 4;
 }
 
-/* A road that tapers at either end takes butt caps, because the round one
-   bulges half a road past the node and outside the wedge's own edge line - a
-   half-disc of asphalt spilling past freshly painted paint. No added polygon
-   can remove it, so the cap goes instead. Only a joint that actually draws a
-   wedge gets the class, so a document with no width step paints as it always
-   has (ramps spec 2.4). */
-.road-casing--butt {
-  stroke-linecap: butt;
+/* The round shape a joint needs once the ends are flat: one disc per road end
+   where two roads meet and no pad, ring, gore or taper owns the node. Drawn
+   before every road, so it fills the outside corner of a bend and covers no
+   road's paint (ramps spec 2.12.1). */
+.road-joint {
+  fill: var(--asphalt);
 }
 
 .road-edge {

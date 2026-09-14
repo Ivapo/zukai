@@ -206,6 +206,24 @@ export function linkAlign(doc: Document, id: LinkId): LinkAlign {
   return doc.layout.links[id]?.align ?? DEFAULT_LINK_ALIGN;
 }
 
+/**
+ * The distinct **other** nodes a node's links reach — a self-loop reaches none.
+ *
+ * Distinct nodes rather than incident links, and that is what tells a joint from
+ * an end: a divided road's free end has two incident links, a reversed twin pair,
+ * and both reach the same one node. So it counts once here, and a node reaching
+ * two or more is where two roads meet (ramps spec §2.12.1, §2.12.2).
+ */
+export function nodeNeighbours(doc: Document, id: NodeId): Set<NodeId> {
+  const reached = new Set<NodeId>();
+  for (const link of doc.links) {
+    if (link.from_node === link.to_node) continue;
+    if (link.from_node === id) reached.add(link.to_node);
+    else if (link.to_node === id) reached.add(link.from_node);
+  }
+  return reached;
+}
+
 /** Look up a node by id. */
 export function findNode(doc: Document, id: NodeId): Node | undefined {
   return doc.nodes.find((n) => n.id === id);
