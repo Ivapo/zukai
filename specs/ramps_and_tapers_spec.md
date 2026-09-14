@@ -2,7 +2,7 @@
 id: zk-005
 title: ramps-and-tapers
 status: accepted
-last_updated: 2026-08-14
+last_updated: 2026-09-14
 note: >
   Draw the transitions between roads — lane-count tapers, ramp gores, and
   junction interiors that follow a divided road's carriageways.
@@ -51,6 +51,21 @@ phases:
   - name: "Phase 9 — The panel says which side the lanes hang on"
     reviewed: 2026-08-14
     shipped: 2026-08-14
+    cut: null
+    by: null
+  - name: "Phase 10 — Where two roads meet, neither paints over the other"
+    reviewed: 2026-09-14
+    shipped: null
+    cut: null
+    by: null
+  - name: "Phase 11 — A node that joins two roads is a waypoint"
+    reviewed: 2026-09-14
+    shipped: null
+    cut: null
+    by: null
+  - name: "Phase 12 — A node's dot shows while it is being edited"
+    reviewed: 2026-09-14
+    shipped: null
     cut: null
     by: null
 
@@ -1173,6 +1188,223 @@ alternative that *would* produce a picture — drawing the overlap as an error s
 on the canvas — is a validation layer this project does not have and should not
 grow for one case.
 
+### 2.12 What the canvas got wrong (added 2026-09-14, fourth reopening — Phases 10–12)
+
+This section is the fourth reopening
+(`/Users/ivapo/.claude/skills/spec-driven-dev/spec-authoring.md` §6.1). Like the third,
+it starts from a picture rather than from the code: the repo owner reported that
+waypoints and junctions "look very odd", suspected that alignment moves the node,
+and asked for node dots to show only where something is being edited, as the
+direction arrow now does (`specs/road_declutter_spec.md` §2.1). The cases were
+rendered on 2026-09-14 through `Diagram` with an `interaction`, in headless
+Chromium, together with prototypes of each fix below.
+
+**What was not a defect comes first, so nobody re-opens it: alignment moves no
+node.** `nodePos` stays where the human put it. §2.3 holds one *edge* of the lane
+region on the polyline, so an aligned road's node sits on that road's edge rather
+than its centre. The dot follows the drawn road end, not the node (§2.10), so it
+steps across with the road. What reads as a moved node is that dot, plus the two
+defects in §2.12.1.
+
+#### 2.12.1 Where two roads meet, the later road's asphalt covers the earlier road's lines (Phase 10)
+
+`Diagram.tsx:RoadShape` draws each link as one group, casing first and lines on
+top, in `doc.links` order, and `.road-casing` has `stroke-linecap: round`. So at
+every node where two links meet, the later link's round cap is drawn **over** the
+earlier link's painted lines. That cap is a half-disc of radius `roadWidth / 2`.
+
+- **At a straight, centred waypoint.** Measured on two 3-lane links: the casing is
+  30 wide, so the cap's radius is 15. It covers the earlier road's edge lines (at
+  ±13.5) for `√(15² − 13.5²)` ≈ 6.5 units before the node, and its dividers (at
+  ±4.5) for ≈ 14.3. The result is a dark bead breaking every line on the road. It
+  needs no alignment and no width change: it is present at every centred waypoint
+  in every document.
+- **At a junction the pad normally hides it, until an arm's origin moves.** A T
+  whose through road is aligned `offside` puts the centred stem's origin on the
+  through road's edge. The stem's round cap then stands clear of every road as a
+  knob, radius 10.5 on a 2-lane stem.
+
+**Three fixes were prototyped, and two of them fail:**
+- **Butt caps on every casing, alone.** This cures the straight joint and the knob.
+  But it opens a notch on the outside of any road that turns at a node, `(w/2)·tan(θ/2)`
+  by §2.4's own formula: 4.0 units at 30° and 15 at 90° on a 3-lane road.
+- **Every road's asphalt drawn before any road's lines.** This was the first draft's
+  answer, and review round 1 rejected it on a built copy. Roads overlap away from
+  nodes too, and there the later road's asphalt covering the earlier one's lines is
+  the correct picture:
+  - `examples/motorway-ramp.zkai`'s ramp crosses the mainline's shoulder on its way
+    to the gore nose. Reordered, the mainline's hatch, shoulder line, divider and edge
+    line all paint across the ramp.
+  - At `examples/roundabout.zkai`'s corners, each arm's edge line runs across the
+    neighbouring arm into the ring.
+
+  A global paint order is the wrong tool for a defect that lives at a joint.
+- **Butt caps on every casing, with the join filled from underneath, only at a
+  joint.** This is the decision below. It cures the straight joint, both bends and
+  the knob. It also leaves every overlap away from a joint exactly as it draws
+  today, since no element changes its place in the document.
+
+**Decision (recorded): a road's asphalt ends flat, and the round shape a joint needs
+is drawn under every road, only where no glyph and no wedge already owns the joint.**
+It takes three changes.
+
+1. **Every casing is butt-capped.** `.road-casing--butt`, and the `butt` set that
+   `Diagram.tsx:tapers` builds for it, both go. Nothing moves in the document: each
+   road stays one group, drawn in `doc.links` order, as today.
+2. **A joint disc, first in the drawing, where a joint has no owner.** A node
+   qualifies when all three hold:
+   - it is not a `junction`;
+   - `tapers` drew no wedge at it;
+   - its incident links reach **at least two distinct other nodes**.
+
+   Such a node gets one filled asphalt circle per distinct arm origin (distinct under
+   `geometry.ts:SAME_POINT`), with radius half that arm's width, or the widest arm's
+   where origins coincide.
+   - The discs are emitted **before the first road**, so no disc can cover any
+     road's paint.
+   - At a straight joint a disc lies wholly inside both casings and cannot be seen.
+   - At a bend it fills exactly the outside corner that the round cap used to fill,
+     and that the butt caps would otherwise leave as a notch.
+3. **The canvas marks follow the new ends.** Both rules are chrome, in `styles.css`.
+   - **`.road-hit` takes round caps.** It has none today, so at a bend the disc's
+     outside corner lies beyond both links' butt hit strokes. Review round 1
+     measured it on a built copy: `elementFromPoint` there returns the disc, which
+     has no handler, so the press falls through to the background, clears the
+     selection and pans. Today that corner is the later link's round casing cap,
+     inside its own group, so the press selects that link. A round hit cap, radius
+     `(w + 8) / 2`, covers the disc (radius `w / 2`) and gives that behaviour back.
+   - **`.road-halo` takes butt caps**, so a selected road's halo ends flat with the
+     road. Otherwise it would dome half a halo past a flat free end.
+     `.marking-halo`'s comment names the rule "a halo matches the shape it
+     highlights"; it stays true, and its "because the road does" is updated to say
+     the road is flat.
+
+**Distinct neighbours, not incident links, is what separates a joint from an end.** A
+divided road's free end has two incident links, a reversed twin pair (road spec §2.4
+pairs on exactly that), and both reach the same one node. So it gets no disc, and
+ends flat on both carriageways. Phase 11 types a node with the same predicate, which
+is why the phase builds it as a helper rather than inline.
+
+**Consequences, named rather than discovered:**
+- **Every free end is flat.** This was already true of every link touching a taper
+  or a gore, because a cap is a whole-path property. §2.4 called the flat end "the
+  better schematic reading anyway", and §2.11.1 supplies the reason: a fragment's
+  roads run off the frame, and a dome, like a bead, says the road stops there. Now it
+  is uniform.
+- **The landing figures, exactly.** No node in the three examples qualifies for a
+  disc (measured: every non-junction node reaches one distinct neighbour). So in
+  their drawing markup the only change is `road-casing--butt` leaving
+  `examples/motorway-ramp.zkai`'s three gore arms. What does change is the embedded
+  stylesheet, which draws the arm ends of `examples/roundabout.zkai` and
+  `examples/signalized-cross.zkai` flat. `motorway-ramp`'s ends were flat already.
+- **A junction's arms end flat under the pad, ring or gore**, so the knob goes. The
+  gore's arms were already butt-capped (Phase 8), so its rule is subsumed rather than
+  removed.
+- **A tapered joint gets no disc.** A disc of the wide road bulges outside the
+  wedge's hypotenuse, by up to ~1.2 units on §1's 4→3 joint: the same bulge §2.4
+  removed the cap for. The notch at a stepped joint bent by at most `TAPER_MAX_BEND`
+  stays exactly as §2.4 sized it.
+- **A divided road bent at a waypoint still shows a half-disc in its median**, since
+  each carriageway's disc sits at its own arm origin rather than at the corner of its
+  offset lines. That is today's round cap unchanged, and it is a non-goal here.
+- **At a bend the later road's casing still covers a sliver of the earlier road's
+  lines on the inside of the turn**, and the outside edge lines still stop short over
+  the disc. Both are smaller than today, where a whole round cap overpainted them. A
+  mitred join across two links would be its own reopening, and a non-goal here.
+- **`export.tsx:strokeAllowance` stays as it is.** Its doc comment stops naming a
+  round cap, but must not claim that nothing overhangs: a butt end on a road that is
+  not axis-aligned still puts its corners up to `w / 2` sideways past the polyline
+  end, which `getBBox` does not count (review round 1).
+
+#### 2.12.2 A node that joins two roads is a waypoint (Phase 11)
+
+`state.ts:addNode` creates every node as an `endpoint`, and nothing but the
+Inspector's Kind row ever changes that. But `graph.rs` defines `NodeKind::Endpoint`
+as "a dangling road end", and a node joining two roads is not one. A node left an
+`endpoint` there is therefore a false statement in the saved document.
+
+`NodeKind::Waypoint` is "a non-intersection point where the road continues but
+changes (e.g. a lane count change)". A join where nothing changes is not exactly that
+either. It is still the right kind, because it is the only non-junction kind that is
+not a dangling end, and what a road does at a joint (a width step, an alignment
+change) can change at any later edit without the kind needing to. On the canvas it also paints the endpoint's paper
+bead in the middle of a road, which is part of what the report described.
+
+**Decision (recorded): the reducer re-derives a node's kind at the nodes whose roads
+an action changes, and only between those two kinds.** The rule:
+- an `endpoint` whose incident links reach **at least two** distinct other nodes
+  becomes a `waypoint`;
+- a `waypoint` reaching **at most one** becomes an `endpoint`;
+- a `junction` is never touched.
+
+The sites are `state.ts:completeLink` (both of the new link's nodes) and the two
+`state.ts:deleteSelection` arms that remove links: the link arm (both of that link's
+nodes) and the node arm (the far node of every link it drops).
+
+- **Both directions**, because a waypoint with one neighbour is an endpoint by the
+  model's own definition. Deleting a road would otherwise leave behind the stale
+  statement this phase exists to stop.
+- **Never to `junction` at three neighbours.** Becoming a junction mints a `Junction`
+  record and a glyph (`state.ts:setNodeKind`): a claim about control, and a pad in
+  the figure. That stays the human's call.
+- **Distinct neighbours**, for §2.12.1's reason: drawing a divided road's reversed
+  twin at a free end makes the end of a divided road, not a joint.
+- **A human's pick holds until the roads at that node change.** Set a two-neighbour
+  node back to `endpoint` and it stays one until a link is added or removed there.
+  Recorded, not a defect: the rule re-derives on an edit to the roads, never on
+  every render.
+- **Import and load are untouched.** A `network.yaml`'s kinds are Assimilator's
+  statement and a `.zkai`'s are the human's. Neither passes through these actions.
+- **No model change, no new action, no Rust, and the same undo step** as the edit
+  that caused it.
+- **The retyping helper returns its input's `nodes` array by reference when it
+  changes no kind.** An action that did not already rebuild `doc.nodes` therefore
+  still leaves it identical: `completeLink` between two fresh nodes does. The node
+  arm of `deleteSelection` always rebuilds `doc.nodes`, since it removes a node.
+
+**Which phase produces the picture:** none of a figure, since a figure carries no node
+dots (§2.11.1). This phase's output is the canvas (a through node stops drawing a
+paper bead on the road) and the saved file's own truth about its nodes. It is
+argued for on both counts, and it was asked for on the canvas's.
+
+#### 2.12.3 A node's dot shows while it is being edited (Phase 12)
+
+**The constraint the request runs into:** §2.10.1 kept a dot on every road end
+because the dot *is* the node's hit target, and road declutter §2.1 repeated that
+argument. Not drawing it removes the drag, not a mark.
+
+**Decision (recorded): the dot stays in the markup and stays the hit target, and only
+its visibility changes.** `Diagram.tsx:NodeShape` renders every dot exactly as
+today whenever there is an `interaction`, and adds an `is-shown` token to the node's
+group when the dot should be visible. `styles.css` paints the dot of a group without
+that token at `opacity: 0`, and `:hover` reveals it under the pointer.
+- **Measured on 2026-09-14 in Playwright Chromium and WebKit** (WebKit being the
+  engine behind the desktop app's WKWebView): an SVG circle at `opacity: 0` inside a
+  group carrying `onpointerdown` still receives the press, is what `elementFromPoint`
+  returns, and `:hover` turns its computed opacity to 1.
+
+A node's dot is shown when any of these holds:
+- **the node is selected**, or it is `linkFrom` (the link tool's first click). Its
+  halo already highlights both.
+- **the selected link starts or ends at it**, on the `link` arm of `Selection` only,
+  as the direction arrow is (road declutter §2.1). A selected bend or marking shows
+  none.
+- **no link touches it.** Otherwise a node just placed is invisible, which is
+  §2.10.3's broken node tool again.
+- **the link tool is active.** A link is drawn by clicking nodes, and you connect
+  what you can see. `Diagram.tsx:Interaction` gains a boolean for it, `revealNodes`, set by
+  `Canvas.tsx:Canvas` from the tool, so `Diagram` learns a fact rather than the tool
+  vocabulary.
+
+Unchanged:
+- **A junction** draws a glyph and no dot.
+- **An export** passes no `interaction`, so it carries no dot, token or rule, and
+  `is-shown` joins `export.test.ts`'s `CHROME`.
+
+**Which phase produces the picture:** the canvas only, argued as §2.11.1 argued the
+dot itself: it is where the human clicks, and a canvas with a bead on every road end
+does not look like the figure it exports.
+
 ## 3. Open questions
 
 - **OQ-1** — **Taper direction for a lane addition.** §2.4 opens the new lane
@@ -1318,6 +1550,13 @@ grow for one case.
   `diagram.css` should be chrome in `styles.css` instead, which is a smaller change
   than this OQ was drafted against. An **endpoint** dot is a different question:
   it is paper-coloured with a dark stroke and reads clearly on the asphalt.
+- **OQ-11 — should the node tool reveal every node too, as the link tool does?**
+  (added 2026-09-14 with §2.12.3.) The node tool's press on an existing node selects
+  and drags it rather than dropping a second node, so seeing every node while placing
+  one would stop a node landing on top of another by accident. (design-call; blocks
+  nothing — proposed: no. Hover reveals the node under the pointer, which is exactly
+  the one a press would take, and placing a node is not connecting one. Revisit if
+  stacked nodes turn up in practice.)
 
 ## 4. Implementation phases
 
@@ -2034,3 +2273,319 @@ picture it prevents is a ramp drawn through a motorway.*
     `align === "centre"` instead to go green — a judgement no test could hold. The
     zero-width-lane case written *because* of the correction above catches it, so all
     three mutations fail exactly one assertion each.
+
+### Phase 10 — Where two roads meet, neither paints over the other  (added 2026-09-14)
+
+Added by the fourth reopening (§2.12.1). Depends on Phases 3 and 8, the two butt-cap
+owners it generalises. It passed its own scoped review in two rounds on 2026-09-14,
+the first of which changed its design.
+
+*Produces the observable: **yes**.*
+- Every straight waypoint joint, on the canvas and in a figure, keeps its lines
+  unbroken. A bent one loses the round cap that overpainted them, keeping only the
+  inside sliver §2.12.1 names.
+- An aligned junction loses its knob.
+- Every free end draws flat, which changes the arm ends of two landing figures.
+
+- **Scope** (§2.12.1): TypeScript and CSS only, with no model change, no action and no
+  Rust.
+  - **`src/model/document.ts`**: a helper returning the set of distinct other nodes a
+    node's incident links reach, self-loops excluded (named in words here, because it
+    does not exist yet). Phase 11 reuses it.
+  - **`src/editor/geometry.ts`**:
+    - a pure function for **the joint discs**,
+      `(doc, offsets, tapered: Set<NodeId>) → { at: Vec2; r: number }[]`. It
+      implements §2.12.1's rule 2 on `geometry.ts:junctionArms`, and deduplicates
+      origins with `geometry.ts:SAME_POINT`, keeping the widest arm's radius.
+    - the `TAPER_MAX_BEND` doc comment stops citing `.road-casing--butt`, and says
+      "butt caps" instead.
+  - **`Diagram.tsx:tapers`**:
+    - returns the set of nodes where it drew a wedge, in place of `butt`;
+    - loses its gore block, since a gore node is a `junction` and gets no disc.
+  - **`Diagram.tsx:Diagram`**:
+    - emits the joint discs as `<circle class="road-joint">`, after the hatch
+      pattern and before the first road;
+    - stops passing `butt`.
+
+    **`Diagram.tsx:RoadShape`** loses its `butt` prop, and the casing's class is
+    always plain `road-casing`. No other element is added, removed, or moved in the
+    document.
+  - **`src/styles/diagram.css`**:
+    - `.road-casing` declares `stroke-linecap: butt`;
+    - the `.road-casing--butt` rule and its comment go;
+    - a `.road-joint` rule fills `var(--asphalt)`;
+    - the comment above `.road-casing` stops describing a round cap.
+
+    As ever, no `<` or `&` anywhere in the file, and no chrome token, comments
+    included.
+  - **`src/styles.css`**:
+    - `.road-hit` gains `stroke-linecap: round`;
+    - `.road-halo`'s `stroke-linecap` becomes `butt` (its join stays round);
+    - `.marking-halo`'s comment stops saying the road's halo is round "because the
+      road does".
+  - **`export.tsx:strokeAllowance`**: its doc comment stops naming a round cap and
+    names the butt end's sideways corners instead (§2.12.1). The function is
+    unchanged.
+  - **Figures**: regenerate `examples/rendered/*.svg` and `index.html` with
+    `ZUKAI_UPDATE_GOLDEN=1 bun run render-examples`. No `examples/*.zkai` is edited.
+- **Exit gate:**
+  - **Checks:**
+    - `bun run build` and `bun run test` green;
+    - `cargo test` unchanged at 74;
+    - `spec-lint` 0 errors;
+    - `bun run render-examples` passes without the opt-in after regeneration.
+  - **`geometry.test.ts`, the joint discs:**
+    - a straight centred waypoint gives discs at the node, radius `roadWidth / 2`;
+    - a node whose links reach three distinct nodes gives discs;
+    - a free end gives none;
+    - a divided road's endpoint (reversed twins only) gives none;
+    - a `junction` node gives none;
+    - a node in `tapered` gives none;
+    - a straight divided waypoint gives two, at the two carriageway offsets;
+    - coinciding origins of different widths give one disc at the wider radius.
+  - **`document.ts`'s helper:** a reversed twin pair counts its far node once, and a
+    self-loop contributes nothing.
+  - **`Diagram.test.tsx`:**
+    - **Joint discs:** a straight waypoint emits `road-joint`, and its last
+      `road-joint` precedes its first `road-casing`, each needle first asserted
+      present (this spec's §2.11.1 lesson about `indexOf`). `laneDrop()`, `exit()`
+      and a T junction emit none.
+    - **No markup anywhere carries `road-casing--butt`**, on the tapered, gored and
+      plain fixtures alike.
+  - **`export.test.ts`:** the embedded stylesheet has no `.road-casing--butt`, and the
+    `.road-casing` rule block declares `stroke-linecap: butt`. Assert on that block,
+    not the file, because `.road-edge` keeps its round cap.
+  - **Shipped tests: one of three outcomes.** No test is rewritten to pass.
+    1. **Rewritten as stated.**
+       - `Diagram.test.tsx` "butt-caps both links of a tapered joint, and only
+         those" → the tapered joint draws its wedge and no `road-joint`.
+       - `Diagram.test.tsx` "butt-caps every arm of a gore, not just the two the
+         triangle uses" → the gore node draws no `road-joint`.
+       - `Diagram.test.tsx` "leaves a joint of equal width exactly as it was" → its
+         wedge-free, casing-literal assertions stand, plus the `road-joint` it now
+         carries. Retitled, since "exactly as it was" stops being true.
+       - `export.test.ts` "carries the taper's paint in the embedded stylesheet" →
+         its `.road-casing--butt` clause inverts.
+       - `export.test.ts` "flattens a gore arm's far end too, a cap being a
+         whole-path property" → asserts
+         `<path class="road-casing" d="M 0 18 L 120 18"`, retitled to say every
+         free end is flat.
+       - `export.test.ts` "leaves room for the round end-cap of the widest road
+         allowed" → its assertions stand; its title and comment name the butt end's
+         sideways overhang rather than a round cap.
+    2. **One clause deleted, the rest standing.** The four
+       `not.toContain("road-casing--butt")` clauses, which go vacuous once no
+       modifier exists and are covered by the new "no markup anywhere" assertion:
+       - the `plain` half of the tapered-joint case above;
+       - "draws no wedge where three links meet";
+       - "never wedges between the two carriageways of a divided road";
+       - "draws no wedge at a right-angled corner, equal width or not".
+    3. **Any other failure is a finding to stop on.** Nothing moves in the
+       document, so a changed `d`, width or class string anywhere else means the
+       phase did something it must not.
+  - **The regenerated figures, as a diff.** In `examples/rendered/*.svg`, the drawing
+    markup (outside the embedded `<style>`) differs only by `road-casing--butt`
+    becoming `road-casing` on `motorway-ramp`'s three gore arms. `roundabout` and
+    `signalized-cross` differ only in the stylesheet. `index.html` follows the same
+    diff.
+  - **Mutations, each failing a clause above:**
+    - `.road-casing` left round (the stylesheet assertion);
+    - discs emitted after the roads (the disc-order case);
+    - a disc at a free end or a divided endpoint (geometry);
+    - a disc at a tapered node (the rewritten taper case);
+    - the junction exclusion dropped from the joint discs (fails "a T junction emits
+      none" and the geometry `junction` case).
+  - **Dev pass**, before and after on the same documents, rendered as §2.12.1's were:
+    - a straight waypoint; waypoints bent 30° and 90°;
+    - a T whose through road is aligned `offside`; a cross with one `offside` arm;
+    - §1's lane drop; a divided road bent at a waypoint (its median half-disc
+      unchanged, §2.12.1).
+
+    Then `bun run dev`:
+    - a press on the outside corner of a 90° waypoint's disc selects a road rather
+      than panning (`elementFromPoint` there returns a `road-hit`);
+    - a selected road's halo ends flat at a free end;
+    - selecting and dragging a road beside a joint still works.
+
+    None of these can be tested, because no test in this repo reads `styles.css`.
+- **Close-out:**
+  - **Rules:**
+    - `rules/road-joints.md`: the butt-cap section becomes the joint rule, and its
+      taper and gore bullets change with it.
+    - `rules/road-rendering.md`: the casing's cap and the discs, in "Where each piece
+      lives".
+    - `rules/diagram-export.md`: `strokeAllowance`'s round-cap reasoning.
+    - `rules/marking-kinds.md`: its "`.road-halo` takes round ones" sentence.
+    - `rules/canvas-interaction.md`: its chrome list names `.road-hit`, which gains
+      the round cap and the reason for it.
+  - **Line budgets:** `road-joints.md` 268/268, `road-rendering.md` 274/284,
+    `marking-kinds.md` 250/250 and `canvas-interaction.md` 190/190 trade prose rather
+    than grow.
+  - **Spec notes:** a dated `CORRECTED` note beside §2.4's "The round end cap has to
+    go at a tapered joint" and beside §2.11.2's rule, since both read as the current
+    mechanism.
+  - **Phases 3 and 8 are not cut:** what each produced (no bulge at a wedge, no cap
+    across a gore's edge line) still holds, now by a wider rule. A cut would record
+    that their observable left the product, and it has not (review round 1
+    adjudication).
+  - **Other:** roadmap memory, one line. One push.
+
+### Phase 11 — A node that joins two roads is a waypoint  (added 2026-09-14)
+
+Added by the fourth reopening (§2.12.2). Depends on Phase 10 for the neighbours
+helper, which does not exist until Phase 10 ships. It passed its own scoped review in
+two rounds on 2026-09-14.
+
+*Produces the observable: **the canvas, not a figure**, argued in §2.12.2. A through
+node stops painting a paper bead on the road, and the saved file stops calling it an
+end.*
+
+- **Scope** (§2.12.2): **`src/editor/state.ts` only.**
+  - A private helper takes a document and some node ids, and applies §2.12.2's rule
+    to each through the Phase 10 neighbours helper (the `document.ts` function
+    returning the set of distinct other nodes a node's incident links reach).
+    - **It reads the document after the edit**: the one with the new link added, or
+      with the link or node removed. Evaluated before the edit, the chain case and
+      both delete cases fail.
+    - **It skips any id no longer in `doc.nodes`.** That is the deleted node itself,
+      which is the far node of a self-loop the node arm drops. `completeLink` cannot
+      create a self-loop, but a loaded file can hold one.
+    - **Where it changes no kind, it returns its input's `nodes` array by
+      reference.**
+  - It is called from `state.ts:completeLink` with the new link's two nodes. In
+    `state.ts:deleteSelection` it is called from the `link` arm with the deleted
+    link's two nodes, and from the `node` arm with the far node of every dropped link.
+  - No other action, no loader, no import path. Review round 1 confirmed these are
+    the only three places a node's links change: no action re-points, splits or
+    reverses a link, and `loadDocument`/`importDocument` pass through none of them.
+- **Exit gate:**
+  - **Checks:** `bun run build` and `bun run test` green; `cargo test` unchanged at
+    74; `spec-lint` 0 errors.
+  - **`state.test.ts`:**
+    - `N1→N2` then `N2→N3`: `N2` is a `waypoint`, `N1` and `N3` stay `endpoint`.
+    - `N1→N2` then the reversed twin `N2→N1`: both stay `endpoint`.
+    - A second link at a `junction` leaves it a `junction`, with `doc.junctions`
+      identical by reference.
+    - A third link at a waypoint leaves it a waypoint.
+    - Deleting `L2` from the chain returns `N2` to `endpoint`, and so does deleting
+      node `N3`.
+    - One `undo` after the `completeLink` that retyped `N2` restores both the link
+      and the `endpoint`.
+    - A manual `setNodeKind` back to `endpoint` on `N2` survives a `moveNode`, and
+      is re-derived by a `completeLink` at `N2`.
+    - A `completeLink` between two fresh nodes leaves `doc.nodes` identical by
+      reference.
+    - A `loadDocument` whose file holds an `endpoint` joining two links keeps it
+      an `endpoint`.
+  - **Shipped tests:** anything that fails is a finding to stop on.
+    - Fixtures that set `waypoint` explicitly, such as `Diagram.test.tsx`'s
+      `chain()`, stay green: `state.ts:setNodeKind` rebuilds `doc.nodes` with the
+      same kind, which draws the same markup.
+    - Hand-built `Document` literals in `geometry.test.ts` go through no action, so
+      this rule never reaches them.
+  - **Mutations:**
+    - only the promotion built (the delete cases fail);
+    - incident links counted instead of distinct neighbours (the twin case fails);
+    - `junction` not excluded (the junction case fails).
+  - **Dev pass:** draw a three-node road; the middle node reads `waypoint` in the
+    Inspector and loses its bead. Delete one link and it reads `endpoint` again.
+    Undo restores both.
+- **Close-out:**
+  - `rules/canvas-interaction.md`: the link tool's row, and both halves of the rule —
+    what `completeLink` and `deleteSelection`'s two link-removing arms do to the kinds
+    of the nodes they touch. Trades prose at 190/190.
+  - `rules/junctions.md`: that auto-typing never reaches a junction. Trades prose at
+    215/215.
+  - **A rule over its cap is a spec-lint *warning* (`RULE_OVER_CAP`), not an error**,
+    so "0 errors" would not catch one. The close-out check is that both files report
+    `OK` at or under their caps.
+  - Roadmap memory, one line. One push.
+
+### Phase 12 — A node's dot shows while it is being edited  (added 2026-09-14)
+
+Added by the fourth reopening (§2.12.3). Depends on Phase 11 only for its dev pass,
+whose through nodes should already be waypoints. It passed its own scoped review in
+two rounds on 2026-09-14.
+
+*Produces the observable: **the canvas, not a figure**, argued in §2.12.3.*
+
+- **Scope** (§2.12.3):
+  - **`Diagram.tsx:Interaction`** gains a required boolean, `revealNodes`: every
+    node's dot is shown. **`Canvas.tsx:Canvas`** sets it to `tool === "link"`.
+  - **`Diagram.tsx:NodeShape`** takes whether its dot is shown.
+    - Its group's class becomes `node node-{type}`, then ` is-selected` when selected,
+      then ` is-shown` when shown, in that order.
+    - `is-shown` is only ever emitted when an `interaction` exists, exactly like the
+      dot.
+    - The `Diagram` node layer computes "shown" from four things: the selection (node
+      arm, or the link arm naming a link whose `from_node` or `to_node` is this node),
+      `linkFrom`, whether any link touches the node, and `revealNodes`.
+  - **Unchanged:** the dots, the halos, `onPointerDown`, and every attribute but that
+    class string.
+  - **`src/styles.css`**: the dot of a `.node` group without `is-shown` gets
+    `opacity: 0`, and `.node:hover .node-dot` restores `opacity: 1`.
+    - **The hover rule is written after the hiding rule.** The two selectors have
+      equal specificity, so source order decides, and reversed, hover reveals nothing
+      in either engine (measured in review round 1).
+    - A comment says the transparent dot is still the hit target, and why.
+  - **`export.test.ts:CHROME`** gains `is-shown`.
+  - **Forced edit, left unlisted:** because `revealNodes` is required, the one
+    `Interaction` literal outside `Canvas.tsx` gains it as `false`. That literal is
+    `Diagram.test.tsx`'s `interaction()` helper, and every spread of it inherits the
+    field.
+- **Exit gate:**
+  - **Checks:** `bun run build` and `bun run test` green; `cargo test` unchanged at
+    74; `spec-lint` 0 errors.
+  - **`Diagram.test.tsx`,** each case named with its fixture:
+    - **On a two-link chain `N1→N2→N3`:**
+      - with `selection: null`, every node's group carries a `node-dot` and none
+        carries `is-shown`;
+      - selecting `L1` shows `N1` and `N2` and not `N3`;
+      - selecting node `N3` shows `N3` alone;
+      - `selection: { kind: "bend", link: "L1", index: 0 }` shows none;
+      - `linkFrom: "N3"` with `selection: null` shows `N3` alone;
+      - `revealNodes: true` shows all three.
+    - **On two nodes and no link:** both are shown with `selection: null`.
+    - **On `sample()`'s roundabout junction `N2`:** its group markup is identical with
+      `revealNodes` true and false, and carries no `is-shown`.
+  - **`export.test.ts`:** the existing chrome assertions pass with `is-shown` in
+    `CHROME`. Their vacuity check is the `revealNodes: true` case above, which carries
+    the token on the canvas.
+  - **Shipped tests, edited as stated:**
+    - "emits a centred undivided node exactly as it did before the dots moved" and
+      "marks a divided road's endpoint on both carriageways, from one group" change
+      to render with `{ ...interaction(), selection: null }`.
+    - Both fail as they stand, and the reason is the fixture, not the claim: the
+      helper selects `L1`, which is `N1→N2` in both `chain()` and `twoWay()`, so both
+      nodes would carry `is-shown`.
+    - With no selection, every literal in them stands unchanged (measured in review
+      round 1: exactly these two fail, 564 of 566 pass).
+    - Anything else that fails is a finding.
+  - **Mutations:**
+    - shown whenever an `interaction` exists (fails the `selection: null` case);
+    - the bend arm counted as the link arm (fails the bend case);
+    - the no-link fallback dropped (fails the unconnected case);
+    - the `linkFrom` clause dropped (fails the `linkFrom` case).
+  - **The stylesheet is gated by the dev pass**, because no test in this repo reads
+    `styles.css`, and this phase does not start one: `specs/road_declutter_spec.md`
+    Phase 1 made the same call for the arrow's rule.
+    - `bun run dev`: no bead at rest on `examples/motorway-ramp.zkai`;
+    - hovering a road end reveals its dot;
+    - pressing a road end whose dot is hidden drags its node;
+    - selecting a link shows exactly its two ends;
+    - the link tool shows every node, and a link can be drawn between two of them.
+
+    Repeat the press-and-drag in the desktop window, or in Playwright WebKit if the
+    window cannot be driven, because the measurement in §2.12.3 is the claim this
+    rests on.
+- **Close-out:**
+  - **Rules:**
+    - `rules/road-joints.md`: the dots section, where a dot is drawn on the canvas but
+      shown only while being edited.
+    - `rules/canvas-interaction.md`: the chrome list gains `is-shown`, and the hover
+      rule.
+    - `rules/diagram-export.md`: its quote of `CHROME`, in place.
+  - **Line budgets:** `canvas-interaction.md` 190/190 and `road-joints.md` trade
+    prose; `diagram-export.md` changes a quote in place.
+  - **Other:** OQ-11 stays open unless the dev pass says otherwise. Roadmap memory,
+    one line. One push.
