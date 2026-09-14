@@ -6,7 +6,7 @@
   what the pointer and the keyboard do on the drawing surface: the five tools and what each claims, the five Selection arms and the one with no id, the four drags and the one threshold, how a click becomes a document coordinate, the grid it lands on, and the chrome that exists only here
 - **[deploy](deploy.md)** — generated 2026-08-23 · 10 sources · 246/250 lines
   how one Vite build serves two hosts — the two entries and which is which, where the deploy's `base` lives and why never in the config, the one line in `tauri.conf.json` that keeps the desktop window on the editor and the two neighbouring edits that break it, the favicon that has to exist, where the landing page's figures come from and what keeps them honest, the workflow that makes a push to `main` the deploy, and the second one that turns a `v*` tag into a published desktop release
-- **[diagram-export](diagram-export.md)** — generated 2026-08-22 · 16 sources · 304/305 lines
+- **[diagram-export](diagram-export.md)** — generated 2026-08-22 · 16 sources · 301/305 lines
   the SVG/PNG export path: the one render tree and its two consumers, which paint travels inside the file, the pure/DOM/host layers, how bounds and the margin are derived, the self-contained-file constraints that fail silently, and the fourth consumer that reaches this path through a browser
 - **[document-model](document-model.md)** — generated 2026-08-09 · 8 sources · 144/144 lines
   the three parts of a Document and what separates them, the invariants, the Rust-TypeScript mirror discipline and its one instructive exception, what does and does not move SCHEMA_VERSION, and the version a save declares
@@ -26,7 +26,7 @@
   what is drawn where links meet a node: the arms and the two radii, the rim three things measure to, the pad that follows the arms inside it, taper wedges at a through joint, the gore between two separating arms — its triangle, its chevrons, and the one derivation that faces them at the driver — the butt cap its two owners share, and the dots that mark a node once per drawn road end, on the canvas only
 - **[road-markings](road-markings.md)** — generated 2026-08-09 · 9 sources · 280/280 lines
   the marking as an object a human owns: the anchor and the one metre/unit boundary, the rim an end anchor measures to, placement from the click, the importer as second author, dragging, the kind-aware controls, what removes a marking, and the third Selection arm
-- **[road-rendering](road-rendering.md)** — generated 2026-08-14 · 11 sources · 284/284 lines
-  how a link becomes a picture of a road: the one lane-width derivation everything descends from, class as a token, two-way carriageways, alignment, the route a road turns through, lane kinds and the hatch, the painted centreline, the kerb edge line a bus bay cuts, and the length a link states
+- **[road-rendering](road-rendering.md)** — generated 2026-08-14 · 11 sources · 274/284 lines
+  how a link becomes a picture of a road: the one lane-width derivation everything descends from and the road class it no longer carries, two-way carriageways, alignment, the route a road turns through, lane kinds and the hatch, the painted centreline, the kerb edge line a bus bay cuts, and the length a link states
 - **[signs](signs.md)** — generated 2026-08-09 · 11 sources · 229/250 lines
   the objects a human stands beside the road: why a sign is node-shaped rather than marking-shaped, the four actions, what removes one, the topmost sign layer and what a sign is drawn from, the shape-then-colour vocabulary, and the panel

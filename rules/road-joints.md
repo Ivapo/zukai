@@ -191,9 +191,9 @@ addition and either alignment fall out of that alone. Four things it pins:
   `(roadWidth/2)·tan(θ/2)` — 1.36 units at 8°, against the 1.33 they remove; 15°
   inverts the trade at ≈2.6.
 
-The wedge is a `<polygon class="road-taper">` in `<g class="taper road-{style}">`,
-taking the **inset** link's class token, so `.road-local .road-taper` and the
-class-scoped `.road-edge` width apply with no rule of their own. Only a joint
+The wedge is a `<polygon class="road-taper">` in a bare `<g class="taper">`. It
+carries no class token because there is no road class (`rules/road-rendering.md`):
+every road paints the one `--asphalt`, so a wedge cannot differ from its road. Only a joint
 drawing one is touched, so a document with no width step emits byte-identical
 markup. **A divided road's lane drop does not taper** — four links on the node is
 not a through joint, a named non-goal.

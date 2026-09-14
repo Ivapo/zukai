@@ -28,7 +28,7 @@ Terse by design — read the rustdoc in `src-tauri/src/model/` for field detail.
 | Part | Types | Leaves for Assimilator? |
 |------|-------|------------------------|
 | **Semantic graph** | `graph.rs` — `Node`, `Link`, `Lane`, `Junction` | shaped like the `network.yaml` subset; **nothing writes that format** |
-| **Layout** (presentation) | `layout.rs` — `Layout`, `Vec2`, `NodeView`, `LinkView`, `JunctionView`, `JunctionGlyph`, `LinkStyle`, `LinkAlign` | ❌ |
+| **Layout** (presentation) | `layout.rs` — `Layout`, `Vec2`, `NodeView`, `LinkView`, `JunctionView`, `JunctionGlyph`, `LinkAlign` | ❌ |
 | **Decorations** (Zukai-native) | `decoration.rs` — `Marking`, `MarkingKind`, `StopForm`, `LinkEnd`, `Sign`, `SignKind` | ❌ Assimilator has no equivalent |
 
 Every collection is defaulted and elided when empty — except `layout`, defaulted but **not** elided, so a new
@@ -103,10 +103,10 @@ re-saved declaring the old version, passed an older build's probe and failed
 inside serde. Not in `decode` (the load pins) nor a serde attribute (the struct
 crosses IPC and wasm as JSON on load). A merely re-saved file is refused, readably.
 
-**A *removed* field costs no bump either** — the reading-direction mirror of a new
-one. `a_zkai_saved_with_movements_still_loads_and_writes_none` asserts both
-halves: serde ignores the stale `movements:` key on the way in, and it is gone on
-the way back out. `JunctionView.rotation` left the same way. **A removed
+**A *removed* field costs no bump either** — the mirror of a new one. Serde ignores
+a stale key on the way in and it is gone on the way out, both halves asserted for
+`movements:` and `style:` (`a_zkai_saved_with_{movements,a_road_class}_still_loads_and_writes_none`);
+`JunctionView.rotation` left the same way. **A removed
 *variant* is the expensive one, and it wants an arm rather than a bump**: an older
 file breaks a *newer* build, which no version guards, since it declares an
 older-or-equal version and so passes the probe. `JunctionGlyph::TJunction` stays

@@ -8,7 +8,7 @@
   Linear undo/redo for document edits — snapshot history in the reducer, with drag coalescing, wired to keyboard, toolbar, and the native Edit menu.
 - **[diagram-export](diagram_export_spec.md)** — `zk-003` · accepted · done
   Export the schematic as a standalone SVG (and PNG) — the picture leaves the app, chrome-free, at its own scale.
-- **[road-rendering](road_rendering_spec.md)** — `zk-004` · accepted · done
+- **[road-rendering](road_rendering_spec.md)** — `zk-004` · accepted · partial
   Make the drawn road honour the road model — class, lane widths, lane kinds, and two-way carriageways that don't sit on top of each other.
 - **[ramps-and-tapers](ramps_and_tapers_spec.md)** — `zk-005` · accepted · done
   Draw the transitions between roads — lane-count tapers, ramp gores, and junction interiors that follow a divided road's carriageways.
@@ -34,5 +34,5 @@
   Publish Zukai on the web — the editor running in a browser tab with no Rust toolchain, and a landing page made of the diagrams it draws.
 - **[bus-stops](bus_stops_spec.md)** — `zk-016` · accepted · done
   Draw a bus stop where buses stop — a box lettered BUS in the kerb lane, or pulled into a bay that widens the road beside it — as a marking kind rather than a new object, after the edge line learns to stop for a bay.
-- **[road-declutter](road_declutter_spec.md)** — `zk-017` · accepted · partial
+- **[road-declutter](road_declutter_spec.md)** — `zk-017` · accepted · done
   Take off the road what a figure's reader never asked for — the direction arrowhead halfway along every link becomes an editing mark on the selected one, and the four road classes, two of which draw identically, go.

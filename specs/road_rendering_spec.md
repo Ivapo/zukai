@@ -16,8 +16,8 @@ phases:
   - name: "Phase 2 — Road class paints"
     reviewed: 2026-07-25
     shipped: 2026-07-25
-    cut: null
-    by: null
+    cut: 2026-09-14
+    by: zk-017
   - name: "Phase 3 — Two-way carriageways"
     reviewed: 2026-07-25
     shipped: 2026-07-25

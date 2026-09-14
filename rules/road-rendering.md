@@ -14,9 +14,10 @@ sources:
   - src-tauri/src/model/layout.rs
 covers: >
   how a link becomes a picture of a road: the one lane-width derivation
-  everything descends from, class as a token, two-way carriageways, alignment,
-  the route a road turns through, lane kinds and the hatch, the painted
-  centreline, the kerb edge line a bus bay cuts, and the length a link states
+  everything descends from and the road class it no longer carries, two-way
+  carriageways, alignment, the route a road turns through, lane kinds and the
+  hatch, the painted centreline, the kerb edge line a bus bay cuts, and the
+  length a link states
 max_lines: 284
 generated: 2026-08-14
 ---
@@ -36,7 +37,7 @@ there is who chose it, everything here being derived from the model.
 
 **The model already describes the road; the renderer's job is to stop ignoring it.**
 Almost every quantity below comes from a field the document already carried —
-`Lane.width`, `Lane.kind`, `Link.median_gap`, `LinkView.style`. When something looks
+`Lane.width`, `Lane.kind`, `Link.median_gap`. When something looks
 wrong, the first question is which field is not being read, not which constant to
 tune. `LinkView.align` is the one thing genuinely added *to draw the road*: nothing in
 the model distinguishes "4 lanes becomes 3 by losing the nearside lane" from "…the
@@ -52,12 +53,12 @@ drives nothing about the road's geometry at all (its own section is below).
 
 ```
 UNITS_PER_METRE = LANE_PX / DEFAULT_LANE_WIDTH        // 9 / 3.5
-laneWidths      = lanes.map(l => l.width * UNITS_PER_METRE * classWidthFactor(style))
+laneWidths      = lanes.map(l => l.width * UNITS_PER_METRE)
 roadWidth       = sum(laneWidths) + ROAD_MARGIN
 laneBands       = each lane's { offset, width }, world units, lane 0 first
 ```
 
-Four things are load-bearing and each has a test that fails if "simplified":
+Three things are load-bearing, and the first two have a test that fails if "simplified":
 
 - **Convert per lane, then sum — never sum metres first.** `9/3.5` has no exact
   binary form, so `sum(width) * UNITS_PER_METRE` lands on `30.000000000000004` at
@@ -66,29 +67,19 @@ Four things are load-bearing and each has a test that fails if "simplified":
   `export.test.ts`'s `toBe(15)`.
 - **The one-lane floor is on the lane *count*, not the output width.** An empty
   `lanes` array is one default lane. A `Math.max(MIN_ROAD_WIDTH, …)` clamp on the
-  result looks identical until a class narrows its lanes, then rounds a 1-lane ramp
-  (10.2) back up to a 1-lane arterial's 12 and cancels the class distinction.
-- **`classWidthFactor` enters at the per-lane widths and nowhere else.** Scaling the
-  finished `roadWidth` narrows the casing while the band-derived dividers stay at
-  full pitch and spill outside it. The bands, the dividers, `edgeInset`, the hit path,
-  the halo, the arrowhead, `junctionArms` and `strokeAllowance` all inherit that.
-- **`ROAD_MARGIN` is the casing lip, not a lane, so it is not scaled**: `roadWidth`
-  is *not* proportional to the factor, the two differing by
-  `ROAD_MARGIN * (1 - factor)`. Width identities across classes are exact per lane
-  band, approximate in aggregate; assert per band.
+  result looks identical until a lane is narrower than the default (an imported
+  2.8 m lane draws 7.2), then rounds it back up and width stops counting lanes.
+- **Nothing scales a lane: there is no road class.** Road width is how a reader
+  counts lanes, and a ×0.8 class drew a 5-lane ramp as wide as a 4-lane arterial, so
+  `LinkView.style` went whole (`specs/road_declutter_spec.md`). The bands, dividers,
+  `edgeInset`, hit path, halo, arrowhead, `junctionArms` and `strokeAllowance` all
+  derive from these widths alone, and every road paints the one `--asphalt`.
+
 **Lane 0 is the nearside (kerb) lane**, so it comes back with the most positive
 offset — the side a positive `offsetPolyline` distance draws on under right-hand
 traffic. Everything keyed on `Lane.kind` depends on it: a `shoulder` at index 0 must
 render as an outside hard shoulder, not one hiding in the median. The Inspector notes
 `nearside` on that first row, the only place the UI says so.
-
-## Road class paints as a class token
-
-`RoadShape` emits `<g class="road road-{style}">` and `diagram.css` carries the
-colour and line treatment, so a class-driven style reaches an exported file **with no
-exporter change at all** (`rules/diagram-export.md`); an inline colour would have
-made the export path learn about road classes. The width factor is the exception, and
-not a preference: CSS can *replace* a computed `strokeWidth`, not *scale* one.
 
 ## Two-way roads: two links, stepped off the shared centreline
 
@@ -194,11 +185,11 @@ widths meet at a node sharing that edge, which is what a lane drop looks like.
 A band is a path stroked at the lane's own width along `offsetPolyline(points,
 band.offset)`, between the casing and the painted lines so it reads as surface, not
 marking; emitting nothing for a plain lane keeps a document that never set a kind
-rendering exactly as before. *What* a line means is the boundary's business, not the
-class's: a dashed divider says "lanes, same direction, cross freely", which a
-hard-shoulder boundary does not. **This is the whole of what makes a motorway read
-differently from an arterial** — the two classes paint alike, so a motorway with no
-shoulder lane draws like an arterial, by design. Both derived rows can be
+rendering exactly as before. *What* a line means is the boundary's business: a
+dashed divider says "lanes, same direction, cross freely", which a hard-shoulder
+boundary does not. **A `shoulder` lane is the whole of what makes a road read as a
+motorway** — there is no class — so a motorway with no shoulder lane draws like any
+other road, by design. Both derived rows can be
 overridden: a `lane_line` marking replaces whatever this table put there (below).
 
 ### The hatch is the one piece of paint that cannot be a CSS rule
@@ -284,7 +275,7 @@ is a third `<text>`, hence a third arm of `needsText` — `rules/diagram-export.
 ## Where each piece lives
 
 `geometry.ts` owns everything pure — `laneBands`/`laneWidths`, `roadWidth`,
-`classWidthFactor`, `carriageways`, `alignmentShift`/`alignmentReading`,
+`carriageways`, `alignmentShift`/`alignmentReading`,
 `drawnPolyline`/`lateralShift`, `offsetPolyline`/`segmentNormals` and the constants
 (`LANE_PX`, `ROAD_MARGIN`, `UNITS_PER_METRE`, `MIN_ROAD_WIDTH`, `DRIVE_SIDE`,
 `SCHEMATIC_MEDIAN`, `MITER_LIMIT`, `LABEL_GAP`) plus `lengthLabel`/`formatLength` and
@@ -299,8 +290,8 @@ arrow's fill too) and `user-select: none` are `styles.css`; the six link actions
 This rule has **two** model additions, in different layers for different reasons:
 `LinkView.align` in `layout.rs` (presentation) and `Link.length` in `graph.rs`
 (semantic), both mirrored in `types.ts`, the first read through
-`linkAlign`/`linkStyle`. Neither needed a version bump — a field is free, a
-variant is not, which is why the `gore` glyph next door did. The one
+`linkAlign`. Neither needed a version bump — a field is free, a variant is not,
+which is why the `gore` glyph next door did; nor did removing `LinkView.style`. The one
 cross-subsystem obligation is `strokeAllowance` (`export.tsx`), which must keep
-measuring roads at their own lane widths **and their own class** or wide roads
+measuring roads at their own lane widths or wide roads
 clip in exports; `export.test.ts` pins a 3-lane road's at `15`.

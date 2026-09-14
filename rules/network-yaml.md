@@ -209,10 +209,10 @@ Nothing migrates a `.zkai` saved from an earlier import.
   so an unseeded import renders a **blank page**. Asserted by
   `the_semantic_graph_carries_no_coordinates`, whose needles are the *key* forms
   with trailing colons — a bare `point` matches the word `endpoint`.
-- **`layout.links`/`layout.junctions` are seeded with defaults, never derived**
-  (`Arterial`, the `generic` glyph). A road class inferred from a speed limit is a
-  guess dressed as a fact, and the human is about to redraw it. `layout.junctions`
-  keys off **node kind**, the pairing `setNodeKind` maintains.
+- **`layout.junctions` is seeded with the `generic` glyph, never derived**, and
+  `layout.links` is left empty — a centred straight road is what no view draws, and
+  there is no road class to infer from a speed limit. `layout.junctions` keys off
+  **node kind**, the pairing `setNodeKind` maintains.
 - **Dropped with a stated cost:** node `z` (a `z_enabled: true` file comes back
   flat), the three lane-change flags (a file prohibiting a lane change comes back
   permitting it), `to_lanes`/`lane_mapping`/`priority`/`yields_to`, `turn_speed`

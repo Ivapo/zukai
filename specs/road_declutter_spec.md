@@ -16,13 +16,12 @@ phases:
     by: null
   - name: "Phase 2 — Road class goes"
     reviewed: 2026-09-14
-    shipped: null
+    shipped: 2026-09-14
     cut: null
     by: null
 
 extends: null
-supersedes: null     # becomes [{id: zk-004, phases: ["Phase 2 — Road class paints"]}]
-                     # at Phase 2's close-out, in the same commit that cuts it there
+supersedes: [{id: zk-004, phases: ["Phase 2 — Road class paints"]}]
 superseded_by: null
 related: [zk-003, zk-005, zk-015, zk-016]
 reference: null

@@ -131,7 +131,7 @@ half-stroke:
 
 ```
 margin = EXPORT_PAD (24) + strokeAllowance(doc)
-strokeAllowance = max(2, …roadWidth(link.lanes, linkStyle(doc, link.id)) / 2)
+strokeAllowance = max(2, …roadWidth(link.lanes) / 2)
 ```
 
 The road casing is drawn at `roadWidth` with a round linecap, so it overhangs each
@@ -139,11 +139,8 @@ polyline end by half that — **37.5 units at 8 default lanes**, which is why a 
 24 clipped the end-cap off every road of **6** default lanes or more; 5 overhangs
 exactly 24 and lands flush. `roadWidth` sums each `Lane.width` rather than
 multiplying a lane count, so the allowance follows a document whose lanes are
-wider than the default. **Each road is measured at its own class**, because
-`classWidthFactor` is part of the drawn width
-(`rules/road-rendering.md`): every factor is ≤ 1 today, so a miss would only
-over-pad, but a class that ever drew *wider* would reintroduce exactly the
-clipping this function exists to prevent. `.jn-ring` is the one stroke not
+wider than the default, and nothing else scales a road's width — there is no road
+class (`rules/road-rendering.md`). `.jn-ring` is the one stroke not
 modelled and needs none — it is centred so its outer edge lands on the coincident
 `.jn-edge` circle, pure geometry `getBBox` already has.
 
