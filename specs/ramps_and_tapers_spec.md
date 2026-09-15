@@ -2,7 +2,7 @@
 id: zk-005
 title: ramps-and-tapers
 status: accepted
-last_updated: 2026-09-14
+last_updated: 2026-09-15
 note: >
   Draw the transitions between roads — lane-count tapers, ramp gores, and
   junction interiors that follow a divided road's carriageways. Per-link
@@ -78,6 +78,11 @@ phases:
   - name: "Phase 14 — The joint says which side the lanes change on"
     reviewed: 2026-09-14
     shipped: 2026-09-14
+    cut: null
+    by: null
+  - name: "Phase 15 — A node draws one dot, a junction included"
+    reviewed: 2026-09-15
+    shipped: null
     cut: null
     by: null
 
@@ -1742,6 +1747,126 @@ would leave the drawing with no way to state a side for a phase.
 class's removal precedent: a view that carried only `align` saves as `L1: {}`. Whether
 to fold aligned pairs into a node's side on load was **OQ-12**, resolved: no.
 
+### 2.14 A node is one dot, wherever its roads are drawn (added 2026-09-15, sixth reopening — Phase 15)
+
+This section is the sixth reopening
+(`/Users/ivapo/.claude/skills/spec-driven-dev/spec-authoring.md` §6.1), and like the
+three before it, it starts from a picture. The repo owner drew a road that splits into a Y
+at a waypoint, downstream of a lane change, and got **two circles on one node**. They also
+asked why a junction shows **no circle at all**. What they asked for: one circle per node,
+a junction included, shown when a link that ends there is selected, or on hover.
+
+**The two circles, reproduced on 2026-09-15** through `Diagram`, with default lanes:
+- **The fixture:**
+  - `N1(0,0) → N2(120,0)` is a 1-lane `L1`, and `N2 → N3(240,0)` is a 2-lane `L2`.
+  - `N2` states `nearside`, so the walk (§2.13.3) puts `L2` at `d = 0 − 4.5 + 9 = +4.5`.
+    Its casing is drawn `M 120 4.5 L 240 4.5`.
+  - `N3` splits into two 1-lane branches, to `N4(360,−84)` (35° off) and `N5(360,120)`
+    (45° off).
+- **Why two:** both branches turn by more than `TAPER_MAX_BEND`, so `throughPairs` pairs
+  nothing at `N3` (§2.13.2). `nodeDots` (in `geometry.ts`) therefore draws each arm at its own
+  origin: `L2`'s at `(240, 4.5)`, and both branch heads at `(240, 0)`.
+- **The markup:** `N3`'s group carries `<circle class="node-dot" r="4" cy="4.5">` and a
+  second `node-dot` with no `cy`.
+
+§2.13.3 named the cause as a consequence ("a road can end up beside its own nodes"), and
+§2.13.4 settled only the through pair. This is the other case: a road beside its nodes that
+meets no continuation.
+
+**The junction:** `Diagram.tsx:Diagram`'s node layer returns `JunctionGlyphShape` for a
+`junction` node and never `NodeShape`, so a junction has no dot. §2.12.3 kept that
+deliberately ("A junction draws a glyph and no dot"). `NodeShape`'s junction radius of `9`
+and `styles.css`'s `.node-junction .node-dot` rule are both unreachable today.
+
+#### 2.14.1 One dot per node, at the node (decision, recorded)
+
+**Decision (recorded): `NodeShape` draws exactly one dot, at its group's origin, which is
+`nodePos`. `nodeDots` (in `geometry.ts`) is removed.** The dot and the halo carry no `cx` or `cy`
+at all, so a centred undivided node's markup is unchanged, character for character.
+
+**§2.10's reason for moving the dot onto the road is gone.** OQ-4 answered "a dot per
+carriageway" because a dot in a divided road's median read, *in a figure*, as an object in
+the median (§2.10). Since then two phases have removed that reader:
+- **Phase 7** made the dot chrome, so no figure carries one (§2.11.1);
+- **Phase 12** hid it on the canvas unless its node is being edited (§2.12.3).
+
+What is left is an editing mark and a hit target. Both belong where the node *is*:
+- it is the point the human placed on the grid;
+- it is what a drag moves, since `Canvas.tsx:onNodePointerDown` takes its grab offset from
+  `nodePos`;
+- it is where the link tool's preview line starts (`Diagram.tsx:Diagram`'s `fromPos`).
+
+A mark on each road end said "this node" once per road. That is the two circles the report
+calls two nodes, which is §2.13's own complaint again in a case §2.13.4 did not reach.
+
+**Consequences, named rather than discovered:**
+- **A divided road's end has its dot in the median**, on paper between the two carriageway
+  ends. It shows only while being edited, as every dot does.
+- **Under the select tool, pressing a carriageway's end selects the road, not the node.**
+  The node's dot is no longer drawn there. To drag the node, press the median, where
+  hovering reveals the dot. Under the link and node tools, the same press is a press on
+  the background: it cancels a link being drawn, or places a node.
+- **A road the walk has moved beside its nodes** has its node's dot half a lane off that
+  road.
+- **What stays:**
+  - `throughPairs`, because the walk stands on it (§2.13.3);
+  - `jointDiscs`, and with it `SAME_POINT`, which merges the discs' arm origins;
+  - `junctionArms`, which `jointDiscs` still asks about waypoints and endpoints.
+
+#### 2.14.2 A junction draws the dot too (decision, recorded)
+
+**Decision (recorded): a `junction` node draws `NodeShape` as well as its glyph**, as a
+sibling group emitted **immediately after** the glyph's, and **only when an `interaction`
+exists**.
+- **Shown by the same predicate as every node** (§2.12.3): the node is selected or is
+  `linkFrom`, the selected link starts or ends at it, no link touches it, or
+  `revealNodes`.
+- **Canvas only, unlike every other node's group.** `NodeShape` emits its empty `<g>` into
+  an export today (§2.11.1 left it). Emitting one per junction would change the bytes of
+  every exported junction figure, the landing page's three golden SVGs included (each
+  example has a junction), for no pixel. So the junction's group is gated whole.
+- **Radius 4, the waypoint's, not the `9` in `NodeShape`.** That value comes from before
+  any glyph was drawn, and it has never rendered beside a pad.
+  - A `generic` junction of 1-lane roads has a pad radius of `0.62 × 12 + 3 = 10.44`
+    (`geometry.ts:padRadius`). A 9-unit dot would cover most of it.
+  - The dot sits on asphalt, as a waypoint's does. `.node-junction .node-dot` already
+    paints exactly what `.node-waypoint .node-dot` does: an asphalt fill with a white
+    stroke.
+- **No `node-halo`.** `JunctionGlyphShape` already draws `jn-halo` around a selected or
+  `linkFrom` junction. A second yellow ring at its centre would mark the same state twice.
+- **Hovering the glyph reveals the dot**, not only hovering the dot itself.
+  - The rule is `.junction:hover + .node .node-dot { opacity: 1 }`. It holds because the
+    dot's group is the glyph group's next sibling by construction.
+  - The pointer over the pad is the junction being pointed at. The pad is already its hit
+    target, and pressing the pad or the dot calls the same `onNodePointerDown`.
+  - **Measured on 2026-09-15** in Playwright WebKit and Chromium, on a static page with
+    `styles.css`'s three dot rules plus this one:
+    - at rest, both dots are at opacity `0`;
+    - hovering the pad shows the junction's dot and leaves a waypoint's hidden;
+    - hovering the dot shows it;
+    - a press on the hidden dot reaches the dot's group, and a press on the pad reaches
+      the glyph's.
+
+#### 2.14.3 Per-road dots go (decision, recorded — Phase 15)
+
+What goes:
+- `nodeDots`, in `geometry.ts`;
+- `NodeShape`'s `dots` prop, and its per-dot halo and dot maps;
+- §2.10.2's rule (one dot per drawn road end) and §2.13.4's (one per through pair).
+
+That removes two shipped phases' observables:
+- Phase 6's dot on the road;
+- Phase 13's one dot per road through a joint.
+
+**Phase 6 and Phase 13 take `cut` and `by: zk-005` when Phase 15 ships**, with a closing
+note under §0. Phase 13's `throughPairs` stays built: Phase 14's walk depends on it, and the
+§0 note says so.
+
+**This departs from §6.1 step 1 the way §2.13.5 did, for the same reason.** The removal
+rides inside the phase that replaces it. A removal phase standing alone would leave a Y
+downstream of a lane change drawn as two nodes for a phase. The cut dates, the note and
+the `CORRECTED` notes still record what went and why.
+
 ## 3. Open questions
 
 - **OQ-1** — **Taper direction for a lane addition.** §2.4 opens the new lane
@@ -3299,3 +3424,170 @@ rewritten twice.
       `LinkView.align` among the one-representation examples. Re-point each to
       `NodeView.lane_change`.
   - **Other:** `CLAUDE.md` none needed. Roadmap memory, one line. One push.
+
+### Phase 15 — A node draws one dot, a junction included  (added 2026-09-15)
+
+Added by the sixth reopening (§2.14). Depends on no unshipped phase.
+
+*Produces the observable: **the canvas, not a figure**.* A figure carries no dots
+(§2.11.1). The report is a canvas report: one node drawn as two circles, and a junction
+that shows none. The gate below pins every exported figure byte-identical.
+
+- **Scope, `geometry.ts`:**
+  - `nodeDots` is removed.
+  - **Comments that cite it are corrected in place**, and that is the only edit to their
+    code:
+    - `junctionArms` ("so `nodeDots` asks it about an endpoint and a waypoint too")
+      re-points to `jointDiscs`;
+    - `SAME_POINT` ("or the dots taken from them", and the sentence on the lane-drop
+      step) keeps only the arm origins `jointDiscs` merges;
+    - `throughPairs` ("and one dot marks both") drops the clause;
+    - `jointDiscs` ("not one per through pair, as `nodeDots` counts") keeps its own
+      rule without the contrast.
+  - **Nothing else:** `throughPairs`, `lateralShifts`, `jointDiscs`, `junctionArms` and
+    `SAME_POINT` keep their behaviour.
+- **Scope, `Diagram.tsx`:**
+  - **`NodeShape`** loses its `dots` prop, and draws:
+    - one `node-halo`, when highlighted **and** the node is not a `junction`;
+    - one `node-dot`, when an `interaction` exists;
+    - neither with a `cx` or `cy`.
+
+    Its radius is `4` for a `junction` and a `waypoint`, and `6` for an `endpoint`. The
+    group's class string, `transform` and `onPointerDown` are unchanged. Its doc comment
+    is rewritten to §2.14.1, including the paragraph on halos coming first as a block.
+  - **The `Diagram` node layer:**
+    - computes `shown` once, before it branches on node type;
+    - for a `junction`, returns a keyed `Fragment`: `JunctionGlyphShape`, then, only when
+      `interaction` exists, `NodeShape` with the same `shown`, in that order;
+    - drops the `nodeDots` import.
+- **Scope, `src/styles.css`:**
+  - Add `.junction:hover + .node .node-dot { opacity: 1; }`, after `.node:hover .node-dot`.
+  - Its comment says the dot group is the glyph group's next sibling by construction, and
+    that `Diagram.tsx` must keep it so.
+  - The existing `.node-junction .node-dot` rule becomes live, and is unchanged.
+- **Nothing else:** `Canvas.tsx`, `state.ts`, the model and Rust are untouched.
+- **Scope, shipped TypeScript tests:**
+  - **`geometry.test.ts`:**
+    - the whole `node dots` describe block is deleted: all 9 cases, its `lay`, `road`,
+      `dots`, `key` and `permutations` helpers, its `ORIGIN` constant, and its doc comment. Every case asserts
+      `nodeDots`, and a single point at `nodePos` has no geometry to test.
+    - The `nodeDots` import goes.
+    - The `joint discs` block's comment "**Here rather than on `nodeDots`**" is corrected
+      in place.
+  - **`Diagram.test.tsx`, `node dots` block:**
+    - "emits a centred undivided node exactly as it did before the dots moved" stands,
+      literals unchanged. Its doc comment is corrected in place: it cites §2.10.2's
+      collapse, and says a moved dot is asserted in `geometry.test.ts`, whose block this
+      phase deletes.
+    - "marks a divided road's endpoint on both carriageways, from one group" is
+      **rewritten, not deleted**, to "marks a divided road's endpoint once, at the node":
+      - with `selection: null`, `N1`'s group is exactly
+        `<g class="node node-endpoint" transform="translate(0 0)"><circle class="node-dot" r="6" vector-effect="non-scaling-stroke"></circle></g>`;
+      - the casing `M 0 13.5 L 120 13.5` is still present, so the road really is off the
+        node.
+    - The block's doc comment is rewritten to §2.14.1.
+  - **`Diagram.test.tsx`, "leaves a junction's glyph alone"** is **rewritten, not
+    deleted**, as the junction cases below.
+  - **`Diagram.test.tsx`, the "a node's dot shows while it is being edited" block's doc
+    comment** says a dot is "drawn on every road end". It is corrected in place to one dot
+    per node.
+  - **Anything else that fails is a finding to stop on.**
+- **Exit gate:**
+  - **Checks:** `bun run build` and `bun run test` green; `cargo test` unchanged at 74;
+    `spec-lint` 0 errors.
+  - **`Diagram.test.tsx`, the report's Y:**
+    - The fixture, built with actions:
+      - `N1(0,0)`, `N2(120,0)`, `N3(240,0)`, `N4(360,−84)` and `N5(360,120)`;
+      - `L1 = N1→N2` with 1 lane, `L2 = N2→N3` with 2, and `L3 = N3→N4` and
+        `L4 = N3→N5` with 1 each;
+      - `N2` states `nearside`.
+    - With `selection: null`:
+      - the markup contains `M 120 4.5 L 240 4.5`;
+      - `N3`'s group is exactly
+        `<g class="node node-waypoint" transform="translate(240 0)"><circle class="node-dot" r="4" vector-effect="non-scaling-stroke"></circle></g>`.
+    - Before this phase the same group carried a second circle with `cy="4.5"` (§2.14).
+  - **`Diagram.test.tsx`, the junction.** On `sample()` with one more action,
+    `addNode` at `(240,0)`, so the junction `N2` is not the last node. Its roundabout `N2`
+    is at `(120,40)`, and `L1 = N1→N2` enters it. `N3` is an unconnected endpoint drawn
+    after it.
+    - with `selection: null`, the markup contains exactly
+      `<g class="node node-junction" transform="translate(120 40)"><circle class="node-dot" r="4" vector-effect="non-scaling-stroke"></circle></g>`,
+      and that group carries no `is-shown`;
+    - selecting `L1` makes the group's class `node node-junction is-shown`, and so does
+      `revealNodes: true` with `selection: null`;
+    - selecting node `N2` makes it `node node-junction is-selected is-shown`, with no
+      `node-halo` anywhere in the markup and a `jn-halo` present;
+    - **the dot group starts exactly where the glyph group ends,** rendered with
+      `selection: null`:
+      - The glyph group runs from `<g class="junction"` through the first `</g>` after it.
+        The roundabout glyph nests no `<g>` (measured 2026-09-15: five circles).
+      - That `</g>`'s index + 4 equals the index of
+        `<g class="node node-junction" transform="translate(120 40)">`.
+      - This fails both if the dot group is emitted before the glyph and if junction dots
+        are drawn in a later layer, since `N3`'s group would then come between them.
+    - the glyph group, bounded the same way, is identical with `revealNodes` true and
+      false (`selection: null`), and contains no `is-shown`.
+  - **`export.test.ts`:** `diagramInner(gored())` contains no `node-junction`, while
+    `gored()`'s `N2` is a `junction`, and it still matches no `CHROME`.
+  - **Figures:** `bun run render-examples` passes with the landing figures
+    byte-identical.
+  - **Mutations:**
+    - the junction's `NodeShape` emitted without an `interaction` (the `export.test.ts`
+      case fails, and `render-examples` too);
+    - the halo drawn for a junction (the selected-junction case fails);
+    - the junction's `NodeShape` given `shown = true` (the `selection: null` junction case
+      fails);
+    - `NodeShape` emitted before `JunctionGlyphShape` (the adjacency case fails);
+    - junction dots drawn in a layer after every node (the adjacency case fails, because
+      `N3`'s group comes between the glyph and the dot);
+    - a dot per arm origin kept, i.e. `nodeDots` restored at the call site (the Y and
+      divided cases fail).
+  - **The stylesheet is gated by the dev pass**, because no test in this repo reads
+    `styles.css` (Phase 12's call). `bun run dev`, driven in Playwright Chromium, with
+    the press-and-hover repeated in WebKit:
+    - **Draw the report's Y.** Selecting `L2` shows one ring at `N3`, and hovering `N3`
+      with nothing selected shows one ring.
+    - **Open `examples/roundabout.zkai`** (pan off the origin first):
+      - at rest, no dot shows on the junction;
+      - hovering anywhere on the pad shows one dot at its centre;
+      - selecting a link into it shows the dot;
+      - selecting the junction shows the yellow `jn-halo` and one dot, with no second
+        ring;
+      - dragging from the dot moves the junction;
+      - under the link tool the junction's dot shows, and a link can be started from it.
+    - Export SVG from the demo, and the file contains no `node-junction`.
+- **Close-out:**
+  - **Spec:**
+    - Phase 6 and Phase 13 take `cut: <ship date>` and `by: zk-005`.
+    - §0 becomes `## 0. Closing notes`. Its existing text becomes the first `###`
+      subsection unchanged, and a second subsection says why the per-road dots went,
+      that `throughPairs` stands for the walk, and what replaced them (§2.14.3).
+    - Dated `CORRECTED` notes go:
+      - beside §2.10's opening ("a junction draws a glyph and no dot at all"), beside
+        §2.10.1's heading, after the existing note at §2.10.2, and beside §2.10.4 ("the
+        hit target and the halo follow them");
+      - beside §2.12.3's "A junction draws a glyph and no dot";
+      - beside §2.13.4;
+      - beside OQ-4's resolution.
+    - The frontmatter `note` names Phases 6 and 13 among the cut.
+    - **The two remaining citations of `nodeDots` in `file:symbol` form**, in §2.13's
+      "The waypoint splits" bullet and in Phase 13's scope, are re-spelled as
+      "`nodeDots` (in `geometry.ts`)". Otherwise `spec-lint` reports `CIT_SYMBOL_ABSENT` on each once the
+      symbol is gone, and the gate's 0 errors fails. This is Phase 14's precedent for
+      `alignmentShift`. §2.14 already uses that form.
+  - **Rules.** Budgets are measured, not assumed; a `RULE_OVER_CAP` is only a warning, so
+    read the report:
+    - **`rules/road-joints.md`** (268/268, trades prose): the dots section becomes one dot
+      at the node, a junction included, canvas only and shown while edited, plus the
+      `covers:` line ("the dots that mark a node once per road through it").
+    - **`rules/canvas-interaction.md`** (190/190, trades prose):
+      - "any dot pressed grabs it", and the sentence before it that says `nodeDots` marks
+        a node once per road through it;
+      - the "drawn on every road end" sentence;
+      - the glyph-hover rule, beside the dot's hover rule;
+      - "Where each piece lives", which names `nodeDots` among the pure arithmetic
+        that has tests.
+    - **`rules/diagram-export.md`:** its `.node-dot` passage stays true. Re-read it, and
+      edit only if it claims a junction has no dot.
+  - **Other:** `CLAUDE.md` none needed. OQ-11 stays open. Roadmap memory, one line. One
+    push.
