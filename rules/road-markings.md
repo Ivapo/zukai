@@ -42,7 +42,7 @@ pair of `TurnDirection`s — and why `MarkingKind::BusStop`, a variant, took it 
   and the alternatives (a fraction, or a second presentation-side position) either
   make `decoration.rs` lie or create two sources of truth.
 - **`anchor` absent means `start`** — which end those metres are measured from. A
-  plain defaulted enum rather than an `Option`, `LinkAlign`'s shape.
+  plain defaulted enum rather than an `Option`, `LaneChange`'s shape.
 - **`lane` absent means the whole carriageway**, stored as an *absent* key.
 
 The metre/unit boundary is exactly two functions, and no third site converts:
@@ -109,7 +109,7 @@ anchors instead of remapping every `position`.
 marking is always a `stop_line`** — `addMarking` takes no kind argument. Both
 remaining fields come from the one click: **how far along**, from
 `nearestOnPolyline` over the *drawn* polyline, which already carries the
-carriageway offset and the alignment shift; and **which lane**, from that same
+carriageway offset and the walked shift; and **which lane**, from that same
 call's **signed** `offset` matched against `laneBands`. Lane 0 is nearside at the
 most *positive* offset, so a magnitude would put every click in the nearside half.
 A click outside every band — the casing lip, or the invisible hit path — is

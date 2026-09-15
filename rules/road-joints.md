@@ -99,7 +99,7 @@ still sends the node's own position; `junctionArms` answers for any node.
 ## Every road ends flat; a disc under the roads fills a joint (ramps §2.12.1)
 
 `.road-casing` is butt-capped: the later link's round cap painted over the earlier
-link's lines at every node — a bead on a straight waypoint, a knob on an aligned T.
+link's lines at every node — a bead on a straight waypoint, a knob on a shifted T.
 A bend's round corner is `jointDiscs` instead, a `<circle class="road-joint">` per
 distinct arm origin (`SAME_POINT`; the widest arm's `width / 2` where they
 coincide), emitted **before the first road**: it covers no paint, and an overlap
@@ -187,7 +187,7 @@ Then, **per side independently**, the two ends' casing edges are compared as
 applies, **never world points**. Equal ⇒ nothing to draw; otherwise the **inset**
 link is the one nearer the road's other side (smaller on the nearside, larger on
 the offside) and the wedge runs `TAPER_LENGTH` (24) along it. Lane drop, lane
-addition and either alignment fall out of that alone. Three things it pins:
+addition and either stated side fall out of that alone. Three things it pins:
 
 - **The geometry stays additive.** A wedge only paints asphalt into space the
   inset link left empty; it never erases asphalt a uniform stroke laid down,

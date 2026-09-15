@@ -119,7 +119,7 @@ shape, where an absent `rule` clears the key. Both are **deliberate clicks**, so
 neither appears in `coalesceKeyFor` and each is its own undo step.
 
 **`rule` is an absent key, never `undefined`** — the one-representation rule
-`Lane.kind`, `LinkView.align`, `Marking.lane`, `Marking.anchor` and
+`Lane.kind`, `NodeView.lane_change`, `Marking.lane`, `Marking.anchor` and
 `Sign.associated_link` all follow. The writer drops it by destructuring rather
 than assigning `undefined`, and "None" in the panel is the only route there.
 

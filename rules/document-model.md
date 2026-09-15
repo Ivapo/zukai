@@ -28,7 +28,7 @@ Terse by design — read the rustdoc in `src-tauri/src/model/` for field detail.
 | Part | Types | Leaves for Assimilator? |
 |------|-------|------------------------|
 | **Semantic graph** | `graph.rs` — `Node`, `Link`, `Lane`, `Junction` | shaped like the `network.yaml` subset; **nothing writes that format** |
-| **Layout** (presentation) | `layout.rs` — `Layout`, `Vec2`, `NodeView`, `LinkView`, `JunctionView`, `JunctionGlyph`, `LinkAlign` | ❌ |
+| **Layout** (presentation) | `layout.rs` — `Layout`, `Vec2`, `NodeView`, `LinkView`, `JunctionView`, `JunctionGlyph`, `LaneChange` | ❌ |
 | **Decorations** (Zukai-native) | `decoration.rs` — `Marking`, `MarkingKind`, `StopForm`, `LinkEnd`, `Sign`, `SignKind` | ❌ Assimilator has no equivalent |
 
 Every collection is defaulted and elided when empty — except `layout`, defaulted but **not** elided, so a new
@@ -65,8 +65,8 @@ of the five names nothing in a `Document`:** `MovementId` is read by the
 stay in sync by hand until `ts-rs` codegen arrives. String-literal unions match
 serde's `snake_case` exactly (`NodeKind = "endpoint" | "junction" | "waypoint"`),
 so a document built in the frontend serializes to the YAML Rust reads. A Rust
-field elided by `skip_serializing_if` is **optional** in TS (`align?`,
-`allowed_classes?`, `anchor?`, `back?`, `bends?`, `length?`) — the mirror's one systematic
+field elided by `skip_serializing_if` is **optional** in TS (`allowed_classes?`,
+`anchor?`, `back?`, `bends?`, `lane_change?`, `length?`) — the mirror's one systematic
 asymmetry, the nine elided collections excepted: `normalizeDocument` fills those.
 
 `document.ts` mirrors three *values* as well: `DEFAULT_LANE_WIDTH`,
@@ -90,7 +90,7 @@ Zukai saves its own YAML through `serde_yaml`, keyed by `SCHEMA_VERSION` in
 **A new optional field costs no bump; a new enum *variant* does.** Nothing in
 `src-tauri/` derives `deny_unknown_fields`, so an older build ignores a field it
 does not know, and `#[serde(default)]` covers the other direction — which is why
-`LinkView.align` arrived at version 1. A new variant is not symmetric: an older
+`NodeView.lane_change` needed no bump. A new variant is not symmetric: an older
 build fails to deserialize the *whole document*, and `persist.rs`'s probe rejects
 only files declaring a **newer** version, so it cannot turn that into a readable
 message unless the version moves with the variant. `JunctionGlyph::Gore` took the
@@ -130,7 +130,7 @@ What moves together on a bump — and the fixture is the one easy to miss:
 Pair every defaulted field with a `skip_serializing_if` so a document that never
 set it saves byte-for-byte as before — `Vec::is_empty` for `bends` and for
 `TurnArrow.back`, `Option::is_none` for `Lane.kind`, and a hand-written predicate
-(`LinkAlign::is_centre`, `LinkEnd::is_start`) for a plain enum, which has no such
+(`LaneChange::is_both`, `LinkEnd::is_start`) for a plain enum, which has no such
 helper. Both predicates are **private to the module that owns the field**, which
 is what keeps the pattern copyable: `is_start` lives in `decoration.rs` beside
 `Marking.anchor`, not with the layout types its shape was borrowed from. And a

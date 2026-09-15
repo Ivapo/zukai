@@ -26,7 +26,7 @@
   what is drawn where links meet a node: the arms and the two radii, the rim three things measure to, the pad that follows the arms inside it, taper wedges at a through joint, the gore between two separating arms — its triangle, its chevrons, and the one derivation that faces them at the driver — the flat road end and the joint disc under the roads, and the dots that mark a node once per road through it, on the canvas only
 - **[road-markings](road-markings.md)** — generated 2026-08-09 · 9 sources · 280/280 lines
   the marking as an object a human owns: the anchor and the one metre/unit boundary, the rim an end anchor measures to, placement from the click, the importer as second author, dragging, the kind-aware controls, what removes a marking, and the third Selection arm
-- **[road-rendering](road-rendering.md)** — generated 2026-08-14 · 11 sources · 274/284 lines
-  how a link becomes a picture of a road: the one lane-width derivation everything descends from and the road class it no longer carries, two-way carriageways, alignment, the route a road turns through, lane kinds and the hatch, the painted centreline, the kerb edge line a bus bay cuts, and the length a link states
+- **[road-rendering](road-rendering.md)** — generated 2026-08-14 · 11 sources · 284/284 lines
+  how a link becomes a picture of a road: the one lane-width derivation everything descends from and the road class it no longer carries, two-way carriageways, the side a lane change is on and the walk that carries it, the route a road turns through, lane kinds and the hatch, the painted centreline, the kerb edge line a bus bay cuts, and the length a link states
 - **[signs](signs.md)** — generated 2026-08-09 · 11 sources · 229/250 lines
   the objects a human stands beside the road: why a sign is node-shaped rather than marking-shaped, the four actions, what removes one, the topmost sign layer and what a sign is drawn from, the shape-then-colour vocabulary, and the panel

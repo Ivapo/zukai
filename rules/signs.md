@@ -62,7 +62,7 @@ re-exporting a `Vec2` would add a name and nothing else.
 | `setSignLink(id, link?)` | `setMarkingLane` | `link` absent clears the key; guards on both the sign and the link |
 
 `associated_link` is an **absent key**, never `undefined` — the
-one-representation rule `Lane.kind`, `LinkView.align` and `Marking.lane` follow.
+one-representation rule `Lane.kind`, `NodeView.lane_change` and `Marking.lane` follow.
 There is no `deleteSign`, for the reason there is no `deleteMarking`: the
 Inspector's Delete dispatches `deleteSelection`, so a separate action would have
 no dispatcher.

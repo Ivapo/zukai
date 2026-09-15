@@ -5,7 +5,9 @@ status: accepted
 last_updated: 2026-09-14
 note: >
   Draw the transitions between roads — lane-count tapers, ramp gores, and
-  junction interiors that follow a divided road's carriageways.
+  junction interiors that follow a divided road's carriageways. Per-link
+  alignment (Phases 2 and 9) was shipped and then replaced by a side stated on
+  the node. Read §0 before §2.3 or §2.11.3.
 
 phases:
   - name: "Phase 1 — Arms carry their position (road spec OQ-6)"
@@ -16,8 +18,8 @@ phases:
   - name: "Phase 2 — Link alignment"
     reviewed: 2026-07-25
     shipped: 2026-07-25
-    cut: null
-    by: null
+    cut: 2026-09-14
+    by: zk-005
   - name: "Phase 3 — Tapers"
     reviewed: 2026-07-25
     shipped: 2026-07-25
@@ -51,8 +53,8 @@ phases:
   - name: "Phase 9 — The panel says which side the lanes hang on"
     reviewed: 2026-08-14
     shipped: 2026-08-14
-    cut: null
-    by: null
+    cut: 2026-09-14
+    by: zk-005
   - name: "Phase 10 — Where two roads meet, neither paints over the other"
     reviewed: 2026-09-14
     shipped: 2026-09-14
@@ -75,7 +77,7 @@ phases:
     by: null
   - name: "Phase 14 — The joint says which side the lanes change on"
     reviewed: 2026-09-14
-    shipped: null
+    shipped: 2026-09-14
     cut: null
     by: null
 
@@ -87,6 +89,35 @@ reference: "Motorway diagram convention as road atlases and variable-message sig
 ---
 
 # Ramps and Tapers Spec
+
+## 0. Closing note — per-link alignment is cut (2026-09-14)
+
+**Everything else in this spec stands**: the arms carrying their position, tapers,
+gores and their chevrons, the dots, flat ends and joint discs, and waypoints. What
+went is **per-link alignment**. Phase 2's `LinkView.align` and Phase 9's Lane region
+readout both shipped, and both were **removed on 2026-09-14** by Phase 14 of this
+same spec (§2.13.5). Read §2.3 and §2.11.3 as the record of a design that was built,
+used, and replaced.
+
+**Why.** A lane change happens at one place, but alignment made two links state it.
+They could disagree, and three things followed, all measured in §2.13:
+- a waypoint between two aligned roads drew as two nodes;
+- one aligned link alone drew a half-lane step;
+- 2 → 3 → 2 on a straight road had no combination of values that drew it.
+
+Phase 9's readout made one link's setting legible. It could not make the pair agree.
+
+**What replaced it.** `NodeView.lane_change` (`nearside` / `offside`, absent means
+both) is set in the node panel's "Lanes change on" row. Every road's lateral shift
+is **walked** from the head of its chain of through pairs (`geometry.ts:lateralShifts`,
+§2.13.3), so a side affects only the roads downstream of it.
+
+**The removal is a departure from §6.1 step 1**, which makes a removal its own phase.
+It rode inside the phase that replaced it, so the drawing never lacked a way to state
+a side. §2.13.5 records the reasoning.
+
+**An old file's `align` key is ignored**, and the road draws centred. There is no
+migration arm and no `SCHEMA_VERSION` move (OQ-12).
 
 ## 1. Goal
 
@@ -103,6 +134,11 @@ carriageways have already moved away from (§2.2).
 
 End state — the classic motorway exit, drawn as a diagram rather than as three
 overlapping strokes:
+
+> **CORRECTED 2026-09-14 — the side is stated on N2, not on L1 and L2; see §0.**
+> The example's "L1, L2 aligned to their offside edge" was per-link alignment, which
+> Phase 14 removed. The same drawing now comes from N2 stating `nearside`. L1 stays
+> on its nodes, and the walk moves L2 half a lane so their offside edges meet.
 
 ```
 File ▸ a 4-lane motorway dropping a lane at an exit
@@ -254,6 +290,12 @@ guarantees every arm origin is *inside* the pad, so the outside-the-circle
 branch is defensive only.
 
 ### 2.3 Alignment is presentation, and belongs on `LinkView` (decision, recorded)
+
+> **CORRECTED 2026-09-14 — the side is presentation, and belongs on `NodeView`; see
+> §2.13.1 and §0.** This section was right that the side is presentation and must be
+> an input, and wrong about which object carries it. Two links sharing an edge are
+> two statements of one fact. `LinkAlign`, `alignmentShift` and `LinkView.align` are
+> gone. The sign pins below survive, as the walk's table in §2.13.3.
 
 A link is drawn centred on its polyline: `RoadShape` (`Diagram.tsx:251`) offsets
 its edges symmetrically by `±edgeInset` about `points`. For a lane drop to read
@@ -1133,6 +1175,14 @@ a larger change to what a link's drawn end means, and it is not proposed here.
 
 #### 2.11.3 The panel says which side a road's lanes hang on (Phase 9 — OQ-5, taken)
 
+> **CORRECTED 2026-09-14 — the readout and the Alignment row are gone; see §2.13.5.**
+> The side is now set on the node, where both roads it moves are adjacent on the
+> canvas. A wrong pick shows as a lane opening on the wrong side, at the node where
+> it was picked. A readout of a number no control on the link panel sets would
+> repeat `associated_link`'s lesson, so it was not kept against the walked shift.
+> `alignmentReading` went with it. The travel-frame argument below still holds for
+> the node row's words, `nearside` and `offside`.
+
 OQ-5 asked whether alignment could be **derived** rather than set, and proposed
 keeping it explicit, "revisit[ing] if setting it twice per exit becomes tedious in
 practice". The figure says the cost is not tedium. The wrong pick does not make a
@@ -1147,7 +1197,7 @@ the mainline, so the drawing would change under a gesture that means nothing.
 So the Inspector's Alignment control gains a **readout of what the setting does to
 this road**, in the drawing's own terms rather than in the enum's: which side of
 its own polyline the lane region sits on, and how far off it.
-`alignmentShift` (`geometry.ts:alignmentShift`) already returns exactly that
+`alignmentShift` (in `geometry.ts`) already returns exactly that
 number and its sign is pinned (§2.3), so the readout is derived from the same
 function the renderer uses — via `lateralShift` → `drawnPolyline` — and cannot
 drift from it.
@@ -1481,7 +1531,7 @@ against §2.3's shift. A prototype of the design below was then rendered through
     correctly (rendered), but no one of those three values names the side at either
     joint, and both waypoints still split.
   - **2 → 3 → 2 and 3 → 4 → 3 have none.** Each road must sit half a lane (4.5)
-    further over than the one before it. `geometry.ts:alignmentShift` offers a
+    further over than the one before it. `alignmentShift` (in `geometry.ts`) offered a
     2-lane road only 0 or ±9 and a 3-lane road only 0 or ±13.5, and no triple of
     those lands all three. Rendered, the best tries draw a step or a jink.
 
@@ -1668,8 +1718,8 @@ phase would mean a transitional composition written only to be deleted.
 
 What goes:
 - `LinkView.align`, `LinkAlign` and `LinkAlign::is_centre` from both mirrors;
-- `document.ts:linkAlign`, `geometry.ts:alignmentShift`, `geometry.ts:alignmentReading`;
-- `state.ts:setLinkAlign`, the Inspector's Alignment row, and its Lane region readout.
+- `linkAlign` in `document.ts`, and `alignmentShift` and `alignmentReading` in `geometry.ts`;
+- `setLinkAlign` in `state.ts`, the Inspector's Alignment row, and its Lane region readout.
 
 That removes two shipped phases' observables, which is §6.1's step 1. **Phase 2 and
 Phase 9 take `cut` and `by: zk-005` when Phase 14 ships**, with a `## 0.` closing note.
@@ -1748,6 +1798,11 @@ to fold aligned pairs into a node's side on load was **OQ-12**, resolved: no.
   taper that flips when a node is dragged past the mainline. (design-call;
   proposed: keep it explicit, and revisit if setting it twice per exit becomes
   tedious in practice.)
+
+  > **CORRECTED 2026-09-14 — answered again, differently, by Phase 14 (§2.13).**
+  > The side is still explicit and still not derived from a ramp's direction. It is
+  > no longer set per link, though: it is stated once, on the node, and each road's
+  > shift is walked from it. The readout this entry credits is removed (§2.13.5).
 - **OQ-6** — **Where does the undivided-two-way centreline actually belong?**
   Road spec OQ-4 concluded "the fix is a model field" and recorded it *for this
   spec*. Re-reading it here suggests that conclusion was half right: a
@@ -2518,7 +2573,7 @@ picture it prevents is a ramp drawn through a motorway.*
   setting does to *this* road — `right`/`left` **of travel** plus the magnitude in
   canvas units, per §2.11.3's frame decision. Two sites:
   - a new `alignmentReading` in `src/editor/geometry.ts`, beside
-    `geometry.ts:alignmentShift`:
+    `alignmentShift` (in `geometry.ts`):
     `(lanes, style, align) → { side: "left" | "right" | "on"; offset: number }`,
     where `side` is the sign of `alignmentShift` and `offset` its magnitude.
     Direction-blind, exactly as `alignmentShift` is.
@@ -2533,7 +2588,7 @@ picture it prevents is a ramp drawn through a motorway.*
   this phase adds.
   - The reading's **side is asserted against the drawing**, not against the enum,
     and this is the phase's one load-bearing assertion. For the shipped 4-lane
-    eastbound fixture (`Diagram.test.tsx:aligned`, "a 4-lane arterial drawn due
+    eastbound fixture (`aligned`, in `Diagram.test.tsx`, "a 4-lane arterial drawn due
     east from the origin") the `offside` reading is `{ side: "right", offset: 18 }`
     and that document's casing is drawn at `d="M 0 18 L 120 18"`, with `nearside`
     mirroring to `-18` — so the test asserts the reading's
@@ -3022,8 +3077,8 @@ rewritten twice.
   - **`types.ts`:** `LaneChange = "both" | "nearside" | "offside"`, and
     `NodeView.lane_change?: LaneChange`, absent for `both`.
   - **Removed from both mirrors:** `LinkView.align` and `LinkAlign`. Rust also loses
-    `LinkAlign::is_centre`; TypeScript loses `document.ts:linkAlign` and
-    `document.ts:DEFAULT_LINK_ALIGN`.
+    `LinkAlign::is_centre`; TypeScript loses `linkAlign` and `DEFAULT_LINK_ALIGN`
+    from `document.ts`.
   - **Compile-forced, listed so they are not a surprise:** every Rust `NodeView { pos }`
     literal gains the field — `network/import.rs:import` and `model/mod.rs`'s round-trip
     fixture.

@@ -268,7 +268,7 @@ lose their arrowheads, and the canvas draws one on the selected link.*
   through `ZUKAI_UPDATE_GOLDEN=1 bun run render-examples`. TypeScript, CSS and
   generated figures only; no Rust, and **no `examples/*.zkai` edited** (OQ-2).
   - **Comments that restate the claim this phase falsifies**, edited in the same
-    commit: `geometry.ts:alignmentReading`'s doc comment ("the arrow head `RoadShape`
+    commit: `alignmentReading`'s doc comment (in `geometry.ts`, since removed by `zk-005` Phase 14) ("the arrow head `RoadShape`
     paints at the link's far end" — now the midpoint, and on the selected link);
     the Lane region comment in `Inspector.tsx:Inspector` (it stays true, since the
     panel implies a selected link — reword only if it names the figure);
