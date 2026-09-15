@@ -91,7 +91,6 @@ import {
   markingZebra,
   mergeStretches,
   nearestOnPolyline,
-  nodeDots,
   offsetPolyline,
   padRadius,
   padShape,
@@ -4474,217 +4473,6 @@ describe("lateral shifts", () => {
   });
 });
 
-/**
- * `nodeDots` — where a node's dots are drawn (ramps spec §2.10, §2.13.4).
- *
- * One case per row of §2.10.2's table, because the rule's whole content is which
- * arms count as one road through the node, and the rows differ only in that.
- */
-describe("node dots", () => {
-  /** Waypoints laid where given, each stating the side `sides` names, if any. */
-  function lay(nodes: Record<NodeId, Vec2>, links: Link[], sides: Record<NodeId, LaneChange> = {}) {
-    const base = emptyDocument("node dots");
-    return {
-      ...base,
-      nodes: Object.keys(nodes).map((id) => ({ id, type: "waypoint" as const })),
-      links,
-      layout: {
-        ...base.layout,
-        nodes: Object.fromEntries(
-          Object.entries(nodes).map(([id, pos]) => [
-            id,
-            sides[id] ? { pos, lane_change: sides[id] } : { pos },
-          ]),
-        ),
-      },
-    };
-  }
-
-  function road(id: LinkId, from: NodeId, to: NodeId, lanes = 2): Link {
-    return { id, from_node: from, to_node: to, lanes: defaults(lanes), median_gap: DEFAULT_MEDIAN_GAP };
-  }
-
-  /** The dots of `nodeId`, with the walked offsets the renderer passes. */
-  function dots(doc: Document, nodeId: NodeId): Vec2[] {
-    return nodeDots(doc, nodeId, lateralShifts(doc));
-  }
-
-  /** Dots as a set — permuting the links legitimately permutes the array. */
-  const key = (ds: Vec2[]) => ds.map((d) => `${d.x.toFixed(9)},${d.y.toFixed(9)}`).sort();
-
-  function permutations<T>(xs: T[]): T[][] {
-    if (xs.length <= 1) return [xs];
-    return xs.flatMap((x, i) =>
-      permutations([...xs.slice(0, i), ...xs.slice(i + 1)]).map((rest) => [x, ...rest]),
-    );
-  }
-
-  const ORIGIN = { x: 0, y: 0 };
-
-  it("draws one dot at the node for a centred road, at an endpoint and at a waypoint", () => {
-    // The two rows whose displacement is *exactly* zero — `drawnPolyline` hands
-    // back the layout polyline itself, so this is identity rather than tolerance.
-    const end = lay({ N1: ORIGIN, N2: { x: 120, y: 0 } }, [road("L1", "N1", "N2")]);
-    expect(dots(end, "N1")).toEqual([ORIGIN]);
-
-    const through = lay({ N1: ORIGIN, N2: { x: 120, y: 0 }, N3: { x: 240, y: 0 } }, [
-      road("L1", "N1", "N2"),
-      road("L2", "N2", "N3"),
-    ]);
-    expect(dots(through, "N2")).toEqual([{ x: 120, y: 0 }]);
-  });
-
-  it("draws one dot per carriageway at a divided road's endpoint", () => {
-    const doc = lay({ N1: ORIGIN, N2: { x: 120, y: 0 } }, [
-      road("L1", "N1", "N2"),
-      road("L2", "N2", "N1"),
-    ]);
-    const offsets = carriageways(doc);
-
-    // Read off the drawn polylines, never re-derived from `carriagewayOffset` —
-    // deriving the expectation the way the code does asserts it against a copy of
-    // itself. The eastbound half is drawn *below* the centreline under right-hand
-    // traffic and its westbound twin above (road spec §2.4), so the two `y`s
-    // oppose and a magnitude comparison would pass under an inversion.
-    const east = drawnPolyline(doc, doc.links[0], offsets)!;
-    const west = drawnPolyline(doc, doc.links[1], offsets)!;
-    expect(east[0]).toEqual({ x: 0, y: 13.5 });
-    expect(west[west.length - 1]).toEqual({ x: 0, y: -13.5 });
-
-    expect(nodeDots(doc, "N1", offsets)).toEqual([east[0], west[west.length - 1]]);
-  });
-
-  it("draws two dots where a divided road runs straight through a waypoint", () => {
-    // Four arms, two coincident pairs: both links on a side are offset by the
-    // same distance along the same delta, so their ends land on one another.
-    const doc = lay({ N1: ORIGIN, N2: { x: 120, y: 0 }, N3: { x: 240, y: 0 } }, [
-      road("L1", "N1", "N2"),
-      road("L2", "N2", "N1"),
-      road("L3", "N2", "N3"),
-      road("L4", "N3", "N2"),
-    ]);
-
-    expect(dots(doc, "N2")).toEqual([
-      { x: 120, y: 13.5 },
-      { x: 120, y: -13.5 },
-    ]);
-  });
-
-  /**
-   * **The row §2.10.2 drew four dots for.** A carriageway steps off the
-   * centreline by `w / 2 + separation / 2`, so dropping one lane moves it by
-   * exactly half a lane — `22.5` against `18` here. Each carriageway is one
-   * through pair (its twin is no candidate), and the pair's dot is the narrower
-   * 3-lane origin, `±(30 / 2 + 3)`, which lies on both roads (ramps spec §2.13.4).
-   *
-   * **Pairing is not the clustering that row ruled out.** Clustering asked
-   * whether two origins were near enough to belong together, which is not
-   * transitive and changes the number of dots under a permutation of
-   * `doc.links`. A pair is topological — which link continues which — so no
-   * distance and no order enters it.
-   */
-  it("draws one dot per carriageway where a divided road drops a lane at a waypoint", () => {
-    const doc = lay({ N1: ORIGIN, N2: { x: 120, y: 0 }, N3: { x: 240, y: 0 } }, [
-      road("L1", "N1", "N2", 4),
-      road("L2", "N2", "N1", 4),
-      road("L3", "N2", "N3", 3),
-      road("L4", "N3", "N2", 3),
-    ]);
-
-    expect(dots(doc, "N2")).toEqual([
-      { x: 120, y: 18 },
-      { x: 120, y: -18 },
-    ]);
-  });
-
-  /**
-   * The report's own waypoint (§2.13), as a lane drop: a 2-lane road becoming
-   * 1 lane, with `offside` stated at `N2`. The walk holds the nearside edge, so
-   * the downstream road moves to `d = 0 + 9 − 4.5 = +4.5` while the head stays
-   * at `0`. One dot, at the narrower road's origin, which lies inside the wider
-   * road's lane region `[−9, 9]`.
-   *
-   * A drop rather than an addition because only the walk moves the downstream
-   * road: unwired, this dot reads `y = 0`, so the case tests that `nodeDots` is
-   * handed the walked record. (An addition would put the dot on the head's
-   * origin at `0` either way.)
-   */
-  it("draws one dot, on the narrower road, where a road drops a lane on one side", () => {
-    const doc = lay(
-      { N1: ORIGIN, N2: { x: 120, y: 0 }, N3: { x: 240, y: 0 } },
-      [road("L1", "N1", "N2", 2), road("L2", "N2", "N3", 1)],
-      { N2: "offside" },
-    );
-
-    const ds = dots(doc, "N2");
-    expect(ds).toEqual([{ x: 120, y: 4.5 }]);
-    expect(ds[0].y).toBeGreaterThanOrEqual(-9);
-    expect(ds[0].y).toBeLessThanOrEqual(9);
-  });
-
-  /**
-   * Equal widths, with origins `13.5` apart: an undivided 2-lane road
-   * continuing into one carriageway of a divided 2-lane road, where the walk
-   * restarts. The pair's dot is the **arriving** arm's, and the twin's end is
-   * its own — under every order of `doc.links`, since "the first arm
-   * `junctionArms` lists" would follow the order.
-   */
-  it("draws the arriving road's origin where two equal roads meet apart", () => {
-    const nodes = { N1: ORIGIN, N2: { x: 120, y: 0 }, N3: { x: 240, y: 0 } };
-    const links = [road("L1", "N1", "N2"), road("L2", "N2", "N3"), road("L3", "N3", "N2")];
-
-    for (const order of permutations(links)) {
-      expect(key(dots(lay(nodes, order), "N2"))).toEqual(
-        key([
-          { x: 120, y: 0 },
-          { x: 120, y: -13.5 },
-        ]),
-      );
-    }
-  });
-
-  /**
-   * **The assertion that separates a set of positions from every rule that
-   * groups.** Three roads off one node at unequal angles, each with its reversed
-   * twin, so six origins stand off `N1` by their carriageway offsets and no two
-   * roads continue each other. A rule that merges origins "near enough" is not
-   * transitive, so its count depends on which origin is kept first; a set of
-   * positions does not. Compared as a *set* — the scope returns them in
-   * `junctionArms`' order, so permuting the links legitimately permutes the array.
-   */
-  it("draws the same dots for every order of a three-road fan", () => {
-    const nodes = { N1: ORIGIN, N2: { x: 120, y: 0 }, N3: { x: 90, y: 90 }, N4: { x: 0, y: 130 } };
-    const links = [
-      road("L1", "N1", "N2"),
-      road("L2", "N2", "N1"),
-      road("L3", "N1", "N3"),
-      road("L4", "N3", "N1"),
-      road("L5", "N1", "N4"),
-      road("L6", "N4", "N1"),
-    ];
-
-    const seen = permutations(links).map((order) => dots(lay(nodes, order), "N1"));
-
-    expect(seen).toHaveLength(720);
-    for (const ds of seen) expect(ds).toHaveLength(6);
-    for (const ds of seen) expect(key(ds)).toEqual(key(seen[0]));
-  });
-
-  it("draws one dot at a node no link touches", () => {
-    // §2.10.3 — the ordinary path, not the edge case: every node is link-less
-    // between being placed and being connected, and an arms-only rule would draw
-    // nothing there, leaving the node invisible and unclickable.
-    const alone = lay({ N1: { x: 40, y: 70 } }, []);
-    expect(dots(alone, "N1")).toEqual([{ x: 40, y: 70 }]);
-  });
-
-  it("draws nothing for a node with no layout entry", () => {
-    // Hand-edited, and the same case the node layer already guards with `if (!p)`.
-    const doc = lay({ N2: { x: 120, y: 0 } }, [road("L1", "N1", "N2")]);
-    expect(dots(doc, "N1")).toEqual([]);
-  });
-});
-
 describe("joint discs", () => {
   /** Nodes of the given kinds (waypoint unless named), laid where given. */
   function lay(
@@ -4747,9 +4535,9 @@ describe("joint discs", () => {
    * produce. The exact-equality count is asserted first, so the fixture cannot
    * quietly stop exercising the tolerance.
    *
-   * **Here rather than on `nodeDots`**, where it started: a through pair takes one
-   * of its two origins, so the dots give two at any tolerance. The discs still
-   * merge arm origins, so they are what `SAME_POINT` answers to (ramps §2.13.4).
+   * **Here, because the discs are what still merge arm origins**: a node draws
+   * one dot at its own position (ramps §2.14.1), so `SAME_POINT` answers to the
+   * discs alone.
    * The lanes are named, since the slack was measured on 2-lane carriageways.
    */
   it("puts two discs where an unevenly split divided road parts by float slack", () => {

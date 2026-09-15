@@ -1065,7 +1065,7 @@ export interface Arm {
  * own end point (ramps spec §2.2, road spec OQ-6).
  *
  * **The name understates it: this reads every node type, not only a junction.**
- * It filters on nothing but the links that touch the node, so {@link nodeDots}
+ * It filters on nothing but the links that touch the node, so {@link jointDiscs}
  * asks it about an endpoint and a waypoint too. Renaming it would ripple through
  * four rules and two specs for no behaviour, so the correction lives here.
  *
@@ -1106,8 +1106,7 @@ export function junctionArms(
 }
 
 /**
- * How close two points at a node — arm origins, or the dots taken from them —
- * must be to count as **one point**.
+ * How close two arm origins at a node must be to count as **one point**.
  *
  * This absorbs float slack and nothing else. Two arms drawn to the same place
  * usually *are* the same object — `drawnPolyline` returns the layout polyline
@@ -1117,9 +1116,7 @@ export function junctionArms(
  * (an instance, not a bound: the slack grows with distance from the world
  * origin). The nearest genuinely *distinct* pair of lateral shifts the UI can
  * produce is `0.45` apart, and the lane-drop step {@link jointDiscs} must never
- * merge is `4.5` — {@link nodeDots} no longer meets that step, since a through
- * pair takes one of its two origins rather than both (ramps spec §2.13.4).
- * So the guard sits six orders below the smallest decision and eight above the
+ * merge is `4.5`. So the guard sits six orders below the smallest decision and eight above the
  * largest slack, and it is never a design parameter.
  *
  * **Its own constant rather than {@link SAME_EDGE}'s**, which is the same
@@ -1212,8 +1209,7 @@ function pairsAt(doc: Document, nodeId: NodeId): [Link, Link][] {
 /**
  * Which link continues which: a map from each arriving link's id to the id of
  * the leaving link that carries its road on through the node (ramps spec
- * §2.13.2). A side only means something between those two, and one dot marks
- * both ({@link nodeDots}).
+ * §2.13.2). A side only means something between those two.
  *
  * At each node a **candidate** is an arriving and a leaving link, neither a
  * self-loop, that do not go back where they came from — the test `tapers`
@@ -1302,68 +1298,6 @@ export function lateralShifts(doc: Document): Record<LinkId, number> {
   return shifts;
 }
 
-/**
- * Where a node's dots are drawn: **one per road through it** — one per through
- * pair ({@link throughPairs}), and one per remaining arm at its own origin — so a
- * divided road's end is marked on each of its carriageways instead of once in the
- * median between them, and a waypoint whose two roads end at different points is
- * still one node (ramps spec §2.10, §2.13.4).
- *
- * **A pair's dot is at the narrower arm's origin**, because that point is on both
- * roads: where two roads share a centre or an edge, the narrower lane region lies
- * inside the wider. Equal widths take the arriving arm's, so the pick reads only
- * the pair and never which arm `junctionArms` lists first.
- *
- * **This is not the clustering §2.10.2 ruled out.** That rule asked whether two
- * origins were *near enough* to belong together, which is not transitive and so
- * changed the count under a permutation of `doc.links`. A pair is topological —
- * which link continues which — so no distance and no order enters it. The dots
- * are emitted in `junctionArms` order, a pair's taking the place of whichever of
- * its arms comes first, and the {@link SAME_POINT} merge runs over the whole
- * result, so a centred crossroads still draws one.
- *
- * The node keeps its own position: only the *mark* moves, and a drag still
- * dispatches `moveNode` with the node's own position.
- */
-export function nodeDots(
-  doc: Document,
-  nodeId: NodeId,
-  offsets: Record<LinkId, number>,
-): Vec2[] {
-  const p = nodePos(doc, nodeId);
-  // No layout entry at all — the hand-edited case the node layer already guards.
-  if (!p) return [];
-  const arms = junctionArms(doc, nodeId, offsets);
-  // A node no link touches keeps its dot at the node, and this is the ordinary
-  // path rather than the edge case: every node is link-less between being placed
-  // and being connected, so an arms-only rule would make the node tool look
-  // broken on its first click (§2.10.3).
-  if (!arms.length) return [p];
-
-  const armOf = new Map(arms.map((arm) => [arm.id, arm]));
-  // Each paired arm names its pair, so the pair is emitted once, where its first arm is.
-  const pairOf = new Map<LinkId, { at: Vec2; key: LinkId }>();
-  for (const [a, b] of pairsAt(doc, nodeId)) {
-    const into = armOf.get(a.id);
-    const out = armOf.get(b.id);
-    if (!into || !out) continue;
-    const pair = { at: out.width < into.width ? out.origin : into.origin, key: a.id };
-    pairOf.set(a.id, pair);
-    pairOf.set(b.id, pair);
-  }
-
-  const dots: Vec2[] = [];
-  const emitted = new Set<LinkId>();
-  for (const arm of arms) {
-    const pair = pairOf.get(arm.id);
-    if (pair && emitted.has(pair.key)) continue;
-    if (pair) emitted.add(pair.key);
-    const at = pair ? pair.at : arm.origin;
-    if (!dots.some((d) => distance(d, at) < SAME_POINT)) dots.push(at);
-  }
-  return dots;
-}
-
 /** A filled asphalt circle under the roads at a joint — see {@link jointDiscs}. */
 export interface JointDisc {
   at: Vec2;
@@ -1384,9 +1318,9 @@ export interface JointDisc {
  * free end, a reversed twin pair reaching one node, stays flat on both
  * carriageways ({@link nodeNeighbours}).
  *
- * One disc per distinct **arm** origin under {@link SAME_POINT} — not one per
- * through pair, as {@link nodeDots} counts, since a disc fills each road's own
- * end — at the **widest** arm's radius where origins coincide.
+ * One disc per distinct **arm** origin under {@link SAME_POINT}, since a disc
+ * fills each road's own end, at the **widest** arm's radius where origins
+ * coincide.
  *
  * The caller draws these **before the first road**. That is what makes the fix a
  * fix rather than a new overpaint: a disc can cover no road's paint, while the

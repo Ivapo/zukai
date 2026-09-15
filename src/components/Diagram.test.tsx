@@ -442,10 +442,11 @@ describe("two-way carriageways", () => {
 });
 
 /**
- * The node's dots — one per road through it rather than one at the node (ramps
- * spec §2.10, §2.13.4). The geometry is `nodeDots`' and is asserted in `geometry.test.ts`;
- * what these two cases carry is the markup, which is where the rule can be right
- * and the picture still wrong.
+ * A node's dot — **one, at the node**, wherever its roads are drawn (ramps spec
+ * §2.14.1). There is no geometry left to test apart from the markup: the dot and
+ * its halo carry no `cx`/`cy`, so what these cases pin is that a road drawn off
+ * its node — a carriageway, or a road a lane change has walked over — no longer
+ * draws a second circle beside the first.
  */
 describe("node dots", () => {
   /** A one-way road due east, and the same pair with a twin coming back. */
@@ -479,22 +480,17 @@ describe("node dots", () => {
     );
 
   /**
-   * **The identity, and it is exact rather than equivalent.** §2.10.2's collapse
-   * to a single dot is worth nothing unless a centred undivided document emits
-   * character-for-character what it emitted before the phase: the dot is drawn
-   * from a map now, and each circle takes a displacement that must render as
-   * *no* `cx`/`cy` at zero — React writes `cx={0}` as `cx="0"`, so the natural
-   * spelling fails this for a reason that has nothing to do with the geometry.
-   *
-   * Scoped to a road on its own line deliberately: a road shifted off it — a
-   * carriageway, or a road a lane change has walked over — has its dot **moved**,
-   * which §2.10 calls the same defect rather than a side effect, and which is
-   * asserted as a change in `geometry.test.ts` instead of smuggled under this claim.
+   * **The identity, and it is exact rather than equivalent.** A centred undivided
+   * document emits character-for-character what it emitted while the dots were
+   * drawn per road end, which is what makes one dot at the node a change only
+   * where a road sits off its node (§2.14.1). No `cx`/`cy` at all: React writes
+   * `cx={0}` as `cx="0"`, so a circle spelled with a zero displacement fails this
+   * for a reason that has nothing to do with the geometry.
    *
    * **The waypoint is the load-bearing half of this test.** An endpoint has one
-   * arm, so it emits one circle however the dots are collapsed; the waypoint has
-   * two arms at one point, so it is the row that stops being byte-identical the
-   * moment the rule draws per arm instead of per place.
+   * arm, so it emits one circle under any rule; the waypoint has two arms at one
+   * point, so it is the row that stops being byte-identical the moment a rule
+   * draws per arm instead of per node.
    *
    * **Rendered on the canvas since Phase 7**, which moved the dot behind the
    * `interaction` gate (§2.11.1). The claim is unchanged and had to survive the
@@ -519,35 +515,68 @@ describe("node dots", () => {
   });
 
   /**
-   * The picture the phase exists for — and **one group**, which is what keeps the
-   * gesture: `onNodePointerDown` stays on a single element, so either dot drags
-   * the node and `Canvas.tsx` needs no change at all.
-   *
-   * A canvas fact since Phase 7, which is where a dot exists at all (§2.11.1).
+   * **Once, at the node, in the median** (§2.14.1). This case drew a dot on each
+   * carriageway through Phase 14; §2.10's reason for that was a dot in the median
+   * reading as an object *in a figure*, and since Phases 7 and 12 no figure
+   * carries a dot and the canvas shows one only while its node is edited.
    */
-  it("marks a divided road's endpoint on both carriageways, from one group", () => {
+  it("marks a divided road's endpoint once, at the node", () => {
     // Nothing selected, for the same reason as the test above.
     const svg = renderToStaticMarkup(
       <Diagram doc={twoWay()} interaction={{ ...interaction(), selection: null }} />,
     );
-    const group = svg.slice(
-      svg.indexOf('<g class="node node-endpoint" transform="translate(0 0)">'),
-    );
-    const end = group.indexOf("</g>");
 
-    expect(group.slice(0, end).match(/node-dot/g)).toHaveLength(2);
-    // On the carriageways, not between them: the eastbound half below the
-    // centreline and its westbound twin above, as the casings are drawn.
-    expect(group.slice(0, end)).toContain('cy="13.5"');
-    expect(group.slice(0, end)).toContain('cy="-13.5"');
-    // The node itself has not moved.
-    expect(svg).toContain('<g class="node node-endpoint" transform="translate(0 0)">');
+    expect(svg).toContain(
+      '<g class="node node-endpoint" transform="translate(0 0)">' +
+        '<circle class="node-dot" r="6" vector-effect="non-scaling-stroke"></circle></g>',
+    );
+    // The road really is off the node: the eastbound carriageway below its line.
+    expect(svg).toContain("M 0 13.5 L 120 13.5");
+  });
+
+  /**
+   * **The report's Y** (§2.14): a lane change at `N2` walks `L2` half a lane off
+   * its nodes, and at `N3` both branches turn by more than `TAPER_MAX_BEND`, so
+   * nothing continues `L2` there. Drawn per road end, `N3` carried a second circle
+   * at `cy="4.5"`, `L2`'s end, beside the branches' one at the node.
+   */
+  it("draws one dot where a walked road splits into a Y", () => {
+    const doc = run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "addNode", pos: { x: 120, y: 0 } },
+      { type: "addNode", pos: { x: 240, y: 0 } },
+      { type: "addNode", pos: { x: 360, y: -84 } },
+      { type: "addNode", pos: { x: 360, y: 120 } },
+      { type: "startLink", from: "N1" },
+      { type: "completeLink", to: "N2" },
+      { type: "startLink", from: "N2" },
+      { type: "completeLink", to: "N3" },
+      { type: "startLink", from: "N3" },
+      { type: "completeLink", to: "N4" },
+      { type: "startLink", from: "N3" },
+      { type: "completeLink", to: "N5" },
+      { type: "setLinkLanes", id: "L1", count: 1 },
+      { type: "setLinkLanes", id: "L2", count: 2 },
+      { type: "setLinkLanes", id: "L3", count: 1 },
+      { type: "setLinkLanes", id: "L4", count: 1 },
+      { type: "setNodeLaneChange", id: "N2", change: "nearside" },
+    ).doc;
+    const svg = renderToStaticMarkup(
+      <Diagram doc={doc} interaction={{ ...interaction(), selection: null }} />,
+    );
+
+    expect(svg).toContain("M 120 4.5 L 240 4.5");
+    expect(svg).toContain(
+      '<g class="node node-waypoint" transform="translate(240 0)">' +
+        '<circle class="node-dot" r="4" vector-effect="non-scaling-stroke"></circle></g>',
+    );
   });
 });
 
 /**
- * **A node's dot is drawn on every road end and shown only while its node is
- * being edited** (ramps §2.12.3). Shown is a class token and nothing else: the dot
+ * **A node draws one dot and shows it only while the node is being edited**
+ * (ramps §2.12.3, §2.14.1). Shown is a class token and nothing else: the dot
  * stays in the markup because it is the node's only hit target, and `styles.css`
  * paints the dot of a group without the token transparent.
  */
@@ -588,7 +617,7 @@ describe("a node's dot shows while it is being edited", () => {
   const render = (over: Partial<Interaction>, doc = chain()) =>
     renderToStaticMarkup(<Diagram doc={doc} interaction={{ ...interaction(), ...over }} />);
 
-  /** Hidden is not absent: every road end still has the dot a press lands on. */
+  /** Hidden is not absent: every node still has the dot a press lands on. */
   it("draws every node's dot and shows none when nothing is being edited", () => {
     const svg = render({ selection: null });
 
@@ -639,16 +668,80 @@ describe("a node's dot shows while it is being edited", () => {
     expect(group(svg, 120)).toMatch(/^<g class="node node-endpoint is-shown"/);
   });
 
-  /** A junction draws a glyph and no dot, so there is nothing to show. */
-  it("leaves a junction's glyph alone", () => {
-    const glyph = (revealNodes: boolean) => {
-      const svg = render({ revealNodes }, sample());
-      return svg.slice(svg.indexOf('<g class="junction"'));
-    };
+  /**
+   * **A junction draws a dot too** (§2.14.2), as its glyph's next sibling and by
+   * the same predicate as every node. `sample()`'s roundabout `N2` is at
+   * `(120, 40)`, entered by `L1`; `N3` is one more node drawn **after** it, so a
+   * junction dot drawn in some later layer would have `N3`'s group between it and
+   * its glyph.
+   */
+  describe("at a junction", () => {
+    const doc = () =>
+      run({ ...initialState(), doc: sample() }, { type: "addNode", pos: { x: 240, y: 0 } }).doc;
 
-    expect(glyph(true)).toContain('<g class="junction" transform="translate(120 40)">');
-    expect(glyph(true)).toBe(glyph(false));
-    expect(glyph(true)).not.toContain("is-shown");
+    const OPEN = '<g class="node node-junction';
+    const GROUP = '<g class="node node-junction" transform="translate(120 40)">';
+
+    /** The junction's dot group's opening tag, whatever its tokens. */
+    function dotTag(svg: string): string {
+      const start = svg.indexOf(OPEN);
+      if (start < 0) throw new Error("the markup carries no junction dot");
+      return svg.slice(start, svg.indexOf(">", start) + 1);
+    }
+
+    /** The glyph's group, from `<g class="junction"` through its first `</g>`. */
+    function glyph(svg: string): { text: string; end: number } {
+      const start = svg.indexOf('<g class="junction"');
+      const close = svg.indexOf("</g>", start);
+      return { text: svg.slice(start, close + 4), end: close + 4 };
+    }
+
+    it("draws the dot hidden when nothing is being edited", () => {
+      const svg = render({ selection: null }, doc());
+
+      expect(svg).toContain(
+        GROUP + '<circle class="node-dot" r="4" vector-effect="non-scaling-stroke"></circle></g>',
+      );
+      expect(dotTag(svg)).not.toContain("is-shown");
+    });
+
+    it("shows it at an end of the selected link, and while nodes are revealed", () => {
+      expect(dotTag(render({ selection: { kind: "link", id: "L1" } }, doc()))).toMatch(
+        /^<g class="node node-junction is-shown"/,
+      );
+      expect(dotTag(render({ selection: null, revealNodes: true }, doc()))).toMatch(
+        /^<g class="node node-junction is-shown"/,
+      );
+    });
+
+    /** `jn-halo` already rings it, so the dot takes no `node-halo` (§2.14.2). */
+    it("rings a selected junction once, with the glyph's halo", () => {
+      const svg = render({ selection: { kind: "node", id: "N2" } }, doc());
+
+      expect(dotTag(svg)).toMatch(/^<g class="node node-junction is-selected is-shown"/);
+      expect(svg).not.toContain("node-halo");
+      expect(svg).toContain("jn-halo");
+    });
+
+    /**
+     * **What `styles.css`'s `.junction:hover + .node` stands on.** The roundabout
+     * glyph nests no `<g>`, so its first `</g>` closes it, and the dot's group must
+     * open on the very next character.
+     */
+    it("draws the dot's group immediately after the glyph's", () => {
+      const svg = render({ selection: null }, doc());
+
+      expect(svg.indexOf(GROUP)).toBe(glyph(svg).end);
+    });
+
+    it("leaves the glyph itself alone", () => {
+      const a = glyph(render({ selection: null, revealNodes: true }, doc())).text;
+      const b = glyph(render({ selection: null, revealNodes: false }, doc())).text;
+
+      expect(a).toContain('<g class="junction" transform="translate(120 40)">');
+      expect(a).toBe(b);
+      expect(a).not.toContain("is-shown");
+    });
   });
 });
 

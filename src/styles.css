@@ -436,6 +436,14 @@ body {
   opacity: 1;
 }
 
+/* A junction's dot shows while its pad is hovered too, not only the dot: the pad
+   is the junction being pointed at (ramps §2.14.2). This holds only because the
+   dot's group is the glyph group's next sibling by construction, and
+   `Diagram.tsx` must keep it so. */
+.junction:hover + .node .node-dot {
+  opacity: 1;
+}
+
 /* The direction arrow is the same exception: it paints, and it is drawn only on
    the selected link, so a figure never carries it (road declutter §2.1). */
 

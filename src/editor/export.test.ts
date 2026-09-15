@@ -608,6 +608,20 @@ describe("gores in an exported file", () => {
    * own polyline and the casing draws `M 0 0 L 120 0`, with no modifier because
    * no road needs one.
    */
+  /**
+   * **A junction's dot stays on the canvas** (ramps §2.14.2). The canvas draws
+   * one as a sibling group after the glyph; an export must not gain even the
+   * empty group, or every exported junction figure changes bytes for no pixel.
+   */
+  it("carries no junction dot group, though N2 is a junction", () => {
+    const doc = gored();
+    const inner = diagramInner(doc);
+
+    expect(doc.nodes.find((n) => n.id === "N2")?.type).toBe("junction");
+    expect(inner).not.toContain("node-junction");
+    expect(inner).not.toMatch(CHROME);
+  });
+
   it("draws every free end flat, a gore arm's far end included", () => {
     expect(diagramInner(gored())).toContain(
       '<path class="road-casing" d="M 0 0 L 120 0"',

@@ -9,6 +9,7 @@
  */
 
 import type React from "react";
+import { Fragment } from "react";
 import { nodePos } from "../model/document";
 import {
   Document,
@@ -60,7 +61,6 @@ import {
   markingTeeth,
   markingText,
   markingZebra,
-  nodeDots,
   offsetPolyline,
   padRadius,
   padShape,
@@ -238,20 +238,6 @@ export function Diagram({
       {doc.nodes.map((node) => {
         const p = nodePos(doc, node.id);
         if (!p) return null;
-        if (node.type === "junction") {
-          const jn = doc.layout.junctions[node.id];
-          return (
-            <JunctionGlyphShape
-              key={node.id}
-              node={node}
-              glyph={jn?.glyph ?? "generic"}
-              scale={jn?.scale ?? 1}
-              center={p}
-              arms={junctionArms(doc, node.id, offsets)}
-              interaction={interaction}
-            />
-          );
-        }
         // Shown while it is being edited (ramps §2.12.3). A node no link touches is
         // always shown, or a node just placed is invisible (§2.10.3).
         const shown =
@@ -262,12 +248,33 @@ export function Diagram({
             selectedLink?.to_node === node.id ||
             !doc.links.some((l) => l.from_node === node.id || l.to_node === node.id) ||
             interaction.revealNodes);
+        if (node.type === "junction") {
+          const jn = doc.layout.junctions[node.id];
+          // The dot's group comes **immediately after** the glyph's, which is what
+          // lets `styles.css` reveal it while the pad is hovered
+          // (`.junction:hover + .node`). Canvas only: an export would otherwise
+          // gain an empty group per junction for no pixel (ramps §2.14.2).
+          return (
+            <Fragment key={node.id}>
+              <JunctionGlyphShape
+                node={node}
+                glyph={jn?.glyph ?? "generic"}
+                scale={jn?.scale ?? 1}
+                center={p}
+                arms={junctionArms(doc, node.id, offsets)}
+                interaction={interaction}
+              />
+              {interaction && (
+                <NodeShape node={node} pos={p} shown={shown} interaction={interaction} />
+              )}
+            </Fragment>
+          );
+        }
         return (
           <NodeShape
             key={node.id}
             node={node}
             pos={p}
-            dots={nodeDots(doc, node.id, offsets)}
             shown={shown}
             interaction={interaction}
           />
@@ -1103,22 +1110,18 @@ function arrowTriangle(at: Vec2, dir: Vec2, size: number): string {
 }
 
 /**
- * A graph node, drawn by kind — **once per road through it** rather than once at
- * the node, so a divided road's endpoint is marked on both carriageways instead
- * of in the median between them (ramps spec §2.10, §2.13.4). `dots` is
- * `nodeDots`' answer.
+ * A graph node, drawn by kind — **one dot, at the node**, whatever its roads do
+ * (ramps spec §2.14.1). The dot is the point the human placed on the grid, what a
+ * drag moves (`Canvas.tsx` takes its grab offset from `nodePos`) and where the
+ * link tool's preview starts. A mark on each road end said "this node" once per
+ * road, which read as two nodes wherever a road ends beside its own node — a
+ * carriageway, or a road a lane change has walked over. So neither circle carries
+ * a `cx`/`cy`, and a centred undivided node's markup is what it always was.
  *
- * **One group, whatever the count**, which is what leaves the hit target and the
- * drag exactly as they were: `onNodePointerDown` stays on a single element, and
- * `Canvas.tsx` takes its grab offset from the node's own position rather than
- * from the dot that was pressed. The `transform` therefore stays on `pos` and
- * each circle enters as a displacement from it — a zero displacement emitting
- * **no** `cx`/`cy`, since React writes `cx={0}` as `cx="0"` and a centred
- * undivided node's markup carries neither attribute.
- *
- * The halos come first as a block, not paired with their dots: where two dots
- * overlap — a divided waypoint at a lane drop puts them `4.5` apart — a halo
- * emitted after the first dot would paint over it.
+ * **A junction draws one too**, as a sibling of its glyph rather than inside it,
+ * and only on the canvas (§2.14.2). Radius `4`, the waypoint's, since it sits on
+ * the pad's asphalt, and **no halo**: `JunctionGlyphShape` already rings a selected
+ * or `linkFrom` junction with `jn-halo`, and a second ring would mark it twice.
  *
  * **A dot is an editing mark, so it is gated on `interaction` like every other
  * affordance** (ramps §2.11.1): a schematic draws a fragment of a network, whose
@@ -1135,21 +1138,18 @@ function arrowTriangle(at: Vec2, dir: Vec2, size: number): string {
 function NodeShape({
   node,
   pos,
-  dots,
   shown,
   interaction,
 }: {
   node: Node;
   pos: Vec2;
-  dots: Vec2[];
   shown: boolean;
   interaction?: Interaction;
 }) {
-  const r = node.type === "junction" ? 9 : node.type === "waypoint" ? 4 : 6;
+  const r = node.type === "endpoint" ? 6 : 4;
   const selected = isSelected(interaction?.selection ?? null, "node", node.id);
   const highlight = selected || interaction?.linkFrom === node.id;
   const nse = hairline(interaction);
-  const at = dots.map((d) => ({ cx: d.x - pos.x || undefined, cy: d.y - pos.y || undefined }));
   return (
     <g
       className={`node node-${node.type}${selected ? " is-selected" : ""}${shown ? " is-shown" : ""}`}
@@ -1158,28 +1158,10 @@ function NodeShape({
         interaction && ((e: React.PointerEvent) => interaction.onNodePointerDown(e, node))
       }
     >
-      {highlight &&
-        at.map((d, i) => (
-          <circle
-            key={i}
-            className="node-halo"
-            r={r + 4}
-            cx={d.cx}
-            cy={d.cy}
-            vectorEffect={nse}
-          />
-        ))}
-      {interaction &&
-        at.map((d, i) => (
-          <circle
-            key={i}
-            className="node-dot"
-            r={r}
-            cx={d.cx}
-            cy={d.cy}
-            vectorEffect={nse}
-          />
-        ))}
+      {highlight && node.type !== "junction" && (
+        <circle className="node-halo" r={r + 4} vectorEffect={nse} />
+      )}
+      {interaction && <circle className="node-dot" r={r} vectorEffect={nse} />}
     </g>
   );
 }
