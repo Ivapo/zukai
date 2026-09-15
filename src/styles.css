@@ -415,9 +415,12 @@ body {
   stroke: var(--paint-white);
 }
 
+/* A waypoint joins two roads, so its dot sits on asphalt: an unstroked asphalt
+   fill drew nothing there, even while shown. A white ring reads on the road and
+   stays distinct from the endpoint's paper bead. */
 .node-waypoint .node-dot {
   fill: var(--asphalt);
-  stroke: none;
+  stroke: var(--paint-white);
 }
 
 /* A dot is shown only while its node is being edited (ramps §2.12.3), and a
