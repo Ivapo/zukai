@@ -68,6 +68,16 @@ phases:
     shipped: 2026-09-14
     cut: null
     by: null
+  - name: "Phase 13 — A joint draws one dot per road through it"
+    reviewed: 2026-09-14
+    shipped: null
+    cut: null
+    by: null
+  - name: "Phase 14 — The joint says which side the lanes change on"
+    reviewed: 2026-09-14
+    shipped: null
+    cut: null
+    by: null
 
 extends: null
 supersedes: null
@@ -1421,6 +1431,250 @@ Unchanged:
 dot itself: it is where the human clicks, and a canvas with a bead on every road end
 does not look like the figure it exports.
 
+### 2.13 A lane change is stated at the joint, not on each road (added 2026-09-14, fifth reopening — Phases 13–14)
+
+This section is the fifth reopening
+(`/Users/ivapo/.claude/skills/spec-driven-dev/spec-authoring.md` §6.1). Like the two
+before it, it starts from a picture. The repo owner drew a 1-lane road becoming a
+2-lane road at a waypoint and set one link's alignment, because that is how §2.3 says
+to show the new lane is on the left. The waypoint then drew as two nodes. Their point
+was that a waypoint is meant to be one place where the road's geometry changes, which
+is also what `graph.rs`'s `NodeKind::Waypoint` says.
+
+The cases were rendered on 2026-09-14 in the demo, in WebKit, from hand-written
+documents. Every alignment combination for the sequences below was also enumerated
+against §2.3's shift. A prototype of the design below was then rendered through
+`Diagram` in a throwaway worktree. The numbers are for default 9-unit lanes.
+
+**What §2.3 cannot draw, measured:**
+- **One aligned link is not enough.** With `L1` centred and `L2` aligned either way,
+  the edge that should run straight steps by half a lane (4.5) at the waypoint. Only
+  aligning *both* links to the same edge draws the change on one side. So the one
+  fact "the lane is added on the left" has to be written twice, on two objects that
+  are not the place it happens.
+- **The waypoint splits.** `geometry.ts:nodeDots` draws one dot per distinct arm
+  origin. Aligned links end at different points — a 1-lane road's lane-region centre
+  is 4.5 off the line, a 2-lane road's 9 — so the one node draws two dots 4.5 apart.
+  §2.10.2 foresaw this for a divided lane drop ("four dots") and accepted it. On an
+  undivided road it reads as two nodes, and the report is the evidence that it does.
+- **Some changes cannot be drawn on a straight road at all.** Alignment holds an edge
+  for a link's whole length, so it commits the link at both of its ends. Enumerating
+  all 27 combinations for a lane added on the left and then dropped on the right:
+  - **1 → 2 → 1 has exactly one:** `offside`, `centre`, `nearside`. It draws
+    correctly (rendered), but no one of those three values names the side at either
+    joint, and both waypoints still split.
+  - **2 → 3 → 2 and 3 → 4 → 3 have none.** Each road must sit half a lane (4.5)
+    further over than the one before it. `geometry.ts:alignmentShift` offers a
+    2-lane road only 0 or ±9 and a 3-lane road only 0 or ±13.5, and no triple of
+    those lands all three. Rendered, the best tries draw a step or a jink.
+
+  The only way out is to drag the last nodes off the line by a lane, which is off
+  the grid.
+
+**What was not a defect, so nobody re-opens it:** a divided road's lane change
+already holds the median edge, because `geometry.ts:carriagewayOffset` steps each
+carriageway out by half *its own* width plus half the median. That stays.
+
+#### 2.13.1 The side belongs to the joint (decision, recorded)
+
+**Decision (recorded): a node states which side the lanes change on, and no link
+states an alignment.** `NodeView` gains `lane_change`, which is `nearside` or
+`offside`, and absent means both sides, which is today's centred drawing.
+
+- **It is a fact about one place.** §2.1 was right that nothing in the model says
+  which side a lane goes, and right that it is presentation. It was wrong about which
+  object carries it: two links that share an edge are two statements of one fact,
+  and they can disagree.
+- **Presentation, in `layout.rs`,** for §2.3's first reason unchanged: Assimilator's
+  links carry real polylines, from which the side is a consequence.
+- **On any node, a junction included.** §1's own lane drop happens *at a gore*, which
+  is a junction. The gore node is where the side of that drop is said.
+- **Additive: no `SCHEMA_VERSION` move** (§2.6's table). An older build ignores the
+  key and draws the change on both sides.
+- **The words are the travel frame's**, as the Lane kinds panel's `NEARSIDE` tag
+  already uses them: under `DRIVE_SIDE = 1`, `offside` is left of travel.
+
+#### 2.13.2 Which links continue each other (decision, recorded)
+
+A side only means something between a road arriving at a node and the road it goes on
+as. So the walk in §2.13.3, and the dots in §2.13.4, both need the **through pairs**
+at each node: an arriving link, and the leaving link that continues it. A new pure
+function in `geometry.ts`, `throughPairs(doc)`, returns them for the whole document as a
+map from each arriving link id to the id of the link that continues it.
+
+At node `N`, a **candidate** is a pair `(a, b)` where:
+- `a` arrives at `N` and `b` leaves it, neither being a self-loop;
+- `a.from_node !== b.to_node`. This excludes a reversed twin and any U-turn, and it is
+  the test `Diagram.tsx:tapers` already applies.
+
+Pairs are then taken in two passes:
+1. **Unambiguous:** a candidate whose `a` and `b` belong to no other candidate at `N`
+   is a pair, at any angle. A plain waypoint is this case, and so is each carriageway
+   of a divided waypoint: its twin is excluded above, so it has one continuation.
+2. **By straightness:** the rest are sorted and taken greedily. Each link is used once,
+   and a candidate turning more than `TAPER_MAX_BEND` is never taken.
+   - **The sort key, in order:** the turn, smallest first, compared as the dot product
+     of the two unit travel directions, largest first; then the arriving link's id;
+     then the leaving link's id. Ids compare as strings with `<`. The key never reads
+     a position in `doc.links`, which is what makes the result order-free.
+   - At a gore diverge this pairs the mainline with its continuation, not the ramp.
+   - At a crossroads it pairs each straight-through.
+   - Where one arriving link has two leaving candidates inside `TAPER_MAX_BEND`, the
+     straighter wins. Where they turn by exactly the same angle, the smaller leaving id
+     wins.
+   - At a fan whose roads all turn by more than `TAPER_MAX_BEND`, it pairs nothing.
+
+**Directions come from `document.ts:linkPolyline`**, never from the drawn polyline:
+the drawn polyline depends on the shifts this feeds. A link's direction at `N` is its
+nearest segment to `N` of non-zero length. A bend dragged onto its own node, reachable
+since `zk-014` (§2.10.2), makes the adjacent segment zero-length, so it is skipped. A
+link with no non-zero segment has no direction and is no candidate in the second pass.
+The first pass reads no direction at all.
+
+The result must not depend on `doc.links`' order, which is the property §2.10.2
+pinned for the dots.
+
+#### 2.13.3 Each road is walked from its upstream end (decision, recorded)
+
+A road's lateral shift stops being a property of each link. It is derived by walking
+each chain of through pairs from its head, carrying the edge the joint names.
+
+In each link's own polyline frame, positive is nearside (§2.3). A link shifted by `d`
+has its lane-region edges at `d + h` (nearside) and `d − h` (offside), where
+`h = (roadWidth − ROAD_MARGIN) / 2`. Let `c` be the link's value in
+`geometry.ts:carriageways` — 0 unless it is one carriageway of a divided road.
+
+- **The head** — a link that no pair continues into — keeps `d = c`.
+- **At a carriageway, the walk restarts.** Across a pair `(a, b)` where either link's
+  `c` is non-zero, `d_b = c_b`, whatever `N` states.
+- **Otherwise, across a pair `(a, b)` at `N`,** both `c`s are 0 and `d_b` follows from
+  what `N` states:
+
+| `N`'s `lane_change` | What carries through | `d_b` |
+|---|---|---|
+| absent | the road's centre | `d_a` |
+| `nearside` | the offside edge | `d_a − h_a + h_b` |
+| `offside` | the nearside edge | `d_a + h_a − h_b` |
+
+**Signs, pinned on the report's own road**, eastbound so nearside is `+y`, with
+default lanes:
+- **1 → 2, `offside` at `N2`:** `d_2 = 0 + 4.5 − 9 = −4.5`. `L2`'s nearside edge is at
+  `+4.5`, on `L1`'s, and the new lane opens at `−y`, above the road and left of travel.
+- **1 → 2 → 1, `offside` at `N2`, `nearside` at `N3`:** `d_3 = −4.5 − 9 + 4.5 = −9`.
+  `L3`'s lane region is `[−13.5, −4.5]`, one lane over from `L1`'s `[−4.5, 4.5]`,
+  with its offside edge on `L2`'s. All four nodes stay on `y = 0`.
+- **2 → 3 → 2, the same sides:** `d = 0, −4.5, −9`. This is the change §2.13 shows
+  alignment cannot draw.
+
+The prototype drew the first two exactly so. The third is the same table.
+
+Five things this shape settles:
+- **A document that states no side draws exactly as today, bit for bit.** Every
+  undivided link is a head at `0` or reached by the absent row from one, so its `d` is
+  exactly `0`. Every carriageway is a head at `c` or reached by the restart, so its `d`
+  is exactly `c`. No arithmetic touches either value.
+- **The upstream road stays put and the downstream road moves.** The head is the one
+  place a road can be said to start, and it is local to direction: a side affects only
+  what follows it. Centring the whole chain instead would move a road's start whenever
+  a waypoint far downstream changed.
+- **The walk crosses junctions**, through their through pairs. Stopping at a junction
+  would put a jog in the road at the first junction after every lane change. And the
+  gore of §1 is itself a junction, so stopping there would lose the headline case.
+  **OQ-13**, resolved by the repo owner: carry through.
+- **A divided road ignores `lane_change`, and the walk restarts at it.** "A
+  carriageway" means exactly what `carriageways` draws as one: a non-zero `c`. A link
+  with a reversed twin and a third link on the same node pair is drawn centred, and is
+  treated as undivided here too.
+  - **Why ignore the side:** median-side changes on a divided road were prototyped.
+    Holding the kerb edge through a 2 → 3 lane change on each carriageway runs the
+    two 3-lane carriageways 12 units into each other (`2 × 9 − SCHEMATIC_MEDIAN`). A
+    divided road's only drawable change is at the kerb, which is what `carriageways`
+    already draws. §2.8's divided non-goal stands.
+  - **Why restart rather than carry:** an undivided road with a side stated upstream
+    can continue into one carriageway of a divided road. Carrying its offset in would
+    shift that carriageway and not its twin. The restart puts every carriageway where
+    `carriageways` puts it.
+- **A cycle still terminates.** A chain with no head is walked from its link with the
+  smallest id, not the first in `doc.links`, so the drawing does not depend on the
+  order links were drawn in. The joint that closes the cycle is not enforced, and draws
+  a step if the sides around it disagree.
+
+**Consequences, named rather than discovered:**
+- **A road can end up beside its own nodes.** After a change on the left and a drop
+  on the right, the last road sits half a lane clear of the line its nodes are on.
+  Its dots, and so its hit targets, follow the road (§2.10), and a drag still moves the
+  node and keeps its side, so nothing is lost. It does look different from a road
+  centred on its nodes.
+- **A drag must not drop the side.** `state.ts:moveNode` writes the node's view as
+  `{ pos }` today, which would erase a `lane_change` stored beside it. It has to keep
+  the rest of the view.
+- **A single link can no longer be offset from its own line.** Nothing in the report
+  needs it, and a road's position is its nodes' to give. An aligned lone road was only
+  ever a sub-grid nudge.
+- **Tapers need no change.** `geometry.ts:taperWedges` compares signed offsets, which
+  is exactly what the walk produces. A stated side gives one wedge on that side, and
+  an absent one gives a wedge on each.
+- **Every consumer of the drawn polyline follows for free** — roads, arms, pads, gores,
+  markings, bays and the canvas projections — *if* each is handed the walked record.
+  That is Phase 14's one wiring obligation.
+
+#### 2.13.4 A joint draws one dot per road through it (decision, recorded — Phase 13)
+
+**Decision (recorded): `nodeDots` draws one dot per through pair, at the narrower
+arm's origin, and one per remaining arm at its own origin, as today.**
+- **Narrower, because its origin is on both roads.** Where an edge carries through, or
+  where two roads share a centre, the narrower lane region lies inside the wider one.
+  So the narrower road's centre is on asphalt on both sides of the joint.
+- **Equal widths take the arriving arm's origin.** The rule reads only the pair, never
+  which of its arms `junctionArms` lists first, so the dot cannot follow `doc.links`'
+  order. Under §2.13.3 the two origins coincide anyway. Before it, alignment can put
+  them apart: a 2-lane pair aligned `offside` then `nearside` has origins at `+9` and
+  `−9`.
+- **Emitted in `junctionArms` order.** A pair's dot takes the place of whichever of
+  its two arms comes first there, and a remaining arm takes its own place.
+- **The `SAME_POINT` merge applies to the whole result, as today.** Dots from two
+  different pairs, or from a pair and a remaining arm, that land within `SAME_POINT`
+  are one dot. So a centred crossroads drawn at a waypoint still draws one.
+- **What it changes:** the 1 → 2 waypoint draws one dot, and a divided lane drop draws
+  two where §2.10.2 drew four. A centred straight waypoint already drew one.
+
+Phase 13 ships this ahead of Phase 14, while per-link alignment still exists. Until
+Phase 14 ships, a pair whose two links are aligned differently does not satisfy the
+containment above, and its dot can sit at the edge of the wider road. That lasts one
+phase, and it is no worse than the two dots it replaces.
+
+#### 2.13.5 Per-link alignment goes (decision, recorded — Phase 14)
+
+Two mechanisms for one fact is what this reopening exists to end, so Phase 14 removes
+per-link alignment in the same pass that adds the joint's side. Keeping both for a
+phase would mean a transitional composition written only to be deleted.
+
+What goes:
+- `LinkView.align`, `LinkAlign` and `LinkAlign::is_centre` from both mirrors;
+- `document.ts:linkAlign`, `geometry.ts:alignmentShift`, `geometry.ts:alignmentReading`;
+- `state.ts:setLinkAlign`, the Inspector's Alignment row, and its Lane region readout.
+
+That removes two shipped phases' observables, which is §6.1's step 1. **Phase 2 and
+Phase 9 take `cut` and `by: zk-005` when Phase 14 ships**, with a `## 0.` closing note.
+
+**This departs from the letter of step 1**, which says a removal is never a phase.
+The removal rides inside the phase that replaces it, rather than standing as a phase of
+its own. That is deliberate. The cut dates and the closing note still record what was
+removed and why, which is what the rule protects, and a removal phase standing alone
+would leave the drawing with no way to state a side for a phase.
+- **Phase 9's readout is not kept against the walked shift.** It existed because a
+  per-link control mirrored silently: each road was individually right while the pair
+  drew a ramp through a motorway (§2.11.3). A readout of a number no control on that
+  panel sets is `associated_link`'s lesson (signs spec).
+- **What replaces both:** the side is set on the node, whose two roads are adjacent on
+  the canvas, so a wrong pick shows as a lane opening on the wrong side, where the pick
+  was made.
+
+**An old file's `align` key is ignored, and the road draws centred.** Nothing derives
+`deny_unknown_fields` (`persist.rs:migrate`'s own comment says so), which is the road
+class's removal precedent: a view that carried only `align` saves as `L1: {}`. Whether
+to fold aligned pairs into a node's side on load was **OQ-12**, resolved: no.
+
 ## 3. Open questions
 
 - **OQ-1** — **Taper direction for a lane addition.** §2.4 opens the new lane
@@ -1573,6 +1827,32 @@ does not look like the figure it exports.
   nothing — proposed: no. Hover reveals the node under the pointer, which is exactly
   the one a press would take, and placing a node is not connecting one. Revisit if
   stacked nodes turn up in practice.)
+- **OQ-12 — RESOLVED 2026-09-14 by the repo owner: no migration arm.** An old file's
+  `align` is ignored and the road draws centred, as proposed. ~~Should loading fold an
+  old file's aligned links into a node's side?~~ The original text follows.
+  (added 2026-09-14 with §2.13.5.) Where a node has exactly one through pair and both
+  of its links carry the same non-centre `align`, the side is recoverable: both
+  `nearside` means the offside changed, and both `offside` means the nearside did.
+  That is an arm in `persist.rs:migrate`, which would have to find through pairs in
+  Rust. Every other combination, a lone aligned link included, has no side to recover
+  and draws centred either way. (design-call; blocks Phase 14's scope — proposed: no
+  arm. No release has been cut (`git tag` is empty), and no example, `.zkai` fixture or
+  golden carries `align` (measured). It appears only in test code: three `layout.rs`
+  tests, `model/mod.rs`'s round-trip fixture and its road-class test, and the TypeScript
+  test fixtures. The documents that hold one are the repo owner's own drafts, where
+  re-stating a side at the waypoint is one click. `CLAUDE.md` rules out a field kept only to survive a round
+  trip, and an arm kept only to carry an old one is that rule's neighbour.)
+- **OQ-13 — RESOLVED 2026-09-14 by the repo owner: the walk carries through a
+  junction**, as proposed. ~~Should the walk stop at a junction?~~ The original text
+  follows. (added 2026-09-14 with §2.13.3.)
+  §2.13.3 walks through a junction's through pairs, so a side stated upstream moves the
+  straight road beyond the junction too. The alternative restarts every road at every
+  junction, which draws each junction arm centred on its node, at the price of a jog at
+  the first junction after any lane change. The gore would then need a special case,
+  because §1's lane drop is stated there. (design-call; blocks Phase 14 — proposed:
+  walk through, for the reasons in §2.13.3. Worth a round-0 challenge: at a signalised
+  crossroads the far arm stepping half a lane over is the one place this reads as a
+  decision rather than as the road.)
 
 ## 4. Implementation phases
 
@@ -2605,3 +2885,345 @@ two rounds on 2026-09-14.
     prose; `diagram-export.md` changes a quote in place.
   - **Other:** OQ-11 stays open unless the dev pass says otherwise. Roadmap memory,
     one line. One push.
+
+### Phase 13 — A joint draws one dot per road through it  (added 2026-09-14)
+
+Added by the fifth reopening (§2.13.2, §2.13.4). Depends on no unshipped phase.
+
+*Produces the observable: **the canvas, not a figure**.* A figure carries no dots
+(§2.11.1). The report was a canvas report — one waypoint drawn as two nodes — and the
+through pairs this phase builds are the one piece Phase 14's walk stands on, which is
+why it goes first.
+
+- **Scope:**
+  - **`geometry.ts`:** `throughPairs(doc)`, exported and pure, returning
+    `Map<LinkId, LinkId>` by §2.13.2's two passes, its sort key and its direction rule.
+    It reads directions from `document.ts:linkPolyline`.
+  - **`geometry.ts:nodeDots`:** §2.13.4's rule — the arm it takes, the order it emits,
+    and the whole-result `SAME_POINT` merge. The signature is unchanged, and it may
+    compute only the pairs at the node it is asked about.
+  - **Comments this phase makes false are corrected in place**, and that is the only
+    edit to their code: `geometry.ts:SAME_POINT` ("the lane-drop step this must never
+    merge"), `geometry.ts:jointDiscs` ("as `nodeDots` counts them"), and
+    `Diagram.tsx:NodeShape` ("once per drawn road end").
+  - **Nothing else:** `junctionArms`, `jointDiscs`' behaviour, `Diagram.tsx:tapers`, the
+    model and Rust are untouched.
+- **Exit gate:**
+  - **Checks:** `bun run build` and `bun run test` green; `cargo test` unchanged at 74;
+    `spec-lint` 0 errors.
+  - **`geometry.test.ts`, the pairs.** Every case compares the **whole map**, as
+    `Object.fromEntries(throughPairs(doc))` against the object literal below, never a
+    lookup per node, so a pair appearing anywhere it should not fails. Vitest does not
+    equate a `Map` with a plain object, so the conversion is required.
+    - `N1→N2→N3` gives `{ L1: "L2" }`.
+    - A reversed twin at a free end (`N1→N2`, `N2→N1`) gives `{}`.
+    - The divided lane drop of "draws four dots where a divided road drops a lane at a
+      waypoint" gives exactly `{ L1: "L3", L4: "L2" }`.
+    - A right-angle corner waypoint gives its one pair, by the first pass.
+    - A diverge (one arriving link, a straight continuation, and a ramp 35° off it)
+      pairs the continuation only. The mirror-image merge pairs the mainline only.
+    - Two straight undivided roads crossing at one node pair both straight-throughs.
+    - **Competing candidates:** `A(0,0)→N(360,0)`, with `N→B(720,0)` and
+      `N→C(720,36)`. `C` turns 5.71°, inside `TAPER_MAX_BEND`. The pair is `A`'s link
+      with `B`'s.
+    - **An exact tie:** `A(0,0)→N(360,0)`, with `N→C(720,36)` and `N→D(720,−36)`, and
+      no straight continuation. The turns are equal, and the smaller leaving id wins.
+    - One arriving link with two leaving links, each turned 30°, gives `{}`.
+    - **A bend on its own node, in the second pass:** the diverge above, with the
+      straight continuation carrying one bend placed exactly on `N` and its far node
+      beyond it on the same line. It still pairs with the arriving link, by its next
+      segment's direction. A plain chain would not test this, since the first pass
+      reads no direction.
+    - The diverge, the crossing, the competing case and the tie each give the same map
+      under every permutation of `doc.links`.
+  - **`geometry.test.ts`, the dots:**
+    - "draws four dots where a divided road drops a lane at a waypoint" is **rewritten,
+      not deleted**, to `[{ x: 120, y: 18 }, { x: 120, y: -18 }]` (the 3-lane
+      carriageways' origins, `±(30/2 + 3)`), in `junctionArms` order. Its doc comment
+      says why the pairing is not the clustering it rules out: a pair is topological —
+      which link continues which — so no distance and no order enters it.
+    - A 1 → 2 undivided waypoint with both links `nearside`-aligned draws one dot, at
+      `L1`'s origin (`y = −4.5`), and that point lies inside `L2`'s lane region
+      `[−18, 0]`.
+    - A 2-lane waypoint aligned `offside` then `nearside` draws one dot, at the arriving
+      link's origin (`y = +9`), under both orders of `doc.links`.
+    - "draws two dots where an unevenly split divided road parts by float slack" stops
+      testing `SAME_POINT`, since each pair now yields one dot at any tolerance. Its
+      claim moves to `jointDiscs` on the same fixture, which still merges arm origins:
+      two discs, where `SAME_POINT = 0` gives four, since `distance < 0` merges not even
+      identical points. The doc comment moves with it, and its "three exact origins"
+      count stays asserted first.
+    - "draws the same dots for every order of a three-arm fan" stays green unchanged.
+  - **Shipped tests:** anything else that fails is a finding to stop on.
+  - **Mutations:**
+    - twins not excluded (the reversed-twin case gains `L1: "L2"` and `L2: "L1"` by the
+      first pass, and the divided map gains `L2: "L1"` and `L3: "L4"` at its free ends);
+    - the `TAPER_MAX_BEND` bound dropped (the 30° case fails);
+    - the first pass dropped (the corner case fails);
+    - the sort dropped, taking the first candidate in `doc.links` order (the competing
+      and tie cases fail under permutation);
+    - the direction read off the adjacent segment even when it is zero-length, as the
+      `(0, 0)` that `junctionArms`' `|| 1` idiom yields (the bend-on-its-node case gives
+      `{}`). Written as a bare `0 / 0` instead, the `NaN` dot survives a bound spelled
+      `dot < cos` and is caught only by one spelled `!(dot >= cos)`. So the second pass
+      is written so that a non-finite dot is never taken;
+    - the wider arm's origin taken (the divided case reads `22.5`);
+    - equal widths taking the first arm in `junctionArms` order (the 2-lane
+      `offside`/`nearside` case fails under one of its two orders);
+    - `SAME_POINT` set to 0 (the retargeted `jointDiscs` case fails).
+  - **Figures:** `bun run render-examples` passes unchanged, since dots are chrome.
+  - **Dev pass:** draw 1 → 2 lanes with both links `nearside`, and hover the waypoint:
+    one ring. A divided lane drop under the link tool: two rings, one per carriageway.
+- **Close-out:**
+  - `rules/road-joints.md`: the dots section, one dot per through pair, and the
+    frontmatter `covers:` line, which says "once per drawn road end". Trades prose at
+    268/268.
+  - A dated `CORRECTED` note at the head of §2.10.2. It covers every claim there this
+    phase reverses: "one dot per drawn road end", the four dots at a divided lane drop,
+    "no angle, no mean, no ordering", and the aligned jink drawing two dots.
+  - Roadmap memory, one line. One push.
+
+### Phase 14 — The joint says which side the lanes change on  (added 2026-09-14)
+
+Added by the fifth reopening (§2.13.1, §2.13.3, §2.13.5). Depends on Phase 13's
+`throughPairs`, and it rewrites Phase 13's two alignment-based dot tests (below).
+OQ-12 and OQ-13 are resolved (no migration arm; the walk carries through junctions).
+
+*Produces the observable: **the figure**.* A lane change is drawn on the side the human
+names, at the node where it happens. A road that gains a lane on one side and loses
+one on the other is drawn straight, which today it cannot be for 2 → 3 → 2 (§2.13).
+
+**Sized as one pass deliberately.** Split into "add the side" then "remove alignment",
+the first half changes what `lateralShift` returns, and every alignment test would be
+rewritten twice.
+
+- **Scope, model (both mirrors):**
+  - **`layout.rs`:** `NodeView` gains `lane_change: LaneChange`.
+    - The enum is `Both` (default), `Nearside`, `Offside`, `snake_case`.
+    - The field is `#[serde(default, skip_serializing_if = "LaneChange::is_both")]`.
+    - `NodeView` is `Copy`, so the enum is too.
+  - **`types.ts`:** `LaneChange = "both" | "nearside" | "offside"`, and
+    `NodeView.lane_change?: LaneChange`, absent for `both`.
+  - **Removed from both mirrors:** `LinkView.align` and `LinkAlign`. Rust also loses
+    `LinkAlign::is_centre`; TypeScript loses `document.ts:linkAlign` and
+    `document.ts:DEFAULT_LINK_ALIGN`.
+  - **Compile-forced, listed so they are not a surprise:** every Rust `NodeView { pos }`
+    literal gains the field — `network/import.rs:import` and `model/mod.rs`'s round-trip
+    fixture.
+  - **`SCHEMA_VERSION` stays 3.**
+- **Scope, `geometry.ts`:**
+  - A new pure function returns every link's walked shift by §2.13.3: the head rule,
+    the restart at a carriageway, and the table. It reads `carriageways` and Phase 13's
+    `throughPairs`. `carriageways` itself does not change, so its tests stand.
+  - `lateralShift` returns the walked value.
+  - `alignmentShift`, `alignmentReading` and `AlignmentReading` are removed.
+- **Scope, the one wiring obligation (§2.13.3):** every non-test caller that hands
+  `carriageways(doc)` to a drawing function hands the walked record instead.
+  - That is `Diagram.tsx:Diagram` and two sites in `Canvas.tsx`, `beginBend` and
+    `projectOntoLink`.
+  - A missed `Canvas.tsx` site makes a press on a moved road project onto where the road
+    is not drawn, which no test here can see; the dev pass covers it.
+  - **Two test helpers carry the same obligation:** `Diagram.test.tsx:padR` and
+    `geometry.test.ts`'s `node dots` helper `dots`. Each hands the walked record to
+    `junctionArms` / `nodeDots` instead of `carriageways(doc)`. Otherwise
+    `padR(doc, "N3")` below measures `21.6` rather than `24`, and a dot test passes
+    whether or not the walk is wired. Where a fixture states no side the two records
+    are equal, so every other test's `carriageways` call may stay.
+- **Scope, `state.ts`:**
+  - `setLinkAlign` and its action arm go.
+  - `setNodeLaneChange { id, change }` is added:
+    - it stores `both` as an absent key;
+    - it writes `doc.layout.nodes` only;
+    - it returns `state` unchanged for a node with no layout entry.
+  - **`moveNode` keeps the rest of the node's view.** It writes
+    `{ ...doc.layout.nodes[id], pos }` rather than `{ pos }`, or a drag erases the side
+    (§2.13.3).
+  - The six doc comments citing `setLinkAlign` as the absent-key precedent re-point to
+    `setNodeLaneChange`.
+- **Scope, `Inspector.tsx`:**
+  - The link panel loses its Alignment and Lane region rows.
+  - The node panel gains a "Lanes change on" segmented row (Nearside / Both /
+    Offside), after Type and before `JunctionFields`. It shows on any node, a junction
+    included, that either:
+    - stores a non-`both` side, so a stored side can always be seen and cleared; or
+    - has a through pair whose two links both have a zero `carriageways` value.
+- **Scope, stale doc links, corrected in place:**
+  - `model/mod.rs`'s `SCHEMA_VERSION` comment names `layout::LinkView::align` as the
+    field that needed no bump. It names `layout::NodeView::lane_change` instead.
+  - `decoration.rs`'s `anchor` comment cites `LinkAlign`'s shape. It cites
+    `LaneChange`'s.
+- **Scope, shipped TypeScript tests.** Measured on 2026-09-14 at `0420124`: with
+  `alignmentShift` returning 0, 20 tests fail. More reference a removed symbol and so
+  stop compiling. Phase 13 adds two more. The whole set, by what happens to each:
+  - **Rewritten onto a stated side, with their new literals.** Each fixture drops its
+    `setLinkAlign` actions and states the side with `setNodeLaneChange` instead:
+    - **`Diagram.test.tsx`, `tapers` block:** `laneDrop()` states `nearside` at `N2`.
+      "closes a lane drop with one wedge on the nearside" pins
+      `points="120,19.5 120,10.5 144,10.5"`, and "paints an edge line 1.5 inside the
+      wedge's hypotenuse" measures from `19.5` and `10.5`. `L1` is a head at `0`, and
+      `L2` is at `−4.5`: each value is the old one less 18.
+    - **`Diagram.test.tsx`, gores block:** `exit()` states `nearside` at `N2`. "puts
+      the nose on the mainline's own edge line" pins
+      `class="road-edge" d="M 120 9 L 240 9"` and `nose[1] ≈ 9`. `L2`'s polyline is at
+      `−4.5`, and its nearside edge at `−4.5 + 13.5`.
+    - **`Diagram.test.tsx`, "carries a junction's arms along with the road":**
+      - The fixture becomes `N1(0,0) → N2(120,0) → N3(240,0)`: a 1-lane `L1`, a
+        3-lane `L2`, `offside` stated at `N2`, and `N3` a `signalized_cross`.
+      - `L2`'s casing is `M 120 -9 L 240 -9`, since `d = 0 + 4.5 − 13.5`.
+      - The stop bar is centred at `−9`.
+      - `padR(doc, "N3")` is `24`: a reach of `9 + 15` against a base of `30 × 0.62 + 3 = 21.6`,
+        so the floor still binds.
+    - **`export.test.ts`:**
+      - `tapered()` and `gored()` state `nearside` at `N2`.
+      - "draws every free end flat, a gore arm's far end included" pins
+        `'<path class="road-casing" d="M 0 0 L 120 0"'`.
+      - "needs no allowance of its own — the frame already covers the wedge" keeps its
+        three corners.
+    - **`geometry.test.ts`, `tapers` block:** the `end()` helper takes the signed
+      offset as a number instead of an alignment. It passes `18`, `13.5` and `0` where
+      it passed `offside` on 4 lanes, `offside` on 3, and `centre`. Every corner
+      literal, and the nested `taperEdge` block, stand unchanged. The comparison
+      against `alignmentShift(defaults(4), "offside") * 2` becomes `36`. This keeps
+      §2.4's sign pins, and without it the whole file fails to collect.
+    - **`geometry.test.ts`, "draws the same dots for every order of a three-arm
+      fan":**
+      - Three leaving links cannot carry a side, since each is a head. So each fan road
+        gets its reversed twin instead.
+      - Six origins stand off `N1` by their carriageway offsets, with no through pairs
+        among them.
+      - The test asserts six dots, and one set under all 720 orders of `doc.links`.
+      - Its doc comment's clustering figures ("2, 1, 2, 2, 1, 2") were measured on the
+        old fixture. Remeasure them on the new one, or remove them.
+    - **Phase 13's dot tests:**
+      - The 1 → 2 `nearside`-aligned waypoint becomes a **2 → 1** waypoint stating
+        `offside`. The narrower road is then the downstream one, which only the walk
+        moves: `d = 0, +4.5`. The dot is at `L2`'s origin, `(120, 4.5)`, inside `L1`'s
+        lane region `[−9, 9]`. Unwired, it would read `y = 0`, so the case tests the
+        wiring. (A 1 → 2 case would put the dot on the head's origin at `0` either way.)
+        The `node dots` block's `lay` helper learns to take a node's side for it.
+      - The equal-width `offside`/`nearside` pair has no replacement on an undivided
+        road, since §2.13.3 makes equal-width origins coincide there. It becomes an
+        undivided 2-lane `N1→N2` continuing into one carriageway of a divided 2-lane
+        road `N2⇄N3`. The pair `(L1, L2)` has equal widths and origins `0` and `13.5`.
+        The dots are `{(120, 0), (120, −13.5)}`, as a set, under both orders of the pair.
+    - **`state.test.ts`:** the three `setLinkAlign` cases ("stores centre as no key at
+      all, not as a string", "is one undo step, restoring the alignment the link had
+      before", "creates a layout entry for a link that has none") become the
+      `setNodeLaneChange` cases in the gate.
+  - **Deleted with the mechanism,** since each claim is about per-link alignment
+    itself:
+    - `Diagram.test.tsx`: "draws a centred link exactly where an unaligned one goes",
+      "puts an offside-aligned road's offside edge on its polyline", "mirrors it exactly
+      for nearside", "adds alignment to a carriageway offset rather than replacing it",
+      and "reads a road the way the road is drawn, not the way the enum is spelled".
+      The `link alignment` block goes, apart from the junction case above, which moves
+      out of it.
+    - `geometry.test.ts`: the `alignmentShift` and `alignmentReading` describe blocks,
+      "adds the carriageway offset and the alignment shift, on one link" (the walk's
+      restart case replaces it), and "draws an aligned undivided road's dot off the
+      node".
+  - **Anything else that fails is a finding to stop on.**
+- **Scope, shipped Rust tests, one-for-one, so `cargo test` stays at 74:**
+  - `layout.rs`:
+    - `an_alignment_survives_a_yaml_round_trip` → a `lane_change` round trip;
+    - `a_centred_link_writes_no_align_key_at_all` → a `both` node writes no
+      `lane_change` key;
+    - `a_file_without_the_field_loads_as_centre` → a node without the key loads as
+      `Both`.
+  - `model/mod.rs`:
+    - the round-trip fixture carries `lane_change: Offside` on a node instead of an
+      alignment on `L1`;
+    - `a_zkai_saved_with_a_road_class_still_loads_and_writes_none` keeps
+      `align: offside` in its input YAML, expects `LinkView` with empty `bends`, and
+      asserts the output carries no `align`.
+- **Exit gate:**
+  - **Checks:**
+    - `bun run build` and `bun run test` green;
+    - `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings` clean;
+    - `cargo test` green at **74**;
+    - `spec-lint` 0 errors.
+  - **`geometry.test.ts`, the walk.** Offsets are asserted as signed `d`, and the
+    sign-bearing ones also as drawn `y`, never as magnitudes (§2.3). Default lanes
+    throughout.
+    - **With no side stated,** the walked record `toEqual`s `carriageways(doc)` exactly
+      on: a straight chain, the divided lane drop, §1's exit through a gore, and a
+      crossroads.
+    - **1 → 2 eastbound, `offside` at `N2`:** `d = 0, −4.5`. `L2`'s drawn nearside edge
+      line lies at the same `y` as `L1`'s, and its offside edge line lies 9 further
+      toward `−y`. With `nearside`: `d = 0, +4.5`, and the offside edge lines share a
+      `y`.
+    - **1 → 2 → 1, `offside` then `nearside`:** `d = 0, −4.5, −9`, and `L3`'s offside
+      edge line lies at `L2`'s `y`.
+    - **2 → 3 → 2, `offside` then `nearside`:** `d = 0, −4.5, −9`. This is the case
+      §2.13 shows alignment cannot draw.
+    - **§1's exit, `nearside` at the gore:** `L2`'s offside edge equals `L1`'s, and the
+      ramp `L3` keeps `d = 0`.
+    - **The divided lane drop with `offside` at `N2`** still equals `carriageways(doc)`.
+    - **The restart:**
+      - The fixture: a 1-lane `N1→N2`, a 2-lane `N2→N3` with `offside` at `N2`, then a
+        divided 2-lane `N3⇄N4`.
+      - The result is `d = 0, −4.5`, and then `13.5` for both carriageways. Carried
+        instead, the first carriageway would come out at `−4.5`.
+    - **A cycle:**
+      - The fixture: `N1(0,0) → N2(120,0) → N3(60,104) → N1`, with `L1` 1 lane, `L2`
+        2 lanes, `L3` 1 lane, and `offside` at `N2`.
+      - The record is `{ L1: 0, L2: −4.5, L3: −4.5 }` under every rotation of
+        `doc.links`, since the walk starts from `L1`, the smallest id.
+    - **A side stated upstream of a crossroads** carries to its straight-through on the
+      far side (OQ-13).
+  - **`Diagram.test.tsx`:** the rewritten literals above, and a 1 → 2 waypoint stating
+    `offside` draws exactly one `road-taper`, on the offside.
+  - **`state.test.ts`:**
+    - `setNodeLaneChange` writes the key, clears it to absent for `both`, is one undo
+      step, and leaves `doc.layout.links` identical by reference.
+    - A `moveNode` after it keeps `lane_change`.
+  - **Rust:**
+    - `lane_change` round-trips;
+    - an absent key loads as `Both` and is not written;
+    - a file carrying a link's `align` loads and writes no `align`;
+    - that last test asserts `SCHEMA_VERSION` is 3, so the removal is decided rather
+      than overlooked.
+  - **Figures:** `bun run render-examples` passes with the landing figures
+    byte-identical, since no example states either field.
+  - **Mutations:**
+    - the `nearside` and `offside` rows swapped (the 1 → 2 drawn-`y` case fails);
+    - the restart dropped, so the table applies at a carriageway (the restart case
+      fails);
+    - the walk stopped at junctions (the gore case fails);
+    - `moveNode` writing `{ pos }` (the drag case fails);
+    - a head taking `0` instead of its `c` (the divided equality fails).
+  - **Dev pass:**
+    - Draw a 1 → 2 lane road and set Offside at the waypoint. The lane opens on the
+      left of travel, and one ring shows.
+    - Drag that waypoint. The lane stays on the left.
+    - Extend it 2 → 1 with Nearside at the new waypoint. The nodes stay on one line.
+    - On the moved road, place a marking and bend the road. Both land on the drawn
+      road, which is the check on the `Canvas.tsx` sites.
+    - The link panel has no Alignment row.
+    - Open a `.zkai` carrying `align`. It loads, draws centred, and shows no banner.
+- **Close-out:**
+  - **Spec:**
+    - Phase 2 and Phase 9 take `cut: <ship date>` and `by: zk-005`, with a `## 0.`
+      closing note at the top of this file that says why (§2.13.5).
+    - Dated `CORRECTED` notes beside §1's usage example, §2.3, §2.11.3 and OQ-5.
+    - The frontmatter `note` points at §0.
+  - **Rules.** Budgets are measured, not assumed; a `RULE_OVER_CAP` is only a warning,
+    so read the report:
+    - **`rules/road-rendering.md`** (274/284): its `covers:` line, its Alignment section
+      (which becomes the side a road's lanes change on), the opening "one model
+      addition" sentence, "the one thing genuinely added to draw the road", and the
+      where-it-lives lists (`alignmentShift`/`alignmentReading`, `setLinkAlign`,
+      `LinkView.align`/`linkAlign`).
+    - **`rules/document-model.md`** (144/144, trades prose): `LinkView.align`'s three
+      mentions — the optional-field example, the version-1 history, and the
+      `is_centre` predicate example.
+    - **`rules/road-joints.md`** (at its cap after Phase 13, trades prose): the taper
+      section's "either alignment", and the joint-disc section's "a knob on an aligned
+      T".
+    - **`rules/road-markings.md`** (280/280, trades prose): Placement's "the alignment
+      shift" becomes the walked shift, and "`LinkAlign`'s shape" becomes
+      `LaneChange`'s.
+    - **`rules/junctions.md`** (215/215) and **`rules/signs.md`**: each lists
+      `LinkView.align` among the one-representation examples. Re-point each to
+      `NodeView.lane_change`.
+  - **Other:** `CLAUDE.md` none needed. Roadmap memory, one line. One push.
