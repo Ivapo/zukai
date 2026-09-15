@@ -4,9 +4,9 @@ import {
   Document,
   Junction,
   Lane,
+  LaneChange,
   Layout,
   Link,
-  LinkAlign,
   LinkId,
   Marking,
   MarkingId,
@@ -24,8 +24,6 @@ export const DEFAULT_SPEED_LIMIT = 13.88888888888889;
 export const DEFAULT_LANE_WIDTH = 3.5;
 /** Default gap to the opposing carriageway, metres. */
 export const DEFAULT_MEDIAN_GAP = 0.5;
-/** How a link is drawn when nothing says otherwise: centred on its polyline. */
-export const DEFAULT_LINK_ALIGN: LinkAlign = "centre";
 
 /** An empty document at the current schema version. */
 export function emptyDocument(name: string): Document {
@@ -198,12 +196,12 @@ export function linkPolyline(doc: Document, link: Link): Vec2[] | undefined {
 }
 
 /**
- * Which of a link's edges stays on its polyline. Absent means centred — the way
- * every road was drawn before alignment existed, and the way Rust writes a
- * centred link back (the `align` key is elided).
+ * Which side a road's lanes change on at a node. Absent means `both` — the way
+ * every road was drawn before the side existed, and the way Rust writes such a
+ * node back (the `lane_change` key is elided).
  */
-export function linkAlign(doc: Document, id: LinkId): LinkAlign {
-  return doc.layout.links[id]?.align ?? DEFAULT_LINK_ALIGN;
+export function laneChange(doc: Document, id: NodeId): LaneChange {
+  return doc.layout.nodes[id]?.lane_change ?? "both";
 }
 
 /**

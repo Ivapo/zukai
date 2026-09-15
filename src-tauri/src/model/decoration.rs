@@ -22,7 +22,7 @@ pub struct Marking {
     /// Which end of the link [`position`](Self::position) is measured from.
     ///
     /// Elided when `start`, so every document written before this field existed
-    /// loads and saves byte-for-byte as it did — [`LinkAlign`](super::layout::LinkAlign)'s
+    /// loads and saves byte-for-byte as it did — [`LaneChange`](super::layout::LaneChange)'s
     /// shape, for its reason.
     #[serde(default, skip_serializing_if = "LinkEnd::is_start")]
     pub anchor: LinkEnd,

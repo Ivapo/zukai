@@ -30,10 +30,10 @@ import {
   bandAt,
   bendInsertion,
   boundaryAt,
-  carriageways,
   drawnPolyline,
   gridPattern,
   laneBands,
+  lateralShifts,
   nearestOnPolyline,
   polylineLength,
   screenToWorld,
@@ -293,7 +293,7 @@ export function Canvas({ state, dispatch }: CanvasProps) {
     const link = findLink(doc, press.link);
     if (!link) return;
     const layout = linkPolyline(doc, link);
-    const drawn = drawnPolyline(doc, link, carriageways(doc));
+    const drawn = drawnPolyline(doc, link, lateralShifts(doc));
     if (!layout || !drawn) return;
     const at = bendInsertion(
       layout,
@@ -323,7 +323,7 @@ export function Canvas({ state, dispatch }: CanvasProps) {
    * everything one needs, which is what keeps placement from growing a dialog:
    *
    * - **how far along** — an arc-length on the polyline the road is actually
-   *   *drawn* along, carriageway offset and alignment included, divided by
+   *   *drawn* along, carriageway offset and lane-change shift included, divided by
    *   `UNITS_PER_METRE` because `Marking.position` is metres (§2.2);
    * - **which lane** — that same click's **signed** lateral offset, matched
    *   against the lane bands. Outside every band (the casing lip, or the fat
@@ -363,7 +363,7 @@ export function Canvas({ state, dispatch }: CanvasProps) {
     span: "band" | "boundary" | "none",
     anchor?: LinkEnd,
   ): { position: number; lane?: LaneIdx } | null {
-    const points = drawnPolyline(doc, link, carriageways(doc));
+    const points = drawnPolyline(doc, link, lateralShifts(doc));
     if (!points || points.length < 2) return null;
     const { along, offset } = nearestOnPolyline(points, worldPoint(e));
     const bands = laneBands(link.lanes);

@@ -299,16 +299,11 @@ describe("lane kinds", () => {
   });
 });
 
-describe("link alignment", () => {
-  /** `L1`'s layout entry, which alignment is stored on. */
-  function view(state: EditorState) {
-    return state.doc.layout.links.L1;
-  }
-
+describe("link layout entries", () => {
   /**
-   * A new link gets **no** layout entry: a straight centred road is what an
-   * absent one draws, and `{}` would save as `L1: {}` — bytes that say nothing
-   * (road declutter §2.3).
+   * A new link gets **no** layout entry: a straight road is what an absent one
+   * draws, and `{}` would save as `L1: {}` — bytes that say nothing (road
+   * declutter §2.3).
    */
   it("mints no layout entry for a link it creates", () => {
     const linked = twoNodesLinked();
@@ -316,52 +311,82 @@ describe("link alignment", () => {
     expect(linked.doc.links.map((l) => l.id)).toEqual(["L1"]);
     expect("L1" in linked.doc.layout.links).toBe(false);
   });
+});
+
+describe("node lane change", () => {
+  /** `N2`'s layout entry, which the side is stored on. */
+  function view(state: EditorState) {
+    return state.doc.layout.nodes.N2;
+  }
 
   /**
-   * `centre` is stored as an *absent* `align`, the same rule `setLaneKind`
-   * follows for `general`: it is what a fresh link carries and what Rust writes
-   * back (`skip_serializing_if = "LinkAlign::is_centre"`), so a second encoding
-   * of a centred link would differ by document identity while saving to the
-   * same bytes.
+   * `both` is stored as an *absent* `lane_change`, the same rule `setLaneKind`
+   * follows for `general`: it is what every node carries until a side is stated
+   * and what Rust writes back (`skip_serializing_if = "LaneChange::is_both"`), so
+   * a second encoding would differ by document identity while saving to the same
+   * bytes.
    */
-  it("stores centre as no key at all, not as a string", () => {
-    const back = run(
-      twoNodesLinked(),
-      { type: "setLinkAlign", id: "L1", align: "nearside" },
-      { type: "setLinkAlign", id: "L1", align: "centre" },
-    );
+  it("writes the side, and stores both as no key at all", () => {
+    const set = reducer(twoNodesLinked(), {
+      type: "setNodeLaneChange",
+      id: "N2",
+      change: "offside",
+    });
+    expect(view(set)).toEqual({ pos: { x: 10, y: 0 }, lane_change: "offside" });
+    expect(set.dirty).toBe(true);
 
-    expect(view(back).align).toBeUndefined();
-    expect("align" in view(back)).toBe(false);
-    // …and the entry the first call minted is left empty, not deleted.
-    expect(view(back)).toEqual({});
+    const back = reducer(set, { type: "setNodeLaneChange", id: "N2", change: "both" });
+    expect(view(back).lane_change).toBeUndefined();
+    expect("lane_change" in view(back)).toBe(false);
+    expect(view(back)).toEqual({ pos: { x: 10, y: 0 } });
   });
 
-  it("is one undo step, restoring the alignment the link had before", () => {
+  /**
+   * One undo step each, and nothing but the node's view is written: a side is a
+   * fact about the node, so the links' layout survives **by reference**.
+   */
+  it("is one undo step, and leaves the links' layout identical", () => {
+    const before = twoNodesLinked();
     const flipped = run(
-      twoNodesLinked(),
-      { type: "setLinkAlign", id: "L1", align: "nearside" },
-      { type: "setLinkAlign", id: "L1", align: "offside" },
+      before,
+      { type: "setNodeLaneChange", id: "N2", change: "nearside" },
+      { type: "setNodeLaneChange", id: "N2", change: "offside" },
     );
-    expect(view(flipped).align).toBe("offside");
+    expect(view(flipped).lane_change).toBe("offside");
+    expect(flipped.doc.layout.links).toBe(before.doc.layout.links);
+    expect(flipped.doc.links).toBe(before.doc.links);
 
     const once = reducer(flipped, { type: "undo" });
-    expect(view(once).align).toBe("nearside");
+    expect(view(once).lane_change).toBe("nearside");
 
-    // Back to the link as `completeLink` left it — with no layout entry at all.
     const twice = reducer(once, { type: "undo" });
-    expect(view(twice)).toBeUndefined();
+    expect(view(twice)).toEqual({ pos: { x: 10, y: 0 } });
   });
 
-  /** A link with no layout entry — every new or imported one — still aligns. */
-  it("creates a layout entry for a link that has none", () => {
-    const bare = twoNodesLinked();
-    expect(view(bare)).toBeUndefined();
+  /** A node with no layout entry has no place to state a side at. */
+  it("returns the state itself for a node with no layout entry", () => {
+    const linked = twoNodesLinked();
+    const { N2: _dropped, ...nodes } = linked.doc.layout.nodes;
+    const bare: EditorState = {
+      ...linked,
+      doc: { ...linked.doc, layout: { ...linked.doc.layout, nodes } },
+    };
 
-    const set = reducer(bare, { type: "setLinkAlign", id: "L1", align: "offside" });
+    expect(reducer(bare, { type: "setNodeLaneChange", id: "N2", change: "offside" })).toBe(bare);
+  });
 
-    expect(view(set)).toEqual({ align: "offside" });
-    expect(set.dirty).toBe(true);
+  /**
+   * `moveNode` writes the node's whole view back with a new `pos`. Written as
+   * `{ pos }`, every drag would silently erase the side (ramps §2.13.3).
+   */
+  it("survives a drag of the node", () => {
+    const moved = run(
+      twoNodesLinked(),
+      { type: "setNodeLaneChange", id: "N2", change: "offside" },
+      { type: "moveNode", id: "N2", pos: { x: 48, y: 12 } },
+    );
+
+    expect(view(moved)).toEqual({ pos: { x: 48, y: 12 }, lane_change: "offside" });
   });
 });
 
@@ -709,7 +734,7 @@ describe("markings", () => {
   /**
    * `lane` absent means the whole carriageway, and is **omitted** rather than
    * stored as `undefined` — the one-representation rule `setLaneKind` follows for
-   * `general` and `setLinkAlign` for `centre`, matching Rust's
+   * `general` and `setNodeLaneChange` for `both`, matching Rust's
    * `skip_serializing_if = "Option::is_none"`.
    */
   it("stores a carriageway-wide marking as no lane key at all", () => {

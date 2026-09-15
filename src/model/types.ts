@@ -168,12 +168,13 @@ export interface Vec2 {
 }
 
 /**
- * Which of a link's own edges stays put on its polyline — `centre` (the
- * default) draws the road centred on it, as every road was drawn before this
- * existed. Aligning to an edge is what lets two links of different widths meet
- * at a node sharing that edge, which is what a lane drop looks like.
+ * Which side a road's lanes change on where it runs through a node, in the
+ * road's own travel frame — `both` (the default) keeps the road centred, so a
+ * change shows on each side, as every road was drawn before this existed.
+ * `nearside` holds the offside edge straight through the node and `offside` the
+ * nearside one (ramps spec §2.13.1).
  */
-export type LinkAlign = "centre" | "nearside" | "offside";
+export type LaneChange = "both" | "nearside" | "offside";
 
 /**
  * The symbol used to render a junction.
@@ -196,16 +197,16 @@ export type JunctionGlyph =
 /** Where a node sits on the canvas. */
 export interface NodeView {
   pos: Vec2;
+  /** Absent means `both`; Rust elides the key for a node that states no side. */
+  lane_change?: LaneChange;
 }
 
 /**
  * How a link is placed and routed. Every field is optional and so is the view
- * itself: a straight centred road has none, and nothing creates one until an
- * alignment or a bend is set. There is no road class (road declutter §2.2).
+ * itself: a straight road has none, and nothing creates one until a bend is
+ * set. There is no road class (road declutter §2.2).
  */
 export interface LinkView {
-  /** Absent means `centre`; Rust elides the key for a centred link. */
-  align?: LinkAlign;
   bends?: Vec2[];
 }
 

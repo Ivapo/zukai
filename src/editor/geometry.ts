@@ -4,7 +4,7 @@ import {
   DEFAULT_LANE_WIDTH,
   findLink,
   findNode,
-  linkAlign,
+  laneChange,
   linkPolyline,
   nodeNeighbours,
   nodePos,
@@ -14,7 +14,6 @@ import {
   Lane,
   LaneIdx,
   Link,
-  LinkAlign,
   LinkEnd,
   LinkId,
   LineStyle,
@@ -252,81 +251,6 @@ export function roadWidth(lanes: Lane[]): number {
 }
 
 /**
- * How far a link steps sideways to hold one of its own edges on its polyline,
- * in the same signed frame {@link offsetPolyline} takes — so it *adds* to the
- * carriageway offset rather than competing with it.
- *
- * **It is the lane region's half-span, not `roadWidth / 2`.** `ROAD_MARGIN` is
- * the casing lip, not a lane, so aligning "to an edge" means aligning the edge a
- * reader sees: the outermost painted line. Using the full width instead leaves a
- * half-lip step at every joint — 1.5 units of casing, small enough to look like
- * an antialiasing artefact and never be diagnosed.
- *
- * **The sign is derived, not chosen.** Lane 0 is the nearside lane and
- * {@link laneBands} gives it the most *positive* offset, so the nearside edge of
- * an unaligned road is at `+(roadWidth - ROAD_MARGIN) / 2`. Holding an edge *on*
- * the polyline means shifting the road by whatever brings that edge to zero — so
- * `offside` shifts **positive** and an offside-aligned road hangs to the
- * nearside of its own polyline, with `nearside` the mirror.
- */
-export function alignmentShift(lanes: Lane[], align: LinkAlign): number {
-  if (align === "centre") return 0;
-  const half = (roadWidth(lanes) - ROAD_MARGIN) / 2;
-  return align === "offside" ? half : -half;
-}
-
-/** What {@link alignmentShift} does to a road, said in the drawing's own terms. */
-export interface AlignmentReading {
-  /**
-   * Which side of its own polyline the lane region sits on, **in the road's own
-   * travel frame** — `on` when it straddles the line. Never a side of the
-   * screen: `+18` moves an eastbound road down and a westbound one up.
-   */
-  side: "left" | "right" | "on";
-  /** How far off the line, in canvas units. Always `>= 0`. */
-  offset: number;
-}
-
-/**
- * The Inspector's reading of a link's alignment: which way its lanes hang, and
- * how far (ramps spec §2.11.3).
- *
- * **Its whole reason for existing away from the panel is that the panel cannot
- * be tested** — this repo has no `Inspector.test.tsx`, a standing property
- * recorded in three rules, so a reading computed inline is a reading no test can
- * read. Same argument that lifted `turnArrowKind` out of it. The panel renders
- * this and decides nothing.
- *
- * **The frame is travel, not the screen, and it has to be.** This function is
- * as direction-blind as {@link alignmentShift} — it never sees a polyline, so it
- * could not answer a screen-frame question — and since a link carries `bends` a
- * bent road has no single "below" anyway, while `right of travel` is one answer
- * for the whole road. The canvas states which way that is, with the arrow head
- * `RoadShape` paints halfway along the selected link — the only link this reading
- * is ever shown for.
- *
- * `side` is nothing but the **sign** of the shift, which §2.3 already pins:
- * under `DRIVE_SIDE = 1` a positive offset draws to the visual right of travel,
- * so `offside` reads `right` and `nearside` `left` with no second derivation.
- *
- * Branching on the shift rather than on `align === "centre"` costs nothing and
- * is honest about a road that is centred without saying so: a lane region of no
- * width does not move, whichever edge it claims to hold. (An *empty* `lanes` is
- * not that road — it stands for one default lane, as it does everywhere else in
- * this file. It takes a lane of literally zero width, which no control can
- * author and only a hand-written document holds.)
- */
-export function alignmentReading(
-  lanes: Lane[],
-  align: LinkAlign,
-): AlignmentReading {
-  const shift = alignmentShift(lanes, align);
-  // `-0 === 0`, so a negated zero lands here rather than reading `left`.
-  if (shift === 0) return { side: "on", offset: 0 };
-  return { side: shift > 0 ? "right" : "left", offset: Math.abs(shift) };
-}
-
-/**
  * How far a taper wedge runs along the inset link, in world units.
  *
  * A build constant in the manner of {@link SCHEMATIC_MEDIAN}, not a converted
@@ -377,8 +301,9 @@ export const MITER_LIMIT = 4;
 /**
  * How close two casing-edge offsets must be to count as the same edge.
  *
- * The pairs that *should* agree do agree exactly today — two `offside`-aligned
- * roads both put that edge on the polyline, and five lanes of 2.8 m and four of
+ * The pairs that *should* agree do agree exactly today — the walk in
+ * {@link lateralShifts} carries an edge through a joint by adding and
+ * subtracting the same two half-spans, and five lanes of 2.8 m and four of
  * 3.5 m both draw exactly 39 wide. This is a tolerance rather than `===` because nothing guarantees that
  * of a document whose lanes carry arbitrary widths, and because the alternative
  * is worse than a missed wedge: a step below 1e-6 world units would emit a
@@ -456,8 +381,8 @@ export function taperWedge(
  * as *signed lateral offsets* — `offset ± width / 2`, the numbers the drawing
  * itself is built from, never world points:
  *
- * - equal ⇒ nothing to draw (aligning both links to that side is exactly what
- *   makes them equal);
+ * - equal ⇒ nothing to draw (a lane change stated on the other side is exactly
+ *   what makes them equal);
  * - otherwise the **inset** end is the one nearer the road's other side — the
  *   smaller value on the nearside, the larger on the offside — and the wedge
  *   runs from the joint along it. There is no tie to break: a tie *is* equality.
@@ -567,7 +492,7 @@ export interface GoreArm {
   outbound: boolean;
   /**
    * Half the **lane region's** span — `(roadWidth - ROAD_MARGIN) / 2`, the same
-   * quantity {@link alignmentShift} holds an edge at, and exactly `RoadShape`'s
+   * quantity a lane change holds an edge at ({@link lateralShifts}), and exactly `RoadShape`'s
    * `edgeInset`. A gore is paint bounded by the roads' *painted* edges, not
    * asphalt bounded by their casing rims the way a taper wedge is, so its legs
    * are literal continuations of the two edge lines either side of it.
@@ -1061,15 +986,17 @@ export function offsetPolyline(points: Vec2[], d: number): Vec2[] {
 
 /**
  * The polyline a link is *drawn* along: its layout polyline, stepped sideways by
- * **two** lateral terms — the carriageway offset of a divided road, and the
- * shift that holds an aligned link's own edge on the polyline. Identical to the
- * layout polyline — the same array, not a copy — for a centred link with no
- * opposing twin, which is every link in a document that has set neither.
+ * its lateral shift — the carriageway offset of a divided road, or wherever the
+ * lane changes upstream of it have carried an undivided road
+ * ({@link lateralShifts}). Identical to the layout polyline — the same array, not
+ * a copy — for a link shifted by exactly 0, which is every undivided link in a
+ * document that states no side.
  *
- * **They compose by addition, and this is the only site that knows it.** The
- * roads, the junction arms and (through `Arm.origin`) the junction interiors all
- * inherit both from here, so nothing else has to learn about alignment — and the
- * roads and the arms cannot come to disagree about where a road runs.
+ * **`offsets` must be the walked record**, {@link lateralShifts}, wherever a
+ * drawing is made from it. {@link carriageways} is the same record only where no
+ * node states a side. The roads, the junction arms and (through `Arm.origin`) the
+ * junction interiors all inherit the shift from here, so the roads and the arms
+ * cannot come to disagree about where a road runs.
  *
  * Lives here rather than in `Diagram.tsx`, where it started, because placing a
  * marking means putting it on the polyline the road is *actually drawn along*
@@ -1082,29 +1009,22 @@ export function drawnPolyline(
   offsets: Record<LinkId, number>,
 ): Vec2[] | undefined {
   const pts = linkPolyline(doc, link);
-  const d = lateralShift(doc, link, offsets);
+  const d = lateralShift(link, offsets);
   if (!pts || d === 0) return pts;
   return offsetPolyline(pts, d);
 }
 
 /**
- * The sum of the two lateral terms, in the link's own polyline frame — the `d`
- * {@link drawnPolyline} applies.
+ * A link's lateral shift, in its own polyline frame — the `d`
+ * {@link drawnPolyline} applies, read off the walked record.
  *
  * Its own function because the taper rule compares these as **signed offsets**
- * rather than as world points (ramps spec §2.4), and a second derivation of the
+ * rather than as world points (ramps spec §2.4), and a second reading of the
  * same number is exactly how the drawing and the rule that measures it come to
  * disagree.
  */
-export function lateralShift(
-  doc: Document,
-  link: Link,
-  offsets: Record<LinkId, number>,
-): number {
-  return (
-    (offsets[link.id] ?? 0) +
-    alignmentShift(link.lanes, linkAlign(doc, link.id))
-  );
+export function lateralShift(link: Link, offsets: Record<LinkId, number>): number {
+  return offsets[link.id] ?? 0;
 }
 
 /** An arm meeting a junction, as drawn. */
@@ -1116,10 +1036,10 @@ export interface Arm {
   dir: Vec2;
   /**
    * Where that carriageway actually meets the node, in **world** units — the
-   * node position stepped off by {@link lateralShift}, so **both** of its terms
-   * move this point: the carriageway offset of a divided pair, and the shift an
-   * aligned link takes to hold its own edge on the polyline. Only a centred link
-   * with no opposing twin has its origin *at* the node. A glyph's own group is
+   * node position stepped off by {@link lateralShift}, so a divided pair's
+   * carriageway offset moves this point, and so does a lane change stated
+   * upstream of an undivided road. Only a link shifted by exactly 0 has its
+   * origin *at* the node. A glyph's own group is
    * translated to the node, so an interior detail drawn from this has to enter as
    * `origin - center`.
    */
@@ -1313,6 +1233,73 @@ export function throughPairs(doc: Document): Map<LinkId, LinkId> {
     for (const [a, b] of pairsAt(doc, node.id)) pairs.set(a.id, b.id);
   }
   return pairs;
+}
+
+/**
+ * How far each link steps sideways before it is drawn, keyed by link id — the
+ * record every drawing is made from (ramps spec §2.13.3). Every link gets an
+ * entry, as in {@link carriageways}.
+ *
+ * **A road's shift is walked, not stated.** Each chain of {@link throughPairs} is
+ * followed from its head — a link nothing continues into — which keeps its
+ * {@link carriageways} value `c`. Across each pair `(a, b)` at node `N`:
+ * - if either link is one carriageway of a divided road (`c ≠ 0`), the walk
+ *   restarts and `b` takes its own `c`. A divided road's only drawable change is
+ *   at the kerb, which `carriageways` already draws, and carrying an upstream
+ *   offset in would move one carriageway and not its twin;
+ * - otherwise `N`'s {@link laneChange} says what carries through, with `h` each
+ *   link's lane-region half-span: `both` the centre (`d_a`), `nearside` the
+ *   offside edge (`d_a − h_a + h_b`), `offside` the nearside edge
+ *   (`d_a + h_a − h_b`). Positive is nearside, so a road's edges sit at `d ± h`.
+ *
+ * The upstream road stays put and the downstream one moves, so a side affects
+ * only what follows it. The walk crosses junctions through their pairs, since
+ * §1's own lane drop happens at a gore.
+ *
+ * **A document that states no side draws exactly as before, bit for bit**: no
+ * arithmetic touches a value that is carried unchanged or restarted.
+ *
+ * A chain with no head is a cycle, and is walked from its smallest link id, not
+ * from its first in `doc.links`, so the drawing does not depend on the order the
+ * links were drawn in. The joint closing the cycle is not enforced.
+ */
+export function lateralShifts(doc: Document): Record<LinkId, number> {
+  const c = carriageways(doc);
+  const next = throughPairs(doc);
+  const byId = new Map(doc.links.map((l) => [l.id, l]));
+  const halfSpan = (l: Link) => (roadWidth(l.lanes) - ROAD_MARGIN) / 2;
+  const shifts: Record<LinkId, number> = {};
+
+  const walk = (head: Link) => {
+    shifts[head.id] = c[head.id];
+    let a = head;
+    for (;;) {
+      const b = byId.get(next.get(a.id) ?? "");
+      // `next` is one-to-one, so a visited link can only be this cycle's start.
+      if (!b || b.id in shifts) return;
+      const d = shifts[a.id];
+      if (c[a.id] !== 0 || c[b.id] !== 0) shifts[b.id] = c[b.id];
+      else {
+        const side = laneChange(doc, a.to_node);
+        shifts[b.id] =
+          side === "nearside"
+            ? d - halfSpan(a) + halfSpan(b)
+            : side === "offside"
+              ? d + halfSpan(a) - halfSpan(b)
+              : d;
+      }
+      a = b;
+    }
+  };
+
+  const continued = new Set(next.values());
+  for (const link of doc.links) if (!continued.has(link.id)) walk(link);
+  // Whatever is left lies on a cycle. In id order, the first unvisited link of
+  // each cycle is its smallest.
+  const rest = doc.links.filter((l) => !(l.id in shifts)).map((l) => l.id);
+  rest.sort((x, y) => (x < y ? -1 : x > y ? 1 : 0));
+  for (const id of rest) if (!(id in shifts)) walk(byId.get(id)!);
+  return shifts;
 }
 
 /**
@@ -2018,7 +2005,7 @@ export interface BendInsertion {
  * (link bends spec §2.6).
  *
  * **The two frames are not the same road, and that is the whole reason this
- * exists.** A divided or aligned link is drawn `lateralShift` off its layout
+ * exists.** A divided or side-shifted link is drawn `lateralShift` off its layout
  * polyline, so storing the raw pointer position steps the road sideways the
  * instant a bend is minted. Worse, the two put an interior vertex at *different
  * fractions* of arc length, because offsetting lengthens the outer segment and
@@ -3200,7 +3187,7 @@ function boundaryOffset(
  * not a `lane_line`, an unknown `link`, a link with no drawable polyline, and a
  * `lane` naming no boundary (see {@link boundaryOffset}). It is
  * {@link drawnPolyline} the line is offset from, so it inherits the carriageway
- * offset and the alignment shift like every other thing drawn on a road.
+ * offset and a lane change's shift like every other thing drawn on a road.
  */
 export function laneLine(
   doc: Document,

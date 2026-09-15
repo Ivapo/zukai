@@ -10,9 +10,9 @@ import {
   JunctionGlyph,
   JunctionView,
   Lane,
+  LaneChange,
   LaneIdx,
   Link,
-  LinkAlign,
   LinkEnd,
   LinkId,
   LineStyle,
@@ -58,8 +58,6 @@ import {
   ArrowBranch,
   TurnArrow,
   UNITS_PER_METRE,
-  alignmentReading,
-  alignmentShift,
   anchoredAlong,
   bandAt,
   bayClearance,
@@ -84,6 +82,7 @@ import {
   laneBands,
   laneLine,
   laneLineOffsets,
+  lateralShifts,
   lengthLabel,
   markingAnchor,
   markingArrow,
@@ -316,139 +315,6 @@ describe("bandAt and boundaryAt", () => {
   });
 });
 
-describe("alignmentShift", () => {
-  it("leaves a centred link exactly where it was, whatever it carries", () => {
-    for (let n = 1; n <= 8; n++) {
-      expect(alignmentShift(defaults(n), "centre")).toBe(0);
-    }
-    // An empty lane array is one default lane everywhere else, and here too.
-    expect(alignmentShift([], "centre")).toBe(0);
-  });
-
-  /**
-   * The shift is the **lane region's** half-span, not `roadWidth / 2`:
-   * `ROAD_MARGIN` is the casing lip, not a lane, so aligning to an edge means
-   * aligning the outermost painted line. The difference is `ROAD_MARGIN / 2` —
-   * 1.5 units of casing at every joint, small enough to read as an antialiasing
-   * artefact and never be diagnosed, which is why this is asserted exactly.
-   */
-  it("shifts by the lane region's half-span, not half the road width", () => {
-    for (let n = 1; n <= 8; n++) {
-      const lanes = defaults(n);
-      const w = roadWidth(lanes);
-      const half = (w - ROAD_MARGIN) / 2;
-
-      expect(alignmentShift(lanes, "offside")).toBe(half);
-      expect(half).not.toBe(w / 2);
-      expect(w / 2 - half).toBeCloseTo(ROAD_MARGIN / 2);
-    }
-  });
-
-  /**
-   * Lane 0 is the nearside lane at the most *positive* `laneBands` offset, so
-   * holding the **offside** edge on the polyline shifts the road **positive**
-   * — the road hangs to the nearside of its own polyline. Asserted as a signed
-   * value and as an exact negation: a magnitude test passes under an inversion,
-   * which is the trap the road spec hit four times.
-   */
-  it("sends offside positive and nearside its exact negation", () => {
-    for (let n = 1; n <= 8; n++) {
-      const lanes = defaults(n);
-      const off = alignmentShift(lanes, "offside");
-      const near = alignmentShift(lanes, "nearside");
-
-      expect(off).toBeGreaterThan(0);
-      expect(near).toBe(-off);
-      // Which is to say: the aligned edge lands on the polyline. Lane 0's own
-      // outer boundary is the nearside edge, and the shift cancels it.
-      const bands = laneBands(lanes);
-      const nearsideEdge = bands[0].offset + bands[0].width / 2;
-      expect(nearsideEdge + near).toBeCloseTo(0);
-      expect(nearsideEdge - off).toBeCloseTo(0);
-    }
-  });
-});
-
-/**
- * Every claim here is about `alignmentReading`, **not** about the shift under
- * it. The block above has pinned `centre → 0` and `nearside === -offside` on
- * `alignmentShift` since Phase 2, so a test phrased on the shift is green before
- * this function exists and covers none of it (ramps Phase 9's gate).
- *
- * The reading's side against the road **as drawn** is the load-bearing
- * assertion, and it cannot live here: it needs a rendered `<Diagram>`, so it
- * sits beside the `aligned` fixture in `Diagram.test.tsx`.
- */
-describe("alignmentReading", () => {
-  const ALIGNMENTS: LinkAlign[] = ["centre", "nearside", "offside"];
-
-  it("reads a centred link as sitting on the line, with nothing to report", () => {
-    for (let n = 1; n <= 8; n++) {
-      expect(alignmentReading(defaults(n), "centre")).toEqual({
-        side: "on",
-        offset: 0,
-      });
-    }
-  });
-
-  /**
-   * `offside` shifts positive and a positive offset draws to the visual right
-   * of travel (`DRIVE_SIDE = 1`, spec §2.3), so the reading says `right` — and
-   * `nearside` is its exact mirror in side while **equal** in offset, which is
-   * the half of the mirror a signed test cannot state.
-   */
-  it("sends offside right of travel and nearside left, the same distance", () => {
-    for (let n = 1; n <= 8; n++) {
-      const lanes = defaults(n);
-      const off = alignmentReading(lanes, "offside");
-      const near = alignmentReading(lanes, "nearside");
-
-      expect(off.side).toBe("right");
-      expect(near.side).toBe("left");
-      expect(near.offset).toBe(off.offset);
-    }
-  });
-
-  /** The magnitude is the shift's, so the panel cannot drift from the drawing. */
-  it("reports the shift's own magnitude, which is the lane region's half-span", () => {
-    for (let n = 1; n <= 8; n++) {
-      const lanes = defaults(n);
-      for (const align of ALIGNMENTS) {
-        const { offset } = alignmentReading(lanes, align);
-
-        expect(offset).toBe(Math.abs(alignmentShift(lanes, align)));
-        expect(offset).toBeGreaterThanOrEqual(0);
-      }
-      expect(alignmentReading(lanes, "offside").offset).toBe(
-        (roadWidth(lanes) - ROAD_MARGIN) / 2,
-      );
-    }
-  });
-
-  /**
-   * A road whose lane region has no width has not moved, whichever edge it
-   * claims to hold — so it reads `on`, not a side. Reading the **shift** rather
-   * than the enum is what gets that right, and `nearside` is the case that
-   * needs it: it negates the zero, and `-0` must not fall through to `left`.
-   *
-   * An *empty* lane array is not this case — it is one default lane everywhere
-   * in this file, so it shifts `4.5` like the road it stands for. Only a lane
-   * of literally zero width gets here, which no control can author; the test
-   * exists because the branch does.
-   */
-  it("says a road that has not moved is on the line, whatever it claims", () => {
-    for (const align of ALIGNMENTS) {
-      expect(alignmentReading(widths(0), align)).toEqual({
-        side: "on",
-        offset: 0,
-      });
-    }
-    expect(Object.is(alignmentShift(widths(0), "nearside"), -0)).toBe(true);
-    // And the empty array really is the ordinary road, not this one.
-    expect(alignmentReading([], "nearside").side).toBe("left");
-  });
-});
-
 describe("rayCircleExit", () => {
   /**
    * The identity Phase 1's no-visual-change proof rests on: an arm that meets
@@ -496,13 +362,13 @@ describe("rayCircleExit", () => {
 
 describe("tapers", () => {
   /**
-   * How a `lanes`-lane link meets a joint at `(120, 0)`, drawn due east —
-   * `arriving` for the link that ends there, `!arriving` for the one that
-   * starts. Both carry the same nearside, which is what a through joint means.
+   * How a `lanes`-lane link shifted by `offset` meets a joint at `(120, 0)`,
+   * drawn due east — `arriving` for the link that ends there, `!arriving` for the
+   * one that starts. Both carry the same nearside, which is what a through joint
+   * means.
    */
-  function end(lanes: number, align: LinkAlign, arriving: boolean): JointEnd {
+  function end(lanes: number, offset: number, arriving: boolean): JointEnd {
     const ls = defaults(lanes);
-    const offset = alignmentShift(ls, align);
     return {
       at: { x: 120, y: offset },
       away: arriving ? { x: -1, y: 0 } : { x: 1, y: 0 },
@@ -542,8 +408,8 @@ describe("tapers", () => {
   });
 
   /**
-   * §1's joint: a 4-lane motorway dropping a lane, both links held on their
-   * **offside** edge. The offside offsets then agree exactly, so the outer edge
+   * §1's joint: a 4-lane motorway dropping a lane, the two shifted `18` and `13.5`
+   * so that both offside edges sit on `y = 0`. They then agree exactly, so the outer edge
    * runs straight through and the only wedge is on the nearside — closing over
    * `TAPER_LENGTH` **past** the node, which is how a real lane drop reads.
    *
@@ -553,8 +419,8 @@ describe("tapers", () => {
    */
   it("closes a 4-to-3 lane drop past the node, on the nearside only", () => {
     const wedges = taperWedges(
-      end(4, "offside", true),
-      end(3, "offside", false),
+      end(4, 18, true),
+      end(3, 13.5, false),
       TAPER_LENGTH,
     );
 
@@ -567,7 +433,7 @@ describe("tapers", () => {
     // The casing rim, not the 4-lane road's painted nearside edge.
     expect(wedges[0].corners[0].y).toBe(roadWidth(defaults(4)) / 2 + 18);
     expect(wedges[0].corners[0].y).not.toBe(
-      alignmentShift(defaults(4), "offside") * 2,
+      36,
     );
     // It runs along the downstream link — the narrow one, which leaves the node.
     expect(wedges[0].inset.away).toEqual({ x: 1, y: 0 });
@@ -582,8 +448,8 @@ describe("tapers", () => {
    */
   it("opens a 3-to-4 lane addition before the node", () => {
     const wedges = taperWedges(
-      end(3, "offside", true),
-      end(4, "offside", false),
+      end(3, 13.5, true),
+      end(4, 18, false),
       TAPER_LENGTH,
     );
 
@@ -603,10 +469,10 @@ describe("tapers", () => {
    */
   it("draws nothing where the two casing edges agree, whatever the lane counts", () => {
     const five: JointEnd = {
-      ...end(5, "centre", true),
+      ...end(5, 0, true),
       width: roadWidth(widths(2.8, 2.8, 2.8, 2.8, 2.8)),
     };
-    const four = end(4, "centre", false);
+    const four = end(4, 0, false);
 
     expect(five.width).toBe(four.width);
     expect(five.width).toBe(39);
@@ -619,22 +485,23 @@ describe("tapers", () => {
    * butt-cap two roads over a difference no one can see.
    */
   it("treats a step too small to draw as no step at all", () => {
-    const a = end(4, "centre", true);
-    const b: JointEnd = { ...end(4, "centre", false), offset: 1e-9 };
+    const a = end(4, 0, true);
+    const b: JointEnd = { ...end(4, 0, false), offset: 1e-9 };
 
     expect(b.offset).not.toBe(a.offset);
     expect(taperWedges(a, b, TAPER_LENGTH)).toEqual([]);
   });
 
   /**
-   * Aligning both links to a side is exactly what leaves one wedge. Aligning
-   * neither leaves two: a centred pair steps symmetrically, so each side closes
-   * half the difference — the honest drawing of an unaligned lane change.
+   * Carrying one edge through the joint is exactly what leaves one wedge.
+   * Carrying the centre leaves two: a centred pair steps symmetrically, so each
+   * side closes half the difference — the honest drawing of a lane change that
+   * states no side.
    */
   it("wedges both sides of a centred joint, in mirror image", () => {
     const wedges = taperWedges(
-      end(4, "centre", true),
-      end(3, "centre", false),
+      end(4, 0, true),
+      end(3, 0, false),
       TAPER_LENGTH,
     );
 
@@ -661,7 +528,7 @@ describe("tapers", () => {
    * the two roads are.
    */
   it("refuses a joint bent past TAPER_MAX_BEND, and allows one inside it", () => {
-    const arriving = end(4, "centre", true);
+    const arriving = end(4, 0, true);
 
     expect(TAPER_MAX_BEND).toBe(8);
     expect(taperWedges(arriving, bent(3, 7), TAPER_LENGTH)).toHaveLength(2);
@@ -673,15 +540,15 @@ describe("tapers", () => {
 
   /** A zero-length link has no direction to be collinear with. */
   it("refuses a degenerate end rather than dividing by its length", () => {
-    const dead: JointEnd = { ...end(3, "centre", false), away: { x: 0, y: 0 } };
+    const dead: JointEnd = { ...end(3, 0, false), away: { x: 0, y: 0 } };
 
-    expect(taperWedges(end(4, "centre", true), dead, TAPER_LENGTH)).toEqual([]);
+    expect(taperWedges(end(4, 0, true), dead, TAPER_LENGTH)).toEqual([]);
   });
 
   describe("taperEdge", () => {
     const corners = taperWedges(
-      end(4, "offside", true),
-      end(3, "offside", false),
+      end(4, 18, true),
+      end(3, 13.5, false),
       TAPER_LENGTH,
     )[0].corners;
     const [outer, inset, tip] = corners;
@@ -1923,28 +1790,7 @@ describe("polylineStretch", () => {
 });
 
 describe("drawnPolyline", () => {
-  /** A two-way pair `N1 ⇄ N2` 120 units apart, `L1` carrying `lanes` lanes. */
-  function twoWay(lanes: number, views: Record<LinkId, LinkView> = {}): Document {
-    const base = emptyDocument("drawn");
-    return {
-      ...base,
-      nodes: [
-        { id: "N1", type: "endpoint" },
-        { id: "N2", type: "endpoint" },
-      ],
-      links: [
-        { id: "L1", from_node: "N1", to_node: "N2", lanes: defaults(lanes), median_gap: DEFAULT_MEDIAN_GAP },
-        { id: "L2", from_node: "N2", to_node: "N1", lanes: defaults(2), median_gap: DEFAULT_MEDIAN_GAP },
-      ],
-      layout: {
-        ...base.layout,
-        nodes: { N1: { pos: { x: 0, y: 0 } }, N2: { pos: { x: 120, y: 0 } } },
-        links: views,
-      },
-    };
-  }
-
-  it("returns the layout polyline itself when neither term applies", () => {
+  it("returns the layout polyline itself for a link shifted by nothing", () => {
     const base = emptyDocument("plain");
     const doc: Document = {
       ...base,
@@ -1965,26 +1811,6 @@ describe("drawnPolyline", () => {
       { x: 0, y: 0 },
       { x: 120, y: 0 },
     ]);
-  });
-
-  /**
-   * The assertion this describe exists for: both terms, added, on one link. A
-   * test of either alone passes while the other is silently dropped.
-   */
-  it("adds the carriageway offset and the alignment shift, on one link", () => {
-    const doc = twoWay(3, { L1: { align: "offside" } });
-    const offsets = carriageways(doc);
-    const drawn = drawnPolyline(doc, doc.links[0], offsets)!;
-
-    const carriageway = roadWidth(defaults(3)) / 2 + SCHEMATIC_MEDIAN / 2;
-    const shift = alignmentShift(defaults(3), "offside");
-
-    expect(offsets.L1).toBe(carriageway);
-    expect(shift).toBe((roadWidth(defaults(3)) - ROAD_MARGIN) / 2);
-    // Due east, so the whole lateral sum reads off `y` — and it is the *sum*,
-    // not either term.
-    expect(drawn.map((p) => p.y)).toEqual([carriageway + shift, carriageway + shift]);
-    expect(drawn[0].y).toBeGreaterThan(carriageway);
   });
 
   it("gives nothing for a link whose endpoints have no position", () => {
@@ -4225,7 +4051,7 @@ describe("laneLine and laneLineOffsets", () => {
 
   /**
    * Offset from `drawnPolyline` rather than the layout polyline, so a lane line
-   * inherits the carriageway offset and the alignment shift like everything else
+   * inherits the carriageway offset and a lane change's shift like everything else
    * drawn on a road — one carriageway's line cannot end up in the median.
    */
   it("follows the carriageway its link is drawn on", () => {
@@ -4436,13 +4262,227 @@ describe("through pairs", () => {
 });
 
 /**
+ * The walk of ramps spec §2.13.3: each chain of through pairs followed from its
+ * head, carrying whichever edge the node names. Offsets are asserted as signed
+ * `d`, and the ones whose sign matters also as the drawn `y` of an eastbound
+ * road, whose nearside is `+y` — never as magnitudes (§2.3). Default lanes
+ * throughout, so a 1-lane road's lane region spans `±4.5`, a 2-lane `±9`, a
+ * 3-lane `±13.5` and a 4-lane `±18`.
+ */
+describe("lateral shifts", () => {
+  /** Nodes laid where given, waypoints unless `kinds` says otherwise, each stating `sides`' side. */
+  function lay(
+    nodes: Record<NodeId, Vec2>,
+    links: Link[],
+    sides: Record<NodeId, LaneChange> = {},
+    kinds: Record<NodeId, "junction" | "endpoint"> = {},
+  ): Document {
+    const base = emptyDocument("lateral shifts");
+    return {
+      ...base,
+      nodes: Object.keys(nodes).map((id) => ({ id, type: kinds[id] ?? ("waypoint" as const) })),
+      links,
+      layout: {
+        ...base.layout,
+        nodes: Object.fromEntries(
+          Object.entries(nodes).map(([id, pos]) => [
+            id,
+            sides[id] ? { pos, lane_change: sides[id] } : { pos },
+          ]),
+        ),
+      },
+    };
+  }
+
+  function road(id: LinkId, from: NodeId, to: NodeId, lanes: number): Link {
+    return { id, from_node: from, to_node: to, lanes: defaults(lanes), median_gap: DEFAULT_MEDIAN_GAP };
+  }
+
+  /** Where an eastbound link is drawn, read off its drawn polyline rather than the record. */
+  function drawnY(doc: Document, id: LinkId): number {
+    const link = doc.links.find((l) => l.id === id)!;
+    const points = drawnPolyline(doc, link, lateralShifts(doc))!;
+    expect(points[0].y).toBe(points[points.length - 1].y);
+    return points[0].y;
+  }
+
+  const ORIGIN = { x: 0, y: 0 };
+  const CHAIN = { N1: ORIGIN, N2: { x: 120, y: 0 }, N3: { x: 240, y: 0 }, N4: { x: 360, y: 0 } };
+  /** §1's exit: a 4-lane motorway becoming 3 at the gore `N2`, a 1-lane ramp leaving 56° off it. */
+  const EXIT = { N1: ORIGIN, N2: { x: 120, y: 0 }, N3: { x: 240, y: 0 }, N4: { x: 200, y: 120 } };
+  const exitLinks = () => [road("L1", "N1", "N2", 4), road("L2", "N2", "N3", 3), road("L3", "N2", "N4", 1)];
+  /** A divided road dropping a lane at `N2`: 4-lane carriageways, then 3-lane. */
+  const dividedDrop = () => [
+    road("L1", "N1", "N2", 4),
+    road("L2", "N2", "N1", 4),
+    road("L3", "N2", "N3", 3),
+    road("L4", "N3", "N2", 3),
+  ];
+  /** An eastbound road `N1 → N2 → N3` crossing a southbound one `N5 → N3 → N6` at `N3`. */
+  const CROSS = { ...CHAIN, N5: { x: 240, y: -120 }, N6: { x: 240, y: 120 } };
+
+  /**
+   * **A document that states no side draws exactly as before, bit for bit.**
+   * `toEqual` on the whole record, so a stray non-zero anywhere fails.
+   */
+  it("equals the carriageway offsets wherever no side is stated", () => {
+    const docs = [
+      lay(CHAIN, [road("L1", "N1", "N2", 4), road("L2", "N2", "N3", 3)]),
+      lay(CHAIN, dividedDrop()),
+      lay(EXIT, exitLinks(), {}, { N2: "junction" }),
+      lay(
+        CROSS,
+        [
+          road("L1", "N2", "N3", 2),
+          road("L2", "N3", "N4", 2),
+          road("L3", "N5", "N3", 2),
+          road("L4", "N3", "N6", 2),
+        ],
+        {},
+        { N3: "junction" },
+      ),
+    ];
+
+    for (const doc of docs) expect(lateralShifts(doc)).toEqual(carriageways(doc));
+    // The divided fixture is not vacuous: its carriageways really are offset.
+    expect(carriageways(docs[1]).L3).toBe(18);
+  });
+
+  /**
+   * The report's own road. `offside` at `N2` holds the **nearside** edge, so the
+   * new lane opens toward `−y`, above the road and left of travel; `nearside` is
+   * the mirror. The upstream road stays where its nodes put it.
+   */
+  it("opens a 1 → 2 lane addition on the side the node names", () => {
+    const links = [road("L1", "N1", "N2", 1), road("L2", "N2", "N3", 2)];
+
+    const off = lay(CHAIN, links, { N2: "offside" });
+    expect(lateralShifts(off)).toEqual({ L1: 0, L2: -4.5 });
+    // Nearside edge lines share a `y`; the offside one moves 9 toward `−y`.
+    expect(drawnY(off, "L2") + 9).toBe(drawnY(off, "L1") + 4.5);
+    expect(drawnY(off, "L2") - 9).toBe(drawnY(off, "L1") - 4.5 - 9);
+
+    const near = lay(CHAIN, links, { N2: "nearside" });
+    expect(lateralShifts(near)).toEqual({ L1: 0, L2: 4.5 });
+    expect(drawnY(near, "L2") - 9).toBe(drawnY(near, "L1") - 4.5);
+    expect(drawnY(near, "L2") + 9).toBe(drawnY(near, "L1") + 4.5 + 9);
+  });
+
+  /**
+   * Added on the left, then dropped on the right: the last road sits a lane over
+   * from the first with its offside edge on the middle road's, and every node
+   * stays on `y = 0`.
+   */
+  it("walks a 1 → 2 → 1 road a lane over, with the nodes on one line", () => {
+    const doc = lay(
+      CHAIN,
+      [road("L1", "N1", "N2", 1), road("L2", "N2", "N3", 2), road("L3", "N3", "N4", 1)],
+      { N2: "offside", N3: "nearside" },
+    );
+
+    expect(lateralShifts(doc)).toEqual({ L1: 0, L2: -4.5, L3: -9 });
+    expect(drawnY(doc, "L3") - 4.5).toBe(drawnY(doc, "L2") - 9);
+  });
+
+  /** The change §2.13 shows per-link alignment cannot draw on a straight road. */
+  it("walks a 2 → 3 → 2 road, which alignment could not draw", () => {
+    const doc = lay(
+      CHAIN,
+      [road("L1", "N1", "N2", 2), road("L2", "N2", "N3", 3), road("L3", "N3", "N4", 2)],
+      { N2: "offside", N3: "nearside" },
+    );
+
+    expect(lateralShifts(doc)).toEqual({ L1: 0, L2: -4.5, L3: -9 });
+    expect(drawnY(doc, "L3")).toBe(-9);
+  });
+
+  /**
+   * The walk crosses a junction through its through pair (OQ-13), and §1's own
+   * lane drop is at a gore: `nearside` there carries the offside edge on to the
+   * mainline's continuation, while the ramp — no pair continues into it — is a
+   * head and stays put.
+   */
+  it("carries the side through §1's gore to the mainline, not the ramp", () => {
+    const doc = lay(EXIT, exitLinks(), { N2: "nearside" }, { N2: "junction" });
+
+    expect(lateralShifts(doc)).toEqual({ L1: 0, L2: -4.5, L3: 0 });
+    expect(drawnY(doc, "L2") - 13.5).toBe(drawnY(doc, "L1") - 18);
+  });
+
+  /** A divided road ignores the side: its only drawable change is at the kerb. */
+  it("ignores a side stated where a divided road drops a lane", () => {
+    const doc = lay(CHAIN, dividedDrop(), { N2: "offside" });
+
+    expect(lateralShifts(doc)).toEqual(carriageways(doc));
+  });
+
+  /**
+   * Where an undivided road with a side stated upstream continues into one
+   * carriageway of a divided road, the walk **restarts**: carried instead, that
+   * carriageway would come out at `−4.5` and its twin at `13.5`.
+   */
+  it("restarts at a carriageway rather than carrying an offset into it", () => {
+    const doc = lay(
+      CHAIN,
+      [
+        road("L1", "N1", "N2", 1),
+        road("L2", "N2", "N3", 2),
+        road("L3", "N3", "N4", 2),
+        road("L4", "N4", "N3", 2),
+      ],
+      { N2: "offside" },
+    );
+
+    expect(lateralShifts(doc)).toEqual({ L1: 0, L2: -4.5, L3: 13.5, L4: 13.5 });
+  });
+
+  /**
+   * A chain with no head is walked from its smallest id, so the record is the
+   * same whatever order the links were drawn in.
+   */
+  it("walks a cycle from its smallest id, under every rotation of the links", () => {
+    const nodes = { N1: ORIGIN, N2: { x: 120, y: 0 }, N3: { x: 60, y: 104 } };
+    const links = [road("L1", "N1", "N2", 1), road("L2", "N2", "N3", 2), road("L3", "N3", "N1", 1)];
+
+    for (let r = 0; r < links.length; r++) {
+      const rotated = [...links.slice(r), ...links.slice(0, r)];
+      expect(lateralShifts(lay(nodes, rotated, { N2: "offside" }))).toEqual({
+        L1: 0,
+        L2: -4.5,
+        L3: -4.5,
+      });
+    }
+  });
+
+  /** OQ-13: a side stated upstream of a crossroads carries to its straight-through beyond. */
+  it("carries a side through a crossroads to the far side", () => {
+    const doc = lay(
+      CROSS,
+      [
+        road("L1", "N1", "N2", 1),
+        road("L2", "N2", "N3", 2),
+        road("L3", "N3", "N4", 2),
+        road("L4", "N5", "N3", 2),
+        road("L5", "N3", "N6", 2),
+      ],
+      { N2: "offside" },
+      { N3: "junction" },
+    );
+
+    expect(lateralShifts(doc)).toEqual({ L1: 0, L2: -4.5, L3: -4.5, L4: 0, L5: 0 });
+    expect(drawnY(doc, "L3")).toBe(-4.5);
+  });
+});
+
+/**
  * `nodeDots` — where a node's dots are drawn (ramps spec §2.10, §2.13.4).
  *
  * One case per row of §2.10.2's table, because the rule's whole content is which
  * arms count as one road through the node, and the rows differ only in that.
  */
 describe("node dots", () => {
-  function lay(nodes: Record<NodeId, Vec2>, links: Link[], views: Record<LinkId, LinkView> = {}) {
+  /** Waypoints laid where given, each stating the side `sides` names, if any. */
+  function lay(nodes: Record<NodeId, Vec2>, links: Link[], sides: Record<NodeId, LaneChange> = {}) {
     const base = emptyDocument("node dots");
     return {
       ...base,
@@ -4450,8 +4490,12 @@ describe("node dots", () => {
       links,
       layout: {
         ...base.layout,
-        nodes: Object.fromEntries(Object.entries(nodes).map(([id, pos]) => [id, { pos }])),
-        links: views,
+        nodes: Object.fromEntries(
+          Object.entries(nodes).map(([id, pos]) => [
+            id,
+            sides[id] ? { pos, lane_change: sides[id] } : { pos },
+          ]),
+        ),
       },
     };
   }
@@ -4460,9 +4504,19 @@ describe("node dots", () => {
     return { id, from_node: from, to_node: to, lanes: defaults(lanes), median_gap: DEFAULT_MEDIAN_GAP };
   }
 
-  /** The dots of `nodeId`, with the offsets the renderer would pass. */
+  /** The dots of `nodeId`, with the walked offsets the renderer passes. */
   function dots(doc: Document, nodeId: NodeId): Vec2[] {
-    return nodeDots(doc, nodeId, carriageways(doc));
+    return nodeDots(doc, nodeId, lateralShifts(doc));
+  }
+
+  /** Dots as a set — permuting the links legitimately permutes the array. */
+  const key = (ds: Vec2[]) => ds.map((d) => `${d.x.toFixed(9)},${d.y.toFixed(9)}`).sort();
+
+  function permutations<T>(xs: T[]): T[][] {
+    if (xs.length <= 1) return [xs];
+    return xs.flatMap((x, i) =>
+      permutations([...xs.slice(0, i), ...xs.slice(i + 1)]).map((rest) => [x, ...rest]),
+    );
   }
 
   const ORIGIN = { x: 0, y: 0 };
@@ -4544,86 +4598,76 @@ describe("node dots", () => {
   });
 
   /**
-   * The report's own waypoint (§2.13): a 1-lane road becoming 2 lanes, both
-   * aligned `nearside` so the new lane opens on one side. The two origins are
-   * `4.5` apart, and the node used to draw as two. One dot, at the narrower road's
-   * origin, which lies inside the wider road's lane region.
+   * The report's own waypoint (§2.13), as a lane drop: a 2-lane road becoming
+   * 1 lane, with `offside` stated at `N2`. The walk holds the nearside edge, so
+   * the downstream road moves to `d = 0 + 9 − 4.5 = +4.5` while the head stays
+   * at `0`. One dot, at the narrower road's origin, which lies inside the wider
+   * road's lane region `[−9, 9]`.
+   *
+   * A drop rather than an addition because only the walk moves the downstream
+   * road: unwired, this dot reads `y = 0`, so the case tests that `nodeDots` is
+   * handed the walked record. (An addition would put the dot on the head's
+   * origin at `0` either way.)
    */
-  it("draws one dot where an aligned road gains a lane at a waypoint", () => {
-    const nearside: LinkView = { align: "nearside" };
+  it("draws one dot, on the narrower road, where a road drops a lane on one side", () => {
     const doc = lay(
       { N1: ORIGIN, N2: { x: 120, y: 0 }, N3: { x: 240, y: 0 } },
-      [road("L1", "N1", "N2", 1), road("L2", "N2", "N3", 2)],
-      { L1: nearside, L2: nearside },
+      [road("L1", "N1", "N2", 2), road("L2", "N2", "N3", 1)],
+      { N2: "offside" },
     );
 
     const ds = dots(doc, "N2");
-    expect(ds).toEqual([{ x: 120, y: -4.5 }]);
-    // `L2`'s lane region, `[−18, 0]`: its `nearside` shift is `−9`, half-width `9`.
-    expect(ds[0].y).toBeGreaterThanOrEqual(-18);
-    expect(ds[0].y).toBeLessThanOrEqual(0);
+    expect(ds).toEqual([{ x: 120, y: 4.5 }]);
+    expect(ds[0].y).toBeGreaterThanOrEqual(-9);
+    expect(ds[0].y).toBeLessThanOrEqual(9);
   });
 
   /**
-   * Equal widths, and origins `18` apart until Phase 14 removes per-link
-   * alignment. The dot is the **arriving** arm's, under both orders of
-   * `doc.links` — "the first arm `junctionArms` lists" would follow the order.
+   * Equal widths, with origins `13.5` apart: an undivided 2-lane road
+   * continuing into one carriageway of a divided 2-lane road, where the walk
+   * restarts. The pair's dot is the **arriving** arm's, and the twin's end is
+   * its own — under every order of `doc.links`, since "the first arm
+   * `junctionArms` lists" would follow the order.
    */
-  it("draws one dot at the arriving road's origin where two equal roads meet aligned apart", () => {
+  it("draws the arriving road's origin where two equal roads meet apart", () => {
     const nodes = { N1: ORIGIN, N2: { x: 120, y: 0 }, N3: { x: 240, y: 0 } };
-    const links = [road("L1", "N1", "N2"), road("L2", "N2", "N3")];
-    const views: Record<LinkId, LinkView> = { L1: { align: "offside" }, L2: { align: "nearside" } };
+    const links = [road("L1", "N1", "N2"), road("L2", "N2", "N3"), road("L3", "N3", "N2")];
 
-    expect(dots(lay(nodes, links, views), "N2")).toEqual([{ x: 120, y: 9 }]);
-    expect(dots(lay(nodes, [...links].reverse(), views), "N2")).toEqual([{ x: 120, y: 9 }]);
+    for (const order of permutations(links)) {
+      expect(key(dots(lay(nodes, order), "N2"))).toEqual(
+        key([
+          { x: 120, y: 0 },
+          { x: 120, y: -13.5 },
+        ]),
+      );
+    }
   });
 
   /**
    * **The assertion that separates a set of positions from every rule that
-   * groups.** Three aligned links off one node at unequal angles: a greedy
-   * clustering rule answers 2, 1, 2, 2, 1, 2 across the six orders, because
-   * "near enough to merge" is not transitive and so depends on which origin is
-   * kept first. Compared as a *set* — the scope returns them in `junctionArms`'
-   * order, so permuting the links legitimately permutes the array.
+   * groups.** Three roads off one node at unequal angles, each with its reversed
+   * twin, so six origins stand off `N1` by their carriageway offsets and no two
+   * roads continue each other. A rule that merges origins "near enough" is not
+   * transitive, so its count depends on which origin is kept first; a set of
+   * positions does not. Compared as a *set* — the scope returns them in
+   * `junctionArms`' order, so permuting the links legitimately permutes the array.
    */
-  it("draws the same dots for every order of a three-arm fan", () => {
-    const aligned: LinkView = { align: "offside" };
+  it("draws the same dots for every order of a three-road fan", () => {
     const nodes = { N1: ORIGIN, N2: { x: 120, y: 0 }, N3: { x: 90, y: 90 }, N4: { x: 0, y: 130 } };
-    const links = [road("L1", "N1", "N2"), road("L2", "N1", "N3"), road("L3", "N1", "N4")];
-    const views = { L1: aligned, L2: aligned, L3: aligned };
-
-    const key = (ds: Vec2[]) => ds.map((d) => `${d.x.toFixed(9)},${d.y.toFixed(9)}`).sort();
-    const orders = [
-      [0, 1, 2],
-      [0, 2, 1],
-      [1, 0, 2],
-      [1, 2, 0],
-      [2, 0, 1],
-      [2, 1, 0],
+    const links = [
+      road("L1", "N1", "N2"),
+      road("L2", "N2", "N1"),
+      road("L3", "N1", "N3"),
+      road("L4", "N3", "N1"),
+      road("L5", "N1", "N4"),
+      road("L6", "N4", "N1"),
     ];
-    const seen = orders.map((o) => dots(lay(nodes, o.map((i) => links[i]), views), "N1"));
 
-    for (const ds of seen) expect(ds).toHaveLength(3);
+    const seen = permutations(links).map((order) => dots(lay(nodes, order), "N1"));
+
+    expect(seen).toHaveLength(720);
+    for (const ds of seen) expect(ds).toHaveLength(6);
     for (const ds of seen) expect(key(ds)).toEqual(key(seen[0]));
-  });
-
-  /**
-   * The jink — §2.4's two links meeting at a waypoint with different alignments,
-   * where "the road jinks sideways and the picture says so". Its dot moves off
-   * the node for the *other* of §2.10's two sources: `lateralShift` carries an
-   * alignment as well as a carriageway offset, so an aligned undivided road is
-   * drawn stepped off its own polyline and its node's dot has to follow.
-   *
-   * `9`, not `10.5`: the shift holds the **lane region's** edge on the polyline,
-   * so it is `(roadWidth − ROAD_MARGIN) / 2` and the casing lip is not a lane
-   * (§2.3). The difference is the 1.5-unit trap that spec names.
-   */
-  it("draws an aligned undivided road's dot off the node", () => {
-    const doc = lay({ N1: ORIGIN, N2: { x: 120, y: 0 } }, [road("L1", "N1", "N2")], {
-      L1: { align: "offside" },
-    });
-
-    expect(dots(doc, "N1")).toEqual([{ x: 0, y: (21 - ROAD_MARGIN) / 2 }]);
   });
 
   it("draws one dot at a node no link touches", () => {

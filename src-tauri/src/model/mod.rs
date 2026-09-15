@@ -31,7 +31,7 @@ use layout::Layout;
 ///
 /// A new optional *field* is not a breaking change — nothing here derives
 /// `deny_unknown_fields`, so an older build ignores one it does not know, which
-/// is why [`layout::LinkView::align`] arrived at version 1. A new enum
+/// is why [`layout::NodeView::lane_change`] needed no bump. A new enum
 /// **variant** is: an older build fails to deserialize the whole document, and
 /// [`crate::persist::load_document`]'s version probe can only turn that into a
 /// readable message if the version moves with it. Version 2 is
@@ -108,7 +108,9 @@ mod tests {
     use super::decoration::{LinkEnd, Marking, MarkingKind, Sign, SignKind, TurnDirection};
     use super::graph::{Junction, JunctionControl, Lane, Link, Node, NodeKind};
     use super::ids::LinkId;
-    use super::layout::{JunctionGlyph, JunctionView, Layout, LinkAlign, LinkView, NodeView, Vec2};
+    use super::layout::{
+        JunctionGlyph, JunctionView, LaneChange, Layout, LinkView, NodeView, Vec2,
+    };
     use super::*;
 
     /// A small but non-trivial document exercising every part of the model:
@@ -170,18 +172,23 @@ mod tests {
                     "N1".into(),
                     NodeView {
                         pos: Vec2::new(0.0, 0.0),
+                        lane_change: LaneChange::Both,
                     },
                 ),
                 (
                     "N2".into(),
                     NodeView {
                         pos: Vec2::new(100.0, 0.0),
+                        // Non-default, so the round trip covers the key rather
+                        // than only its absence.
+                        lane_change: LaneChange::Offside,
                     },
                 ),
                 (
                     "N3".into(),
                     NodeView {
                         pos: Vec2::new(200.0, 0.0),
+                        lane_change: LaneChange::Both,
                     },
                 ),
             ]
@@ -190,7 +197,6 @@ mod tests {
             links: [(
                 "L1".into(),
                 LinkView {
-                    align: LinkAlign::Offside,
                     bends: vec![Vec2::new(50.0, 10.0)],
                 },
             )]
@@ -213,7 +219,7 @@ mod tests {
             id: "K1".into(),
             link: "L1".into(),
             position: 90.0,
-            // Non-default, as `align: LinkAlign::Offside` above is, so the round
+            // Non-default, as `lane_change: LaneChange::Offside` above is, so the round
             // trip covers the key rather than only its absence.
             anchor: LinkEnd::End,
             lane: Some(0),
@@ -281,6 +287,11 @@ mod tests {
     /// still load — the same removed-field direction as `movements:` above, and
     /// asserted in both halves for the same reason: a class-only view comes in
     /// as an empty one, and the key is gone on the way back out.
+    ///
+    /// `MAIN` also carries the per-link `align` that ramps spec Phase 14
+    /// removed, which leaves the same way: ignored in, absent out, and the road
+    /// draws centred (§2.13.5, OQ-12). The version is asserted so that removal
+    /// is visibly decided not to need a bump, rather than overlooked.
     #[test]
     fn a_zkai_saved_with_a_road_class_still_loads_and_writes_none() {
         let yaml = concat!(
@@ -293,23 +304,19 @@ mod tests {
 
         assert_eq!(
             layout.links[&LinkId::from("MAIN")],
-            LinkView {
-                align: LinkAlign::Offside,
-                bends: Vec::new(),
-            }
+            LinkView { bends: Vec::new() }
         );
         assert_eq!(
             layout.links[&LinkId::from("RAMP")],
-            LinkView {
-                align: LinkAlign::Centre,
-                bends: Vec::new(),
-            }
+            LinkView { bends: Vec::new() }
         );
 
         let back = serde_yaml::to_string(&layout).expect("serialize");
         assert!(!back.contains("style"), "{back}");
         assert!(!back.contains("motorway"), "{back}");
         assert!(!back.contains("ramp"), "{back}");
+        assert!(!back.contains("align"), "{back}");
+        assert_eq!(SCHEMA_VERSION, 3);
     }
 
     #[test]

@@ -12,10 +12,10 @@ import {
   SCHEMATIC_MEDIAN,
   SIGN_SIZE,
   UNITS_PER_METRE,
-  alignmentReading,
   carriageways,
   drawnPolyline,
   junctionArms,
+  lateralShifts,
   markingText,
   offsetPolyline,
   padRadius,
@@ -25,12 +25,11 @@ import {
   signPlate,
 } from "../editor/geometry";
 import { Action, EditorState, initialState, reducer } from "../editor/state";
-import { findLink, nodePos } from "../model/document";
+import { nodePos } from "../model/document";
 import {
   Document,
   LaneKind,
   LineStyle,
-  LinkAlign,
   Marking,
   SignKind,
   Vec2,
@@ -71,7 +70,7 @@ function sample(): Document {
  */
 function padR(doc: Document, id = "N2"): number {
   return padRadius(
-    junctionArms(doc, id, carriageways(doc)),
+    junctionArms(doc, id, lateralShifts(doc)),
     nodePos(doc, id)!,
     doc.layout.junctions[id]?.scale ?? 1,
   );
@@ -487,9 +486,10 @@ describe("node dots", () => {
    * *no* `cx`/`cy` at zero — React writes `cx={0}` as `cx="0"`, so the natural
    * spelling fails this for a reason that has nothing to do with the geometry.
    *
-   * Scoped to a centred link deliberately: an aligned link's dot **moves**, which
-   * §2.10 calls the same defect rather than a side effect, and which is asserted
-   * as a change in `geometry.test.ts` instead of smuggled under this claim.
+   * Scoped to a road on its own line deliberately: a road shifted off it — a
+   * carriageway, or a road a lane change has walked over — has its dot **moved**,
+   * which §2.10 calls the same defect rather than a side effect, and which is
+   * asserted as a change in `geometry.test.ts` instead of smuggled under this claim.
    *
    * **The waypoint is the load-bearing half of this test.** An endpoint has one
    * arm, so it emits one circle however the dots are collapsed; the waypoint has
@@ -652,163 +652,81 @@ describe("a node's dot shows while it is being edited", () => {
   });
 });
 
-describe("link alignment", () => {
-  /** A 4-lane arterial drawn due east from the origin, aligned `align`. */
-  function aligned(align: LinkAlign): Document {
-    return run(
-      initialState(),
-      { type: "addNode", pos: { x: 0, y: 0 } },
-      { type: "addNode", pos: { x: 120, y: 0 } },
-      { type: "startLink", from: "N1" },
-      { type: "completeLink", to: "N2" },
-      { type: "setLinkLanes", id: "L1", count: 4 },
-      { type: "setLinkAlign", id: "L1", align },
-    ).doc;
-  }
-
-  /** Every `y` a road drawn due east paints its `cls` lines at, ascending. */
-  function offsets(svg: string, cls: string): number[] {
-    return [...svg.matchAll(new RegExp(`class="${cls}" d="M 0 (\\S+) L`, "g"))]
-      .map((m) => Number(m[1]))
-      .sort((a, b) => a - b);
-  }
-
-  it("draws a centred link exactly where an unaligned one goes", () => {
-    const centred = renderToStaticMarkup(<Diagram doc={aligned("centre")} />);
-
-    // The 4-lane pin from `RoadShape geometry`, unmoved: setting `centre`
-    // explicitly is the same drawing as never setting anything.
-    expect(centred).toContain('class="road-casing" d="M 0 0 L 120 0"');
-    expect(offsets(centred, "road-edge")).toEqual([-18, 18]);
-  });
-
+describe("lane change at a joint", () => {
   /**
-   * The sign, in the direction §2.3 derives rather than as a magnitude — a
-   * magnitude test passes under an inversion, which is the trap the road spec
-   * hit four times.
+   * The side reaches a junction glyph downstream for free, because the walk
+   * carries it through the waypoint and `junctionArms` reads the *drawn*
+   * polyline: the arm's `origin` moves with the road, and Phase 1's reach floor
+   * grows the pad to meet it.
    *
-   * Lane 0 is the nearside lane at the most *positive* offset, so an
-   * `offside`-aligned eastbound road puts its **offside edge on `y = 0`** and
-   * its whole lane region at **positive** `y`: it hangs to the nearside of its
-   * own polyline. 4 default lanes give a 36-unit lane region, so the shift is
-   * 18 and the far (nearside) edge lands at 36.
-   */
-  it("puts an offside-aligned road's offside edge on its polyline", () => {
-    const svg = renderToStaticMarkup(<Diagram doc={aligned("offside")} />);
-
-    expect(svg).toContain('class="road-casing" d="M 0 18 L 120 18"');
-    expect(offsets(svg, "road-edge")).toEqual([0, 36]);
-    // Every lane-derived line at or below the polyline, none above it.
-    for (const y of offsets(svg, "road-divider")) {
-      expect(y).toBeGreaterThan(0);
-    }
-  });
-
-  it("mirrors it exactly for nearside", () => {
-    const svg = renderToStaticMarkup(<Diagram doc={aligned("nearside")} />);
-
-    expect(svg).toContain('class="road-casing" d="M 0 -18 L 120 -18"');
-    expect(offsets(svg, "road-edge")).toEqual([-36, 0]);
-    for (const y of offsets(svg, "road-divider")) {
-      expect(y).toBeLessThan(0);
-    }
-  });
-
-  /**
-   * The two lateral terms **compose by addition**; neither wins. A 2-lane
-   * carriageway steps 13.5 off the shared centreline and an `offside` alignment
-   * adds its own 9 — so the aligned half moves to 22.5 while its twin stays put.
-   *
-   * That the pair's halves no longer straddle the median symmetrically is the
-   * named consequence of composing (spec §2.3), not a defect: alignment is a
-   * per-carriageway control on a divided road.
-   */
-  it("adds alignment to a carriageway offset rather than replacing it", () => {
-    const doc = run(
-      initialState(),
-      { type: "addNode", pos: { x: 0, y: 0 } },
-      { type: "addNode", pos: { x: 120, y: 0 } },
-      { type: "startLink", from: "N1" },
-      { type: "completeLink", to: "N2" },
-      { type: "startLink", from: "N2" },
-      { type: "completeLink", to: "N1" },
-      { type: "setLinkLanes", id: "L1", count: 2 },
-      { type: "setLinkLanes", id: "L2", count: 2 },
-      { type: "setLinkAlign", id: "L1", align: "offside" },
-    ).doc;
-    const svg = renderToStaticMarkup(<Diagram doc={doc} />);
-
-    expect(svg).toContain('class="road-casing" d="M 0 22.5 L 120 22.5"');
-    expect(svg).toContain('class="road-casing" d="M 120 -13.5 L 0 -13.5"');
-    // 13.5 (the carriageway step) + 9 (half a 2-lane road's 18-unit lane region).
-    expect(22.5).toBe(13.5 + (2 * LANE_PX) / 2);
-  });
-
-  /**
-   * Alignment reaches the junction glyph for free, because `junctionArms` reads
-   * the *drawn* polyline: the arm's `origin` moves with the road, and Phase 1's
-   * reach floor grows the pad to meet it.
+   * `L1` is a 1-lane head at `0`; `offside` at `N2` holds the nearside edge, so
+   * the 3-lane `L2` sits at `0 + 4.5 − 13.5 = −9` (ramps §2.13.3).
    */
   it("carries a junction's arms along with the road", () => {
     const doc = run(
       initialState(),
       { type: "addNode", pos: { x: 0, y: 0 } },
       { type: "addNode", pos: { x: 120, y: 0 } },
+      { type: "addNode", pos: { x: 240, y: 0 } },
       { type: "startLink", from: "N1" },
       { type: "completeLink", to: "N2" },
-      { type: "setLinkLanes", id: "L1", count: 2 },
-      { type: "setNodeKind", id: "N2", kind: "junction" },
-      { type: "setJunctionGlyph", id: "N2", glyph: "signalized_cross" },
-      { type: "setLinkAlign", id: "L1", align: "offside" },
+      { type: "startLink", from: "N2" },
+      { type: "completeLink", to: "N3" },
+      { type: "setLinkLanes", id: "L1", count: 1 },
+      { type: "setLinkLanes", id: "L2", count: 3 },
+      { type: "setNodeLaneChange", id: "N2", change: "offside" },
+      { type: "setNodeKind", id: "N3", kind: "junction" },
+      { type: "setJunctionGlyph", id: "N3", glyph: "signalized_cross" },
     ).doc;
     const svg = renderToStaticMarkup(<Diagram doc={doc} />);
 
-    // The one carriageway is drawn 9 off the centreline…
-    expect(svg).toContain('class="road-casing" d="M 0 9 L 120 9"');
-    // …so its stop bar is too, and the pad reaches its outer edge (9 + 21/2).
+    // The downstream road is drawn 9 above the line its nodes are on…
+    expect(svg).toContain('class="road-casing" d="M 120 -9 L 240 -9"');
+    // …so its stop bar is too, and the pad reaches its outer edge (9 + 30/2),
+    // past the base size of 30 × 0.62 + 3 = 21.6, so the floor binds.
     const bar = svg.match(
       /class="jn-stopbar" x1="\S+" y1="(\S+)" x2="\S+" y2="(\S+)"/,
     )!;
-    expect((Number(bar[1]) + Number(bar[2])) / 2).toBeCloseTo(9);
-    expect(padR(doc)).toBeCloseTo(19.5);
+    expect((Number(bar[1]) + Number(bar[2])) / 2).toBeCloseTo(-9);
+    expect(padR(doc, "N3")).toBeCloseTo(24);
   });
 
   /**
-   * Phase 9's one load-bearing assertion, and the reason it lives here rather
-   * than in `geometry.test.ts`: the panel's reading is checked against the road
-   * **as drawn**, which needs a rendered `<Diagram>` and this block's fixture.
-   *
-   * Keyed to the sign of the drawn `y`, never to the word `offside` — a test
-   * keyed to the words passes under an inversion, which is the trap this spec
-   * hit repeatedly (§2.3).
-   *
-   * **The equivalence is fixture-scoped**, not a rule: it holds because
-   * `aligned` runs due east, where right of travel is `+y`. It cannot reach
-   * `alignmentReading`, which takes its side from `alignmentShift` and never
-   * sees a polyline — a road drawn west has the same reading and the opposite
-   * `y`. That case is the `bun run dev` pass's, not this file's.
+   * A 1 → 2 waypoint stating `offside`: the nearside edges agree, so the only
+   * wedge is on the offside — above an eastbound road — and, being an addition,
+   * it opens along the narrow upstream road (OQ-1). Stated nowhere, the same
+   * joint draws one on each side.
    */
-  it("reads a road the way the road is drawn, not the way the enum is spelled", () => {
-    for (const align of ["offside", "nearside"] as LinkAlign[]) {
-      const doc = aligned(align);
-      const svg = renderToStaticMarkup(<Diagram doc={doc} />);
-      const casing = svg.match(/class="road-casing" d="M 0 (\S+) L/)!;
-      const drawnY = Number(casing[1]);
-      const reading = alignmentReading(findLink(doc, "L1")!.lanes, align);
+  it("draws one wedge, on the side the node names", () => {
+    const doc = run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "addNode", pos: { x: 120, y: 0 } },
+      { type: "addNode", pos: { x: 240, y: 0 } },
+      { type: "startLink", from: "N1" },
+      { type: "completeLink", to: "N2" },
+      { type: "startLink", from: "N2" },
+      { type: "completeLink", to: "N3" },
+      { type: "setLinkLanes", id: "L1", count: 1 },
+      { type: "setLinkLanes", id: "L2", count: 2 },
+      { type: "setNodeLaneChange", id: "N2", change: "offside" },
+    ).doc;
+    const svg = renderToStaticMarkup(<Diagram doc={doc} />);
 
-      expect(drawnY).not.toBe(0);
-      expect(reading.side).toBe(drawnY > 0 ? "right" : "left");
-      expect(reading.offset).toBe(Math.abs(drawnY));
-    }
+    expect(svg.match(/road-taper"/g)).toHaveLength(1);
+    expect(svg).toContain(
+      '<polygon class="road-taper" points="120,-15 120,-6 96,-6"></polygon>',
+    );
   });
 });
 
 describe("tapers", () => {
   /**
    * §1's lane drop, drawn due east: a 4-lane motorway at N2 becoming a 3-lane
-   * one, both links held on their **offside** edge so the outer edge runs
-   * straight through and the lane goes from the nearside. `extra` hangs further
-   * actions off the same document.
+   * one, with N2 stating `nearside` so the outer (offside) edge runs straight
+   * through and the lane goes from the nearside. `L1` is a head at `0`, and `L2`
+   * sits at `0 − 18 + 13.5 = −4.5`. `extra` hangs further actions off the same
+   * document.
    */
   function laneDrop(...extra: Action[]): Document {
     return run(
@@ -822,8 +740,7 @@ describe("tapers", () => {
       { type: "completeLink", to: "N3" },
       { type: "setLinkLanes", id: "L1", count: 4 },
       { type: "setLinkLanes", id: "L2", count: 3 },
-      { type: "setLinkAlign", id: "L1", align: "offside" },
-      { type: "setLinkAlign", id: "L2", align: "offside" },
+      { type: "setNodeLaneChange", id: "N2", change: "nearside" },
       ...extra,
     ).doc;
   }
@@ -841,18 +758,18 @@ describe("tapers", () => {
 
   /**
    * The wedge, pinned exactly. The outer corner is the 4-lane road's **casing**
-   * rim at 18 + 19.5, the inner one the 3-lane road's at 13.5 + 15, and the tip
+   * rim at 0 + 19.5, the inner one the 3-lane road's at −4.5 + 15, and the tip
    * a whole `TAPER_LENGTH` past the node — the dropped lane closing forward,
    * which is how a real lane drop reads.
    *
-   * One wedge, not two: aligning both links offside makes their offside edges
-   * agree, so that side has nothing to close.
+   * One wedge, not two: stating `nearside` carries the offside edge through, so
+   * that side has nothing to close.
    */
   it("closes a lane drop with one wedge on the nearside", () => {
     const svg = renderToStaticMarkup(<Diagram doc={laneDrop()} />);
 
     expect(svg).toContain(
-      '<polygon class="road-taper" points="120,37.5 120,28.5 144,28.5"></polygon>',
+      '<polygon class="road-taper" points="120,19.5 120,10.5 144,10.5"></polygon>',
     );
     expect(svg.match(/road-taper"/g)).toHaveLength(1);
     // A group with no class token: every wedge paints the one asphalt.
@@ -870,12 +787,12 @@ describe("tapers", () => {
       renderToStaticMarkup(<Diagram doc={laneDrop()} />),
     );
 
-    expect(Math.hypot(start[0] - 120, start[1] - 37.5)).toBeCloseTo(1.5);
-    expect(Math.hypot(finish[0] - 144, finish[1] - 28.5)).toBeCloseTo(1.5);
+    expect(Math.hypot(start[0] - 120, start[1] - 19.5)).toBeCloseTo(1.5);
+    expect(Math.hypot(finish[0] - 144, finish[1] - 10.5)).toBeCloseTo(1.5);
     // Inside the asphalt, which on this joint is below the hypotenuse and left
     // of the joint face: both ends move toward the wedge's third corner.
-    expect(start[1]).toBeLessThan(37.5);
-    expect(finish[1]).toBeLessThan(28.5);
+    expect(start[1]).toBeLessThan(19.5);
+    expect(finish[1]).toBeLessThan(10.5);
   });
 
   /**
@@ -891,7 +808,7 @@ describe("tapers", () => {
     expect(svg).not.toContain("road-joint");
   });
 
-  /** Two links of `a` then `b` lanes, in a straight line, centred and unaligned. */
+  /** Two links of `a` then `b` lanes, in a straight line, stating no side. */
   function straightPair(a: number, b: number): Document {
     return run(
       initialState(),
@@ -946,7 +863,7 @@ describe("tapers", () => {
   });
 
   /** A centred lane change closes half the difference on each side. */
-  it("wedges both sides of an unaligned lane change", () => {
+  it("wedges both sides of a lane change that states no side", () => {
     const svg = renderToStaticMarkup(<Diagram doc={straightPair(4, 3)} />);
 
     expect(svg).toContain(
@@ -1366,9 +1283,9 @@ describe("the priority badge", () => {
 describe("gores", () => {
   /**
    * §1's exit, drawn due east: a 4-lane motorway becoming 3 at N2 with a 1-lane
-   * ramp leaving to the south-east, both mainline links held on their **offside**
-   * edge so the outer edge runs straight through and the lane goes from the
-   * nearside. N2 carries the `gore` glyph. `extra` hangs further actions off it.
+   * ramp leaving to the south-east, with N2 stating `nearside` so the outer edge
+   * runs straight through and the lane goes from the nearside. N2 carries the
+   * `gore` glyph. `extra` hangs further actions off it.
    */
   function exit(...extra: Action[]): Document {
     return run(
@@ -1386,10 +1303,9 @@ describe("gores", () => {
       { type: "setLinkLanes", id: "L1", count: 4 },
       { type: "setLinkLanes", id: "L2", count: 3 },
       { type: "setLinkLanes", id: "L3", count: 1 },
-      { type: "setLinkAlign", id: "L1", align: "offside" },
-      { type: "setLinkAlign", id: "L2", align: "offside" },
       { type: "setNodeKind", id: "N2", kind: "junction" },
       { type: "setJunctionGlyph", id: "N2", glyph: "gore" },
+      { type: "setNodeLaneChange", id: "N2", change: "nearside" },
       ...extra,
     ).doc;
   }
@@ -1404,7 +1320,7 @@ describe("gores", () => {
    * **No round shape on any of the three arms.** A gore's legs are literal
    * continuations of the two roads' edge lines, so round asphalt crossing one
    * crosses a line drawn to be continuous — and the widest arm, the 4-lane
-   * approach, would paint to `y = 37.5` against a mainline edge line at `27`
+   * approach, would paint to `y = 19.5` against a mainline edge line at `9`
    * (§2.11.2). Every casing now ends flat, and a gore node is a `junction`, so no
    * joint disc stands in for the cap either (§2.12.1).
    */
@@ -1438,9 +1354,10 @@ describe("gores", () => {
     const svg = renderToStaticMarkup(<Diagram doc={exit()} />);
     const [nose] = corners(svg);
 
-    // A 3-lane offside-aligned motorway: polyline at 13.5, nearside edge at 27.
-    expect(svg).toContain('class="road-edge" d="M 120 27 L 240 27"');
-    expect(nose[1]).toBeCloseTo(27);
+    // A 3-lane motorway walked to −4.5 by the side at N2: nearside edge at
+    // −4.5 + 13.5 = 9.
+    expect(svg).toContain('class="road-edge" d="M 120 9 L 240 9"');
+    expect(nose[1]).toBeCloseTo(9);
     // Downstream of the node, where the ramp has actually pulled clear.
     expect(nose[0]).toBeGreaterThan(0);
   });

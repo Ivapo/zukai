@@ -42,8 +42,8 @@ pub struct Layout {
     /// Canvas placement per node.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub nodes: BTreeMap<NodeId, NodeView>,
-    /// Alignment and routing per link — only for the links that carry one, so a
-    /// plain straight centred road has no entry at all.
+    /// Routing per link — only for the links that carry one, so a plain straight
+    /// road has no entry at all.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub links: BTreeMap<LinkId, LinkView>,
     /// Glyph choice per junction (keyed by the junction's node id).
@@ -59,6 +59,43 @@ pub struct Layout {
 pub struct NodeView {
     /// Node position in canvas space.
     pub pos: Vec2,
+    /// Which side a road's lanes change on where it runs through this node.
+    ///
+    /// Elided when `both`, so a document that has never stated a side
+    /// serializes byte-for-byte as it did before the field existed — which is why
+    /// it needs no `SCHEMA_VERSION` bump.
+    #[serde(default, skip_serializing_if = "LaneChange::is_both")]
+    pub lane_change: LaneChange,
+}
+
+/// Which side a road's lanes change on at a node, in the road's own travel
+/// frame (ramps spec §2.13.1).
+///
+/// A fact about one place, so it lives on the node rather than on the two links
+/// that meet there — two links stating one fact is how they come to disagree.
+/// Presentation, not topology: Assimilator's links carry real polylines, from
+/// which the side is a *consequence* rather than an input, so a field in
+/// [`graph`](super::graph) would be a Zukai-native concept in the layer whose
+/// whole promise is a 1:1 `network.yaml` mapping.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LaneChange {
+    /// The road stays centred and a change shows on both sides (the default,
+    /// and every older document).
+    #[default]
+    Both,
+    /// Lanes are added or dropped on the nearside; the offside edge runs on.
+    Nearside,
+    /// Lanes are added or dropped on the offside; the nearside edge runs on.
+    Offside,
+}
+
+impl LaneChange {
+    /// Whether this is the default — the `skip_serializing_if` predicate for
+    /// [`NodeView::lane_change`].
+    fn is_both(&self) -> bool {
+        matches!(self, Self::Both)
+    }
 }
 
 /// How a link is placed and routed on the canvas.
@@ -70,47 +107,11 @@ pub struct NodeView {
 /// `style:` key is ignored on the way in and absent on the way out.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LinkView {
-    /// Which of the link's own edges stays put on its polyline.
-    ///
-    /// Elided when centred, so a document that has never set an alignment
-    /// serializes byte-for-byte as it did before the field existed. `bends`'
-    /// `Vec::is_empty` trick has no equivalent for a plain enum, hence
-    /// [`LinkAlign::is_centre`].
-    #[serde(default, skip_serializing_if = "LinkAlign::is_centre")]
-    pub align: LinkAlign,
     /// Intermediate waypoints the link bends through, between its end nodes.
     /// Empty draws a straight connector. This is what lets a schematic route a
     /// road cleanly regardless of the real geometry.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bends: Vec<Vec2>,
-}
-
-/// Which of a link's own edges stays put on its polyline.
-///
-/// Presentation, not topology: Assimilator's links carry real polylines, from
-/// which alignment is a *consequence* rather than an input, so a field in
-/// [`graph`](super::graph) would be a Zukai-native concept in the layer whose
-/// whole promise is a 1:1 `network.yaml` mapping. It is what lets two links of
-/// different widths meet at a node sharing an **edge** instead of a centre —
-/// which is what a lane drop looks like on a real road.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum LinkAlign {
-    /// Drawn centred on its polyline (the default, and every older document).
-    #[default]
-    Centre,
-    /// The nearside (kerb-side) edge of the lane region stays on the polyline.
-    Nearside,
-    /// The offside edge of the lane region stays on the polyline.
-    Offside,
-}
-
-impl LinkAlign {
-    /// Whether this is the default centre alignment — the `skip_serializing_if`
-    /// predicate for [`LinkView::align`].
-    fn is_centre(&self) -> bool {
-        matches!(self, Self::Centre)
-    }
 }
 
 /// How a junction node is drawn. This is the render hint that turns a plain
@@ -183,42 +184,46 @@ fn default_scale() -> f64 {
 mod tests {
     use super::*;
 
-    /// A link view carrying the given alignment and nothing else unusual.
-    fn view(align: LinkAlign) -> LinkView {
-        LinkView {
-            align,
-            bends: Vec::new(),
+    /// A node view at the origin stating the given side and nothing else.
+    fn view(lane_change: LaneChange) -> NodeView {
+        NodeView {
+            pos: Vec2::new(0.0, 0.0),
+            lane_change,
         }
     }
 
     #[test]
-    fn an_alignment_survives_a_yaml_round_trip() {
-        for align in [LinkAlign::Nearside, LinkAlign::Offside] {
-            let yaml = serde_yaml::to_string(&view(align)).expect("serialize");
-            let back: LinkView = serde_yaml::from_str(&yaml).expect("deserialize");
-            assert_eq!(view(align), back);
+    fn a_lane_change_survives_a_yaml_round_trip() {
+        for side in [LaneChange::Nearside, LaneChange::Offside] {
+            let yaml = serde_yaml::to_string(&view(side)).expect("serialize");
+            let back: NodeView = serde_yaml::from_str(&yaml).expect("deserialize");
+            assert_eq!(view(side), back);
         }
         // …written in the same snake_case the TypeScript mirror spells.
-        assert!(serde_yaml::to_string(&view(LinkAlign::Offside))
+        assert!(serde_yaml::to_string(&view(LaneChange::Offside))
             .expect("serialize")
-            .contains("align: offside"));
+            .contains("lane_change: offside"));
     }
 
     /// The whole point of the `skip_serializing_if` predicate: a document that
-    /// has never set an alignment must save exactly as it did before the field
+    /// has never stated a side must save exactly as it did before the field
     /// existed, so adding it needs no `SCHEMA_VERSION` bump.
     #[test]
-    fn a_centred_link_writes_no_align_key_at_all() {
-        let yaml = serde_yaml::to_string(&view(LinkAlign::Centre)).expect("serialize");
+    fn a_both_node_writes_no_lane_change_key_at_all() {
+        let yaml = serde_yaml::to_string(&view(LaneChange::Both)).expect("serialize");
 
-        assert!(!yaml.contains("align"), "unexpected align key in {yaml:?}");
+        assert!(
+            !yaml.contains("lane_change"),
+            "unexpected lane_change key in {yaml:?}"
+        );
     }
 
     #[test]
-    fn a_file_without_the_field_loads_as_centre() {
-        let view: LinkView = serde_yaml::from_str("style: motorway\n").expect("deserialize");
+    fn a_file_without_the_field_loads_as_both() {
+        let view: NodeView =
+            serde_yaml::from_str("pos:\n  x: 1.0\n  y: 2.0\n").expect("deserialize");
 
-        assert_eq!(view.align, LinkAlign::Centre);
+        assert_eq!(view.lane_change, LaneChange::Both);
     }
 
     /// The glyph the `SCHEMA_VERSION` bump was for. Spelled in the same

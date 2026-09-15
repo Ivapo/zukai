@@ -458,7 +458,7 @@ describe("diagramSvg", () => {
 });
 
 describe("tapers in an exported file", () => {
-  /** §1's lane drop: a 4-lane road becoming 3-lane at (120, 0), both offside. */
+  /** §1's lane drop: a 4-lane road becoming 3-lane at (120, 0), dropped on the nearside. */
   function tapered(): Document {
     return run(
       initialState(),
@@ -471,8 +471,7 @@ describe("tapers in an exported file", () => {
       { type: "completeLink", to: "N3" },
       { type: "setLinkLanes", id: "L1", count: 4 },
       { type: "setLinkLanes", id: "L2", count: 3 },
-      { type: "setLinkAlign", id: "L1", align: "offside" },
-      { type: "setLinkAlign", id: "L2", align: "offside" },
+      { type: "setNodeLaneChange", id: "N2", change: "nearside" },
     ).doc;
   }
 
@@ -566,10 +565,9 @@ describe("gores in an exported file", () => {
       { type: "setLinkLanes", id: "L1", count: 4 },
       { type: "setLinkLanes", id: "L2", count: 3 },
       { type: "setLinkLanes", id: "L3", count: 1 },
-      { type: "setLinkAlign", id: "L1", align: "offside" },
-      { type: "setLinkAlign", id: "L2", align: "offside" },
       { type: "setNodeKind", id: "N2", kind: "junction" },
       { type: "setJunctionGlyph", id: "N2", glyph: "gore" },
+      { type: "setNodeLaneChange", id: "N2", change: "nearside" },
     ).doc;
   }
 
@@ -606,13 +604,13 @@ describe("gores in an exported file", () => {
    * **Every free end is flat**, a gore arm's far end among them — §2.4 called a
    * flat free end the better schematic reading, and §2.12.1 made it uniform: a
    * fragment's road runs off the frame, and a dome says it stops. `gored()`'s `N1`
-   * is such an end: L1 is a 4-lane link aligned `offside`, so its lane region
-   * hangs 18 below its polyline and the casing draws `M 0 18 L 120 18`, with no
-   * modifier because no road needs one.
+   * is such an end: L1 is the head of the road through the gore, so it keeps its
+   * own polyline and the casing draws `M 0 0 L 120 0`, with no modifier because
+   * no road needs one.
    */
   it("draws every free end flat, a gore arm's far end included", () => {
     expect(diagramInner(gored())).toContain(
-      '<path class="road-casing" d="M 0 18 L 120 18"',
+      '<path class="road-casing" d="M 0 0 L 120 0"',
     );
   });
 

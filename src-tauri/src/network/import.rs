@@ -42,7 +42,7 @@ use std::fs;
 use crate::model::decoration::{LinkEnd, Marking, MarkingKind, TurnDirection};
 use crate::model::graph::{Junction, Lane, Link, Node, NodeKind};
 use crate::model::ids::{LaneIdx, LinkId};
-use crate::model::layout::{JunctionView, NodeView};
+use crate::model::layout::{JunctionView, LaneChange, NodeView};
 use crate::model::Document;
 
 use super::{
@@ -147,6 +147,7 @@ pub fn network_to_document(net: NetworkFile) -> Result<Document, String> {
             node.id.clone(),
             NodeView {
                 pos: metres_to_canvas(node.point, factor),
+                lane_change: LaneChange::Both,
             },
         );
         // A junction-kind node gets the default glyph, the way `setNodeKind`

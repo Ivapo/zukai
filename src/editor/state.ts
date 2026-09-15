@@ -19,8 +19,8 @@ import {
   JunctionControl,
   JunctionGlyph,
   LaneIdx,
+  LaneChange,
   LaneKind,
-  LinkAlign,
   LinkEnd,
   LinkId,
   Marking,
@@ -124,6 +124,9 @@ export type EditAction =
   | { type: "addNode"; pos: Vec2 }
   | { type: "moveNode"; id: NodeId; pos: Vec2 }
   | { type: "setNodeKind"; id: NodeId; kind: NodeKind }
+  // Required, not `change?`: the Rust field is a defaulted enum, so `both` is a
+  // value the caller names and the reducer stores as an absent key.
+  | { type: "setNodeLaneChange"; id: NodeId; change: LaneChange }
   | { type: "setJunctionGlyph"; id: NodeId; glyph: JunctionGlyph }
   | { type: "setJunctionScale"; id: NodeId; scale: number }
   | { type: "setJunctionControl"; id: NodeId; control: JunctionControl }
@@ -135,7 +138,6 @@ export type EditAction =
   | { type: "cancelLink" }
   | { type: "setLinkLanes"; id: LinkId; count: number }
   | { type: "setLaneKind"; id: LinkId; lane: LaneIdx; kind: LaneKind }
-  | { type: "setLinkAlign"; id: LinkId; align: LinkAlign }
   // `length?`, not `length: number | null`: absent is the one representation,
   // and here it is also the whole meaning — a road that states no length. The
   // rule `setMarkingLane`'s `lane?` already follows.
@@ -151,7 +153,7 @@ export type EditAction =
   | { type: "setMarkingLane"; id: MarkingId; lane?: LaneIdx }
   // Required, not `anchor?`: the Rust field is a defaulted enum rather than an
   // `Option`, so `start` is a value the caller names and the *reducer* is what
-  // stores it as an absent key — `setLinkAlign`'s shape, not `setMarkingLane`'s.
+  // stores it as an absent key — `setNodeLaneChange`'s shape, not `setMarkingLane`'s.
   | { type: "setMarkingAnchor"; id: MarkingId; anchor: LinkEnd }
   // Both fields at once, because a drag writes both: the lane already falls out
   // of the click that *places* a marking, and a drag that crossed a divider
@@ -503,6 +505,9 @@ function editReducer(state: EditorState, action: EditAction): EditorState {
     case "setNodeKind":
       return setNodeKind(state, action.id, action.kind);
 
+    case "setNodeLaneChange":
+      return setNodeLaneChange(state, action.id, action.change);
+
     case "setJunctionGlyph":
       return setJunctionView(state, action.id, { glyph: action.glyph });
 
@@ -532,8 +537,6 @@ function editReducer(state: EditorState, action: EditAction): EditorState {
     case "setLaneKind":
       return setLaneKind(state, action.id, action.lane, action.kind);
 
-    case "setLinkAlign":
-      return setLinkAlign(state, action.id, action.align);
 
     case "setLinkLength":
       return setLinkLength(state, action.id, action.length);
@@ -608,7 +611,47 @@ function moveNode(state: EditorState, id: NodeId, pos: Vec2): EditorState {
       ...doc,
       layout: {
         ...doc.layout,
-        nodes: { ...doc.layout.nodes, [id]: { pos } },
+        // The rest of the view rides along, or a drag erases a stated side
+        // (ramps §2.13.3).
+        nodes: { ...doc.layout.nodes, [id]: { ...doc.layout.nodes[id], pos } },
+      },
+    },
+  };
+}
+
+/**
+ * State which side a road's lanes change on where it runs through a node, or
+ * put it back to both (ramps spec §2.13.1).
+ *
+ * **`both` is stored as an *absent* `lane_change`, not as the string** — the
+ * same rule {@link setLaneKind} follows for `general`, and for the same reason:
+ * it is what every node starts as and what Rust writes back
+ * (`skip_serializing_if = "LaneChange::is_both"`), so a second encoding of it
+ * would differ by document identity while saving to the same bytes.
+ *
+ * Writes `doc.layout.nodes` and nothing else. A node with no layout entry — a
+ * hand-edited one — returns `state` itself, {@link moveNode}'s guard: a side
+ * belongs to a place, and that node has none.
+ */
+function setNodeLaneChange(
+  state: EditorState,
+  id: NodeId,
+  change: LaneChange,
+): EditorState {
+  const { doc } = state;
+  const current = doc.layout.nodes[id];
+  if (!current) return state;
+  const { lane_change: _dropped, ...view } = current;
+  return {
+    ...state,
+    doc: {
+      ...doc,
+      layout: {
+        ...doc.layout,
+        nodes: {
+          ...doc.layout.nodes,
+          [id]: change === "both" ? view : { ...view, lane_change: change },
+        },
       },
     },
   };
@@ -1002,7 +1045,7 @@ function clearSignLinks(signs: Sign[], gone: (link: LinkId) => boolean): Sign[] 
  * Kind picker is what turns it into another, so there is no kind argument and no
  * placement dialog (markings spec §2.4). `lane` absent means the whole
  * carriageway, and is **omitted** rather than stored as `undefined` — the one
- * representation rule {@link setLaneKind} and {@link setLinkAlign} already
+ * representation rule {@link setLaneKind} and {@link setNodeLaneChange} already
  * follow, matching Rust's `skip_serializing_if = "Option::is_none"`.
  *
  * An unknown link returns `state` itself, so {@link recordHistory} records
@@ -1058,7 +1101,7 @@ export type TurnArrowKind = Extract<MarkingKind, { type: "turn_arrow" }>;
  *
  * **An empty `back` drops the key**, rather than storing `back: []`. Absent is
  * the one representation, as {@link setMarkingLane} keeps for a lane and
- * {@link setLinkAlign} for `centre`: Rust elides an empty `Vec`, so a stored
+ * {@link setNodeLaneChange} for `both`: Rust elides an empty `Vec`, so a stored
  * empty array would be a second in-memory encoding of a document that saves
  * single-headed. Rebuilding the literal is safe here where it is not in the
  * panel, because this owns the variant's *whole* payload — both arrays.
@@ -1109,7 +1152,7 @@ function setMarkingKind(
  * only by clicking the casing lip (markings spec §2.4). As everywhere else,
  * **absent is the one representation**: the old key is destructured away rather
  * than overwritten with `undefined`, the rule {@link setLaneKind} follows for
- * `general` and {@link setLinkAlign} for `centre`.
+ * `general` and {@link setNodeLaneChange} for `both`.
  *
  * **Kind-agnostic on purpose.** A `lane_line`'s `lane` names a *boundary*, of
  * which there are only `n-1`, so its valid range is narrower — but that is the
@@ -1152,8 +1195,8 @@ function setMarkingLane(
  * node past it leaves an arrow that used to be at the junction piled up inside
  * the pad. An `end` anchor holds the distance the drawing actually cares about.
  *
- * **`start` is stored as an *absent* `anchor`**, {@link setLinkAlign}'s rule for
- * `centre` and {@link setMarkingLane}'s for a carriageway-wide span: absent is
+ * **`start` is stored as an *absent* `anchor`**, {@link setNodeLaneChange}'s rule
+ * for `both` and {@link setMarkingLane}'s for a carriageway-wide span: absent is
  * what Rust writes back (`skip_serializing_if = "LinkEnd::is_start"`), so a
  * second encoding of it would differ by document identity while saving to the
  * same bytes.
@@ -1409,37 +1452,6 @@ function setLaneKind(
 }
 
 /**
- * Hold one of a link's edges on its polyline, or put it back on the centreline.
- *
- * **`centre` is stored as an *absent* `align`, not as the string** — the same
- * rule {@link setLaneKind} follows for `general`, and for the same reason: a
- * centred link is what every link starts as and what Rust writes back
- * (`skip_serializing_if = "LinkAlign::is_centre"`), so a second encoding of it
- * would differ by document identity while saving to the same bytes.
- */
-function setLinkAlign(
-  state: EditorState,
-  id: LinkId,
-  align: LinkAlign,
-): EditorState {
-  const { doc } = state;
-  const { align: _dropped, ...view } = doc.layout.links[id] ?? {};
-  return {
-    ...state,
-    doc: {
-      ...doc,
-      layout: {
-        ...doc.layout,
-        links: {
-          ...doc.layout.links,
-          [id]: align === "centre" ? view : { ...view, align },
-        },
-      },
-    },
-  };
-}
-
-/**
  * Say how long the road really is, or stop saying.
  *
  * **The one action in the reducer that must not touch the drawing** (link-length
@@ -1491,7 +1503,7 @@ function setLinkLength(
  * It also **mints the `LinkView` a link may not have**. `bends` is optional and
  * so is the view itself: neither `completeLink` nor the importer writes one, since
  * a straight centred road is what an absent view draws, so a bend placed on a
- * fresh link must not silently go nowhere. {@link setLinkAlign} mints the same way.
+ * fresh link must not silently go nowhere.
  */
 function withBends(state: EditorState, id: LinkId, bends: Vec2[]): EditorState {
   const { doc } = state;

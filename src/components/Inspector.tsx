@@ -7,17 +7,17 @@ import {
   findMarking,
   findNode,
   findSign,
-  linkAlign,
+  laneChange,
 } from "../model/document";
 import {
   JunctionControl,
   JunctionGlyph,
   Lane,
+  LaneChange,
   LaneIdx,
   LaneKind,
   LineStyle,
   Link,
-  LinkAlign,
   LinkEnd,
   LinkId,
   Marking,
@@ -32,7 +32,7 @@ import {
   TurnDirection,
   UnsignalizedRule,
 } from "../model/types";
-import { alignmentReading } from "../editor/geometry";
+import { carriageways, throughPairs } from "../editor/geometry";
 import { Action, EditorState, TurnArrowKind, turnArrowKind } from "../editor/state";
 
 interface InspectorProps {
@@ -42,12 +42,15 @@ interface InspectorProps {
 
 const NODE_KINDS: NodeKind[] = ["endpoint", "junction", "waypoint"];
 /**
- * Which edge of the road stays on its polyline. `nearside` and `offside` name
- * the road's own sides, the same way the lane rows below do — the point of the
- * control is to hold one edge still across a lane change, so it is spelled in
- * the road's frame rather than as left/right on the screen.
+ * Which side a road's lanes change on at a node. `nearside` and `offside` name
+ * the road's own sides, the same way the Lane kinds rows do, since a road
+ * through a node can run in any direction on the screen (ramps §2.13.1).
  */
-const LINK_ALIGNS: LinkAlign[] = ["centre", "nearside", "offside"];
+const LANE_CHANGES: { value: LaneChange; label: string }[] = [
+  { value: "nearside", label: "Nearside" },
+  { value: "both", label: "Both" },
+  { value: "offside", label: "Offside" },
+];
 /** Lane kinds, in the order the dropdown offers them; `general` is the default. */
 const LANE_KINDS: { value: LaneKind; label: string }[] = [
   { value: "general", label: "General" },
@@ -268,6 +271,8 @@ export function Inspector({ state, dispatch }: InspectorProps) {
             ))}
           </div>
         </Field>
+
+        <NodeLaneChange node={node} state={state} dispatch={dispatch} />
 
         {node.type === "junction" && (
           <JunctionFields
@@ -524,8 +529,6 @@ export function Inspector({ state, dispatch }: InspectorProps) {
   const link = findLink(doc, selection.id);
   if (!link) return <aside className="inspector" />;
   const laneCount = link.lanes.length;
-  const align = linkAlign(doc, link.id);
-  const reading = alignmentReading(link.lanes, align);
   return (
     <aside className="inspector">
       <div className="inspector-head">
@@ -565,46 +568,6 @@ export function Inspector({ state, dispatch }: InspectorProps) {
         <LaneKinds link={link.id} lanes={link.lanes} dispatch={dispatch} />
       </Field>
 
-      <Field label="Alignment">
-        <div className="segmented segmented-wrap">
-          {LINK_ALIGNS.map((a) => (
-            <button
-              key={a}
-              className={`seg${align === a ? " is-active" : ""}`}
-              onClick={() => dispatch({ type: "setLinkAlign", id: link.id, align: a })}
-            >
-              {a}
-            </button>
-          ))}
-        </div>
-      </Field>
-
-      {/* What that setting *does*, which the enum's own words do not say — set
-          `offside` and the lanes hang nearside, a mirror a reader would have to
-          untangle. The wrong pick does not draw a slightly worse road; it draws
-          a ramp through a motorway while every assertion passes, because each
-          road is individually correct (ramps §2.11.3).
-
-          The frame is the road's own travel direction: `alignmentReading` never
-          sees a polyline, and since `zk-014` a bent road has no single "below".
-          The reader converts to a side of the screen by looking at the arrow
-          head, which is drawn on the selected link alone. Canvas units, on the
-          bend `Position` precedent above — this is the picture, not a claim
-          about the world.
-
-          Two decimals with the trailing zeros trimmed, which is where that
-          precedent stops: a bend position is snapped to the grid, while a lane
-          region's half-span is fractional by construction (a 3-lane road is
-          13.5, a single imported lane of 3.25 m 4.18). `centre` gets its own
-          sentence — the template would read "on of travel, 0 off the line". */}
-      <Field label="Lane region">
-        <div className="readout">
-          {reading.side === "on"
-            ? "on the line"
-            : `${reading.side} of travel, ${Number(reading.offset.toFixed(2))} off the line`}
-        </div>
-      </Field>
-
       <Field label="Length (m)">
         <LinkLength id={link.id} length={link.length} dispatch={dispatch} />
       </Field>
@@ -616,6 +579,54 @@ export function Inspector({ state, dispatch }: InspectorProps) {
         Delete link
       </button>
     </aside>
+  );
+}
+
+/**
+ * Which side a road's lanes change on at this node (ramps §2.13.1) — the one
+ * place a lane change's side is stated, since per-link alignment went (§2.13.5).
+ *
+ * **Shown only where it can change a pixel**: a node with a through pair whose
+ * two links are both undivided, since a divided road ignores the side and a node
+ * with no road through it has no change to place. A stored side shows it anyway,
+ * so a side is never set where it cannot be seen or cleared.
+ *
+ * No readout of the resulting shift: the two roads are adjacent on the canvas, so
+ * a wrong pick shows as a lane opening on the wrong side, where the pick was made.
+ */
+function NodeLaneChange({
+  node,
+  state,
+  dispatch,
+}: {
+  node: Node;
+  state: EditorState;
+  dispatch: (action: Action) => void;
+}) {
+  const { doc } = state;
+  const side = laneChange(doc, node.id);
+  const offsets = carriageways(doc);
+  const through = [...throughPairs(doc)].some(
+    ([a, b]) =>
+      findLink(doc, a)?.to_node === node.id && offsets[a] === 0 && offsets[b] === 0,
+  );
+  if (side === "both" && !through) return null;
+  return (
+    <Field label="Lanes change on">
+      <div className="segmented">
+        {LANE_CHANGES.map(({ value, label }) => (
+          <button
+            key={value}
+            className={`seg${side === value ? " is-active" : ""}`}
+            onClick={() =>
+              dispatch({ type: "setNodeLaneChange", id: node.id, change: value })
+            }
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </Field>
   );
 }
 

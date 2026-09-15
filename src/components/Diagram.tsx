@@ -40,7 +40,6 @@ import {
   bayClearance,
   boundaryTaken,
   busBays,
-  carriageways,
   drawnPolyline,
   formatLength,
   gore,
@@ -53,6 +52,7 @@ import {
   laneBands,
   laneLineOffsets,
   lateralShift,
+  lateralShifts,
   lengthLabel,
   markingArrow,
   markingBar,
@@ -144,9 +144,11 @@ export function Diagram({
     ? nodePos(doc, interaction.linkFrom)
     : undefined;
   const cursor = interaction?.cursor;
-  // The two links of a divided road step off their shared centreline before
-  // anything is drawn from them — the roads and the junction arms alike.
-  const offsets = carriageways(doc);
+  // Every link steps sideways before anything is drawn from it — the roads and
+  // the junction arms alike: a divided road's carriageways off their shared
+  // centreline, and an undivided road wherever a lane change upstream of it has
+  // carried it (ramps §2.13.3).
+  const offsets = lateralShifts(doc);
   // Where a road changes width, and where two roads meet with no glyph or wedge
   // to own the joint. Every casing ends flat, so the round shape a joint needs is
   // a disc drawn under every road: a disc drawn anywhere later would paint over
@@ -545,7 +547,7 @@ function jointEnd(
     at,
     away,
     nearside: { x: -t.y, y: t.x },
-    offset: lateralShift(doc, link, offsets),
+    offset: lateralShift(link, offsets),
     width: roadWidth(link.lanes),
   };
 }
