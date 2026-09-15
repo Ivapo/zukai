@@ -15,7 +15,7 @@ covers: >
   wedges at a through joint, the gore between two separating arms — its
   triangle, its chevrons, and the one derivation that faces them at the driver —
   the flat road end and the joint disc under the roads, and the dots that mark a
-  node once per drawn road end, on the canvas only
+  node once per road through it, on the canvas only
 max_lines: 268
 generated: 2026-08-14
 ---
@@ -73,18 +73,18 @@ multiplies the base term only; the floor is unscaled**, so **Size clamps**: belo
 roughly half scale the floor binds even on an undivided junction, because a pad
 narrower than its own approach is not a smaller junction but a broken one.
 
-## A node is marked once per drawn road end — on the canvas (ramps OQ-4, OQ-10)
+## A node is marked once per road through it — on the canvas (ramps OQ-4, §2.13.4)
 
-`nodeDots(doc, nodeId, offsets)` returns the arms' **distinct origins** — distinct
-as *positions*, within a `1e-6` guard of its own named `SAME_POINT`, in
-`junctionArms`' order. So a divided road's end is marked on both carriageways
-rather than in the median, and an aligned link's dot steps off with the road.
-`nodePos` does **not** move, only the mark, so a drag still dispatches `moveNode`
-with the node's own position; `junctionArms` answers for any node, not just junctions.
+`throughPairs(doc)` maps each arriving link to the leaving one that continues it. No
+twin or U-turn is a candidate; one sharing no link pairs at any angle, the rest go
+greedily, straightest within `TAPER_MAX_BEND` (off `linkPolyline`, never the drawn
+line), then by id. `nodeDots(doc, nodeId, offsets)` marks a pair once, at its
+**narrower** arm's origin (on both roads; the arriving arm's on a tie), and any other
+arm at its own, in `junctionArms`' order under `SAME_POINT`: so a divided end or lane
+drop draws a dot per carriageway. Only the mark moves, never `nodePos`, so a drag
+still sends the node's own position; `junctionArms` answers for any node.
 
-- **No angle, no mean, no grouping**, so the answer cannot depend on `doc.links`'
-  order. A divided waypoint at a lane drop draws **four** dots, two overlapping
-  `4.5` apart per side; merging needs clustering, which is not transitive.
+- **A pair is topology, not clustering** — nearness is not transitive (§2.10.2).
 - **The epsilon is float slack, not a tolerance** — worst parting `2.84e-14` against
   a smallest design step of `0.45`; its own constant, not `SAME_EDGE`'s. A link-less
   node keeps its dot at the node; no layout entry returns nothing.

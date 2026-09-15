@@ -70,7 +70,7 @@ phases:
     by: null
   - name: "Phase 13 — A joint draws one dot per road through it"
     reviewed: 2026-09-14
-    shipped: null
+    shipped: 2026-09-14
     cut: null
     by: null
   - name: "Phase 14 — The joint says which side the lanes change on"
@@ -794,6 +794,23 @@ sharpens it to **per drawn road end**, which is the same thing everywhere except
 at a joint where one carriageway's two halves are drawn to two places.
 
 #### 2.10.2 One dot per drawn road end, which is not one dot per arm
+
+> **CORRECTED 2026-09-14 — a node draws one dot per road through it; see §2.13.4.**
+> True when written, and it held until a waypoint whose two roads end at different
+> points was reported as two nodes. Phase 13 reverses four claims below:
+> - **"One dot per drawn road end"** is now one dot per through pair, at the narrower
+>   arm's origin, plus one per remaining arm.
+> - **The divided lane drop draws two dots, not four**: each carriageway is one pair.
+> - **"No angle, no mean, no ordering"** no longer describes the rule. The second
+>   pass of `throughPairs` sorts by angle. What it keeps is the property:
+>   - the result does not depend on `doc.links` order, since the sort key is the turn
+>     and then the ids;
+>   - a pair is topological, so this is still not the clustering ruled out below.
+> - **The aligned jink draws one dot**, at the arriving arm's origin, since the widths
+>   are equal.
+>
+> The tolerance paragraphs still hold. `SAME_POINT` now answers to `jointDiscs`, which
+> still merges arm origins, and to the whole-result merge in `nodeDots`.
 
 An arm is per *link*, so counting arms over-counts wherever two arms are drawn to
 the same place. Write each arm's **displacement** `v = origin − nodePos` and the

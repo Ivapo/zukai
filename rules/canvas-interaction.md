@@ -112,7 +112,7 @@ jumps up to half its hit strip, and buys the import case: a marking whose metres
 overrun its drawn road is clamped into the pad, and only this brings it back.
 
 **A node is several circles, shown or hidden, and the drag does not notice.**
-`nodeDots` marks a node once per drawn road end (`rules/road-joints.md`); they share
+`nodeDots` marks a node once per road through it (`rules/road-joints.md`); they share
 **one** `<g>`, and the offset comes off `nodePos`, so any dot pressed grabs it.
 
 **Only the bend gesture has a threshold**, and it is the only one that *creates*
