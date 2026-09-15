@@ -79,22 +79,22 @@ narrower than its own approach is not a smaller junction but a broken one.
 as *positions*, within a `1e-6` guard of its own named `SAME_POINT`, in
 `junctionArms`' order. So a divided road's end is marked on both carriageways
 rather than in the median, and an aligned link's dot steps off with the road.
-`nodePos` does **not** move: only the mark does, and a drag still dispatches
-`moveNode` with the node's own position. `junctionArms`' name understates it — it
-filters on nothing but the links touching a node, so it answers here too.
+`nodePos` does **not** move, only the mark, so a drag still dispatches `moveNode`
+with the node's own position; `junctionArms` answers for any node, not just junctions.
 
 - **No angle, no mean, no grouping**, so the answer cannot depend on `doc.links`'
   order. A divided waypoint at a lane drop draws **four** dots, two overlapping
   `4.5` apart per side; merging needs clustering, which is not transitive.
-- **The epsilon is float slack, not a tolerance** — worst measured parting
-  `2.84e-14`, against a smallest distinct design step of `0.45`. Its own constant,
-  not `SAME_EDGE`'s: same magnitude, different question. A link-less node keeps its
-  dot at the node; no layout entry returns nothing.
+- **The epsilon is float slack, not a tolerance** — worst parting `2.84e-14` against
+  a smallest design step of `0.45`; its own constant, not `SAME_EDGE`'s. A link-less
+  node keeps its dot at the node; no layout entry returns nothing.
 - **One `<g>` holds every dot and halo**, so `onNodePointerDown` stays on one
   element and either dot grabs the node; a zero displacement emits no `cx`/`cy`.
-- **A figure carries none of them** (ramps §2.11.1): a bead on a road running off
-  the frame says it stops there. Gated on `interaction`, with `.node-dot` in
-  `styles.css`, so every rule above is a *canvas* fact.
+- **A figure carries none** (ramps §2.11.1) — a bead on a road running off the frame
+  says it stops there — so the dot is gated on `interaction`, its rule in `styles.css`.
+- **The canvas shows a dot only while its node is edited** (ramps §2.12.3): the group
+  takes `is-shown`, every other dot is `opacity: 0` until hovered, and all stay
+  drawn, since each is the node's only hit target (`rules/canvas-interaction.md`).
 
 ## Every road ends flat; a disc under the roads fills a joint (ramps §2.12.1)
 

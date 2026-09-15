@@ -18,9 +18,8 @@ generated: 2026-08-10
 
 # Canvas interaction
 
-Everything the pointer and the keyboard do to the drawing. Frontend only. The
-rationale is spread across the specs that added each gesture — `zk-006` for
-markings, `zk-007` for signs, `zk-011` for dragging paint, `zk-014` for bends.
+Frontend only. The rationale is in the specs that added each gesture — `zk-006`
+markings, `zk-007` signs, `zk-011` dragging paint, `zk-014` bends.
 
 One boundary: **what a click *means* is here; what it *draws* is not** —
 `road-rendering.md`, `road-joints.md`, `marking-kinds.md` and `signs.md` own that.
@@ -40,10 +39,9 @@ lets the Inspector's five text fields be typed into without switching tools.
 | `marking` | *(nothing — the click is lost)* | on a **road**: `addMarking` |
 | `sign` | `addSign` at the pointer | on a **sign**: select and drag it |
 
-Two asymmetries are deliberate. The **marking** tool claims the event on a road
-(`stopPropagation`), or the click would pan; every other tool lets it fall through.
-The **sign** tool on a sign selects rather than dropping a second — the node tool's
-rule, as a sign minted beneath the first would be invisible.
+Two asymmetries are deliberate. The **marking** tool claims a press on a road
+(`stopPropagation`), or it would pan. The **sign** tool on a sign selects rather than
+drop a second — the node tool's rule, as one minted beneath would be invisible.
 
 **Adding or removing a road retypes the nodes at it** (ramps §2.12.2). `completeLink`
 and `deleteSelection`'s link and node arms hand the nodes whose roads changed to
@@ -108,15 +106,14 @@ does not re-render on its own account. Pointer capture goes on the `<svg>`.
 | `linkPress` | screen start | *nothing, until the threshold* |
 | `pan` | view + screen start | `setView` |
 
-**A marking carries no grab offset, and that is a decision.** A node, a sign and a
-bend are dragged *by the point you took hold of*; a marking is re-projected onto its
-road **absolutely**. The cost is a jump of up to half its hit strip; what it buys is
-the case that matters after an import — a marking whose metres run past the drawn
-end of its road is clamped into the pad, and only this brings it back.
+**A marking carries no grab offset, by decision.** A node, a sign and a bend are
+dragged *by the point you took hold of*; a marking is re-projected **absolutely**. It
+jumps up to half its hit strip, and buys the import case: a marking whose metres
+overrun its drawn road is clamped into the pad, and only this brings it back.
 
-**A node is several circles now, and the drag did not notice.** `nodeDots` marks a
-node once per drawn road end (`rules/road-joints.md`); they share **one** `<g>`,
-and the offset comes off `nodePos` rather than the dot pressed — either one grabs.
+**A node is several circles, shown or hidden, and the drag does not notice.**
+`nodeDots` marks a node once per drawn road end (`rules/road-joints.md`); they share
+**one** `<g>`, and the offset comes off `nodePos`, so any dot pressed grabs it.
 
 **Only the bend gesture has a threshold**, and it is the only one that *creates*
 what it drags. A press on a road selects it immediately and records a `linkPress`;
@@ -125,9 +122,8 @@ meaning with zoom) must be crossed before `addBend` mints anything, or every
 ordinary selecting click litters the document with zero-length bends. The
 threshold-crossing move performs the insert; the drag starts on the next.
 
-Middle-click always pans, from every handler — a guard each `…PointerDown` needs of
-its own, since their `stopPropagation` means the `<svg>` never gets its chance.
-Wheel is `zoomAbout` at the pointer.
+Middle-click pans from every handler, each `…PointerDown` guarding it itself since
+its `stopPropagation` hides the press from the `<svg>`. Wheel is `zoomAbout`.
 
 ## From a click to a document coordinate
 
@@ -167,28 +163,33 @@ exactly here", which is what lets an import, an undo and a test place a node
 off-grid without fighting anything. `state.test.ts` asserts all six write the
 position given exactly — covering one lets a snap in the other five pass.
 
-**The dots and the pointer are one lattice, which took moving the tile.** A
-`<pattern>` clips content to its tile, so a circle at the tile origin draws a
-quarter dot; `geometry.ts:gridPattern` keeps it centred and pulls the **tile** back.
+**Dots and pointer share one lattice by moving the tile:** a `<pattern>` clips to
+its tile, so `geometry.ts:gridPattern` centres the dot and pulls the **tile** back.
 
 ## Chrome: what exists only on the canvas
 
 `Diagram.tsx` takes an optional `interaction` prop, and **everything gated on it is
 absent from an exported figure by construction** — `export.tsx:diagramInner`
-renders `<Diagram doc={doc} />` with no such prop, so there is no filter anyone can
-forget (`rules/diagram-export.md`). What hangs off it: the five `…PointerDown`
-callbacks, the fat invisible hit paths (`.marking-hit`, `.jn-hit`, `.sign-hit`,
-`.bend-hit`, and `.road-hit`, round-capped where the road is flat, or a press on a
-joint disc's outside corner falls through and pans — ramps §2.12.1), the selection
-halos, `.link-preview`, the bend handles, **`.node-dot`**, **`.road-arrow`** —
-through `selected`, so on the selected link alone — and `vector-effect` on hairlines.
+renders `<Diagram doc={doc} />` with no such prop, so no filter can be forgotten
+(`rules/diagram-export.md`). What hangs off it: the five `…PointerDown` callbacks,
+the fat invisible hit paths (`.marking-hit`, `.jn-hit`, `.sign-hit`, `.bend-hit`,
+and `.road-hit`, round-capped where the road is flat, or a press on a joint disc's
+outside corner pans — ramps §2.12.1), the selection halos, `.link-preview`, the bend
+handles, **`.road-arrow`** on the selected link alone, `vector-effect` on hairlines,
+and **`.node-dot`** with its group's **`is-shown`**.
+
+**A dot is drawn on every road end and shown only while its node is edited** (ramps
+§2.12.3): selected, `linkFrom`, an end of the selected *link* (not bend), touched by
+no link, or `Interaction.revealNodes`, which `Canvas` sets under the link tool.
+Hidden is `opacity: 0` in `styles.css`, never absence — the dot is the node's only
+hit target, and a transparent circle still takes the press — and `.node:hover`
+reveals it, written *after* the hiding rule because the two selectors tie.
 
 Two rules keep it honest. Chrome paint lives in `src/styles.css`, **never** in
 `styles/diagram.css`, which travels inside every exported file — the dot's and the
-arrow's rules too, the pieces that *paint* and are chrome anyway: a bead on a cut end
-says a road stops there, and no road is painted with an arrowhead (ramps §2.11.1,
+arrow's rules too, since a bead on a cut end says a road stops there (ramps §2.11.1,
 road declutter §2.1). And every chrome class must be in `export.test.ts`'s `CHROME`
-regex — twelve tests reuse it, all passing for leaked markup whose class is unlisted.
+regex — each test reusing it passes for leaked markup whose class is unlisted.
 
 A marking and a sign each carry an unconditional `stopPropagation`, making them
 small **dead zones for the node tool** — nudging the click is the whole remedy.
@@ -202,6 +203,5 @@ small **dead zones for the node tool** — nudging the click is the whole remedy
 tool buttons. The pure arithmetic is `geometry.ts` — `screenToWorld`,
 `zoomAbout`, `nearestOnPolyline`, `pointAlongPolyline`, `bendInsertion`,
 `bandAt`, `boundaryAt`, `anchoredAlong`, `GRID_PITCH`, `snap`, `gridPattern`,
-`nodeDots` — the only part with tests. **There is no `Canvas.test.tsx`**, and
-`renderToStaticMarkup` cannot see whether an element carries a callback, so the
-gestures are covered by a `bun run dev` pass and nothing else.
+`nodeDots` — the only part with tests. **There is no `Canvas.test.tsx`** and no test
+reads `styles.css`, so the gestures and the hidden dot are a `bun run dev` pass.

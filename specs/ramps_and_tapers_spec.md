@@ -65,7 +65,7 @@ phases:
     by: null
   - name: "Phase 12 — A node's dot shows while it is being edited"
     reviewed: 2026-09-14
-    shipped: null
+    shipped: 2026-09-14
     cut: null
     by: null
 
