@@ -443,8 +443,8 @@ describe("two-way carriageways", () => {
 });
 
 /**
- * The node's dots — one per drawn road end rather than one at the node (ramps
- * spec §2.10). The geometry is `nodeDots`' and is asserted in `geometry.test.ts`;
+ * The node's dots — one per road through it rather than one at the node (ramps
+ * spec §2.10, §2.13.4). The geometry is `nodeDots`' and is asserted in `geometry.test.ts`;
  * what these two cases carry is the markup, which is where the rule can be right
  * and the picture still wrong.
  */

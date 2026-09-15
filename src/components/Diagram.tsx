@@ -1101,9 +1101,10 @@ function arrowTriangle(at: Vec2, dir: Vec2, size: number): string {
 }
 
 /**
- * A graph node, drawn by kind — **once per drawn road end** rather than once at
+ * A graph node, drawn by kind — **once per road through it** rather than once at
  * the node, so a divided road's endpoint is marked on both carriageways instead
- * of in the median between them (ramps spec §2.10). `dots` is `nodeDots`' answer.
+ * of in the median between them (ramps spec §2.10, §2.13.4). `dots` is
+ * `nodeDots`' answer.
  *
  * **One group, whatever the count**, which is what leaves the hit target and the
  * drag exactly as they were: `onNodePointerDown` stays on a single element, and

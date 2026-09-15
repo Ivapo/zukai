@@ -119,6 +119,7 @@ import {
   taperWedge,
   taperWedges,
   textWidth,
+  throughPairs,
 } from "./geometry";
 
 /** `n` lanes at the model's default width, as every link the UI creates has. */
@@ -4269,10 +4270,176 @@ describe("laneLine and laneLineOffsets", () => {
 });
 
 /**
- * `nodeDots` — where a node's dots are drawn (ramps spec §2.10).
+ * `throughPairs` — which link continues which at each node (ramps spec §2.13.2).
+ *
+ * Every case compares the **whole map**, never a lookup per node, so a pair
+ * appearing anywhere it should not — a divided road's free end, say — fails.
+ * Vitest does not equate a `Map` with an object literal, hence `fromEntries`.
+ */
+describe("through pairs", () => {
+  function lay(nodes: Record<NodeId, Vec2>, links: Link[], views: Record<LinkId, LinkView> = {}) {
+    const base = emptyDocument("through pairs");
+    return {
+      ...base,
+      nodes: Object.keys(nodes).map((id) => ({ id, type: "waypoint" as const })),
+      links,
+      layout: {
+        ...base.layout,
+        nodes: Object.fromEntries(Object.entries(nodes).map(([id, pos]) => [id, { pos }])),
+        links: views,
+      },
+    };
+  }
+
+  function road(id: LinkId, from: NodeId, to: NodeId, lanes = 2): Link {
+    return { id, from_node: from, to_node: to, lanes: defaults(lanes), median_gap: DEFAULT_MEDIAN_GAP };
+  }
+
+  function pairs(doc: Document): Record<LinkId, LinkId> {
+    return Object.fromEntries(throughPairs(doc));
+  }
+
+  function permutations<T>(xs: T[]): T[][] {
+    if (xs.length <= 1) return [xs];
+    return xs.flatMap((x, i) =>
+      permutations([...xs.slice(0, i), ...xs.slice(i + 1)]).map((rest) => [x, ...rest]),
+    );
+  }
+
+  /** The same map for every order of the links — the property the sort key buys. */
+  function expectOrderFree(
+    nodes: Record<NodeId, Vec2>,
+    links: Link[],
+    expected: Record<LinkId, LinkId>,
+    views: Record<LinkId, LinkView> = {},
+  ) {
+    for (const order of permutations(links)) {
+      expect(pairs(lay(nodes, order, views))).toEqual(expected);
+    }
+  }
+
+  const ORIGIN = { x: 0, y: 0 };
+  const THROUGH = { N1: ORIGIN, N2: { x: 120, y: 0 }, N3: { x: 240, y: 0 } };
+  /** A ramp leaving or joining at `N2`, about 35° off the mainline. */
+  const DIVERGE = { ...THROUGH, N4: { x: 240, y: 84 } };
+
+  it("pairs a road with its continuation through a waypoint", () => {
+    const doc = lay(THROUGH, [road("L1", "N1", "N2"), road("L2", "N2", "N3")]);
+
+    expect(pairs(doc)).toEqual({ L1: "L2" });
+  });
+
+  it("pairs nothing at a divided road's free end", () => {
+    const doc = lay({ N1: ORIGIN, N2: { x: 120, y: 0 } }, [
+      road("L1", "N1", "N2"),
+      road("L2", "N2", "N1"),
+    ]);
+
+    expect(pairs(doc)).toEqual({});
+  });
+
+  it("pairs each carriageway where a divided road drops a lane", () => {
+    const doc = lay(THROUGH, [
+      road("L1", "N1", "N2", 4),
+      road("L2", "N2", "N1", 4),
+      road("L3", "N2", "N3", 3),
+      road("L4", "N3", "N2", 3),
+    ]);
+
+    expect(pairs(doc)).toEqual({ L1: "L3", L4: "L2" });
+  });
+
+  it("pairs a right-angle corner, which has one continuation", () => {
+    const doc = lay({ N1: ORIGIN, N2: { x: 120, y: 0 }, N3: { x: 120, y: 120 } }, [
+      road("L1", "N1", "N2"),
+      road("L2", "N2", "N3"),
+    ]);
+
+    expect(pairs(doc)).toEqual({ L1: "L2" });
+  });
+
+  it("pairs a diverge's mainline with its continuation, not the ramp", () => {
+    const links = [road("L1", "N1", "N2"), road("L2", "N2", "N3"), road("L3", "N2", "N4")];
+
+    expect(pairs(lay(DIVERGE, links))).toEqual({ L1: "L2" });
+    expectOrderFree(DIVERGE, links, { L1: "L2" });
+  });
+
+  it("pairs a merge's mainline with its continuation, not the ramp", () => {
+    const merge = { ...THROUGH, N4: { x: 0, y: 84 } };
+    const doc = lay(merge, [road("L1", "N1", "N2"), road("L3", "N4", "N2"), road("L2", "N2", "N3")]);
+
+    expect(pairs(doc)).toEqual({ L1: "L2" });
+  });
+
+  it("pairs both straight-throughs where two roads cross", () => {
+    const nodes = {
+      W: { x: -120, y: 0 },
+      N: ORIGIN,
+      E: { x: 120, y: 0 },
+      S: { x: 0, y: 120 },
+      U: { x: 0, y: -120 },
+    };
+    const links = [road("L1", "W", "N"), road("L2", "N", "E"), road("L3", "S", "N"), road("L4", "N", "U")];
+
+    expect(pairs(lay(nodes, links))).toEqual({ L1: "L2", L3: "L4" });
+    expectOrderFree(nodes, links, { L1: "L2", L3: "L4" });
+  });
+
+  /**
+   * Two leaving candidates inside `TAPER_MAX_BEND` — `C` turns 5.71° — so the
+   * sort decides. `C`'s link has the smaller id, so a sort by id alone takes it
+   * too, and only the turn picks `B`'s.
+   */
+  it("pairs the straighter of two candidates", () => {
+    const nodes = { A: ORIGIN, N: { x: 360, y: 0 }, B: { x: 720, y: 0 }, C: { x: 720, y: 36 } };
+    const links = [road("L1", "A", "N"), road("L2", "N", "C"), road("L3", "N", "B")];
+
+    expect(pairs(lay(nodes, links))).toEqual({ L1: "L3" });
+    expectOrderFree(nodes, links, { L1: "L3" });
+  });
+
+  it("pairs the smaller leaving id where two candidates turn by exactly the same angle", () => {
+    const nodes = { A: ORIGIN, N: { x: 360, y: 0 }, C: { x: 720, y: 36 }, D: { x: 720, y: -36 } };
+    const links = [road("L1", "A", "N"), road("L2", "N", "C"), road("L3", "N", "D")];
+
+    expect(pairs(lay(nodes, links))).toEqual({ L1: "L2" });
+    expectOrderFree(nodes, links, { L1: "L2" });
+  });
+
+  it("pairs nothing where every candidate turns past the bound", () => {
+    const tan30 = 120 * Math.tan(Math.PI / 6);
+    const doc = lay({ ...THROUGH, N3: { x: 240, y: tan30 }, N4: { x: 240, y: -tan30 } }, [
+      road("L1", "N1", "N2"),
+      road("L2", "N2", "N3"),
+      road("L3", "N2", "N4"),
+    ]);
+
+    expect(pairs(doc)).toEqual({});
+  });
+
+  /**
+   * The diverge, with the continuation's one bend dragged exactly onto `N2`: its
+   * first segment is zero-length, so its direction is its next segment's. The
+   * diverge has two candidates, so this reaches the second pass, which is the
+   * only one that reads a direction.
+   */
+  it("reads a direction past a bend placed on its own node", () => {
+    const doc = lay(
+      DIVERGE,
+      [road("L1", "N1", "N2"), road("L2", "N2", "N3"), road("L3", "N2", "N4")],
+      { L2: { bends: [{ x: 120, y: 0 }] } },
+    );
+
+    expect(pairs(doc)).toEqual({ L1: "L2" });
+  });
+});
+
+/**
+ * `nodeDots` — where a node's dots are drawn (ramps spec §2.10, §2.13.4).
  *
  * One case per row of §2.10.2's table, because the rule's whole content is which
- * arms count as the same drawn road end, and the rows differ only in that.
+ * arms count as one road through the node, and the rows differ only in that.
  */
 describe("node dots", () => {
   function lay(nodes: Record<NodeId, Vec2>, links: Link[], views: Record<LinkId, LinkView> = {}) {
@@ -4350,18 +4517,19 @@ describe("node dots", () => {
   });
 
   /**
-   * **The deliberate row.** A carriageway steps off the centreline by
-   * `w / 2 + separation / 2`, so dropping one lane moves it by exactly half a
-   * lane — `22.5` against `18` here, a gap of `4.5`. Those are two road ends at
-   * two places and the drawing already shows the step between them, so two
-   * overlapping dots is what that looks like.
+   * **The row §2.10.2 drew four dots for.** A carriageway steps off the
+   * centreline by `w / 2 + separation / 2`, so dropping one lane moves it by
+   * exactly half a lane — `22.5` against `18` here. Each carriageway is one
+   * through pair (its twin is no candidate), and the pair's dot is the narrower
+   * 3-lane origin, `±(30 / 2 + 3)`, which lies on both roads (ramps spec §2.13.4).
    *
-   * This row is the only one that can see a merging rule. Any implementation
-   * clever enough to know the two belong together is clustering, which is not
-   * transitive and changes the *number* of dots under a permutation of
-   * `doc.links` — the property the test below pins.
+   * **Pairing is not the clustering that row ruled out.** Clustering asked
+   * whether two origins were near enough to belong together, which is not
+   * transitive and changes the number of dots under a permutation of
+   * `doc.links`. A pair is topological — which link continues which — so no
+   * distance and no order enters it.
    */
-  it("draws four dots where a divided road drops a lane at a waypoint", () => {
+  it("draws one dot per carriageway where a divided road drops a lane at a waypoint", () => {
     const doc = lay({ N1: ORIGIN, N2: { x: 120, y: 0 }, N3: { x: 240, y: 0 } }, [
       road("L1", "N1", "N2", 4),
       road("L2", "N2", "N1", 4),
@@ -4370,34 +4538,44 @@ describe("node dots", () => {
     ]);
 
     expect(dots(doc, "N2")).toEqual([
-      { x: 120, y: 22.5 },
-      { x: 120, y: -22.5 },
       { x: 120, y: 18 },
       { x: 120, y: -18 },
     ]);
   });
 
   /**
-   * The one assertion the epsilon itself answers to, and **the fixture is
-   * measured rather than picked**: most splits come out bitwise identical and so
-   * pass under exact equality, testing nothing. Here one side coincides exactly
-   * and the other parts by `2.842e-14` — eight orders below the `1e-6` guard and
-   * six below the `0.45` that is the smallest genuinely distinct shift the UI can
-   * produce. The exact-equality count is asserted first, so the fixture cannot
-   * quietly stop exercising the tolerance.
+   * The report's own waypoint (§2.13): a 1-lane road becoming 2 lanes, both
+   * aligned `nearside` so the new lane opens on one side. The two origins are
+   * `4.5` apart, and the node used to draw as two. One dot, at the narrower road's
+   * origin, which lies inside the wider road's lane region.
    */
-  it("draws two dots where an unevenly split divided road parts by float slack", () => {
-    const far = { x: 137, y: 233 };
+  it("draws one dot where an aligned road gains a lane at a waypoint", () => {
+    const nearside: LinkView = { align: "nearside" };
     const doc = lay(
-      { N1: ORIGIN, N2: { x: far.x * 0.85, y: far.y * 0.85 }, N3: far },
-      [road("L1", "N1", "N2"), road("L2", "N2", "N1"), road("L3", "N2", "N3"), road("L4", "N3", "N2")],
+      { N1: ORIGIN, N2: { x: 120, y: 0 }, N3: { x: 240, y: 0 } },
+      [road("L1", "N1", "N2", 1), road("L2", "N2", "N3", 2)],
+      { L1: nearside, L2: nearside },
     );
-    const arms = junctionArms(doc, "N2", carriageways(doc));
 
-    const exact = new Set(arms.map((a) => `${a.origin.x},${a.origin.y}`));
-    expect(exact.size).toBe(3);
+    const ds = dots(doc, "N2");
+    expect(ds).toEqual([{ x: 120, y: -4.5 }]);
+    // `L2`'s lane region, `[−18, 0]`: its `nearside` shift is `−9`, half-width `9`.
+    expect(ds[0].y).toBeGreaterThanOrEqual(-18);
+    expect(ds[0].y).toBeLessThanOrEqual(0);
+  });
 
-    expect(dots(doc, "N2")).toHaveLength(2);
+  /**
+   * Equal widths, and origins `18` apart until Phase 14 removes per-link
+   * alignment. The dot is the **arriving** arm's, under both orders of
+   * `doc.links` — "the first arm `junctionArms` lists" would follow the order.
+   */
+  it("draws one dot at the arriving road's origin where two equal roads meet aligned apart", () => {
+    const nodes = { N1: ORIGIN, N2: { x: 120, y: 0 }, N3: { x: 240, y: 0 } };
+    const links = [road("L1", "N1", "N2"), road("L2", "N2", "N3")];
+    const views: Record<LinkId, LinkView> = { L1: { align: "offside" }, L2: { align: "nearside" } };
+
+    expect(dots(lay(nodes, links, views), "N2")).toEqual([{ x: 120, y: 9 }]);
+    expect(dots(lay(nodes, [...links].reverse(), views), "N2")).toEqual([{ x: 120, y: 9 }]);
   });
 
   /**
@@ -4514,6 +4692,36 @@ describe("joint discs", () => {
     const doc = lay({ N1: ORIGIN, N2: { x: 120, y: 0 } }, [road("L1", "N1", "N2")]);
 
     expect(discs(doc)).toEqual([]);
+  });
+
+  /**
+   * The one assertion the epsilon itself answers to, and **the fixture is
+   * measured rather than picked**: most splits come out bitwise identical and so
+   * pass under exact equality, testing nothing. Here one side coincides exactly
+   * and the other parts by `2.842e-14` — eight orders below the `1e-6` guard and
+   * six below the `0.45` that is the smallest genuinely distinct shift the UI can
+   * produce. The exact-equality count is asserted first, so the fixture cannot
+   * quietly stop exercising the tolerance.
+   *
+   * **Here rather than on `nodeDots`**, where it started: a through pair takes one
+   * of its two origins, so the dots give two at any tolerance. The discs still
+   * merge arm origins, so they are what `SAME_POINT` answers to (ramps §2.13.4).
+   * The lanes are named, since the slack was measured on 2-lane carriageways.
+   */
+  it("puts two discs where an unevenly split divided road parts by float slack", () => {
+    const far = { x: 137, y: 233 };
+    const doc = lay({ N1: ORIGIN, N2: { x: far.x * 0.85, y: far.y * 0.85 }, N3: far }, [
+      road("L1", "N1", "N2", 2),
+      road("L2", "N2", "N1", 2),
+      road("L3", "N2", "N3", 2),
+      road("L4", "N3", "N2", 2),
+    ]);
+    const arms = junctionArms(doc, "N2", carriageways(doc));
+
+    const exact = new Set(arms.map((a) => `${a.origin.x},${a.origin.y}`));
+    expect(exact.size).toBe(3);
+
+    expect(discs(doc)).toHaveLength(2);
   });
 
   /**

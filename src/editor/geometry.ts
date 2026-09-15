@@ -1186,7 +1186,8 @@ export function junctionArms(
 }
 
 /**
- * How close two arm origins must be to count as **one drawn road end**.
+ * How close two points at a node — arm origins, or the dots taken from them —
+ * must be to count as **one point**.
  *
  * This absorbs float slack and nothing else. Two arms drawn to the same place
  * usually *are* the same object — `drawnPolyline` returns the layout polyline
@@ -1195,7 +1196,9 @@ export function junctionArms(
  * identical in 314 of 400 scanned splits; the rest parted by at worst `2.84e-14`
  * (an instance, not a bound: the slack grows with distance from the world
  * origin). The nearest genuinely *distinct* pair of lateral shifts the UI can
- * produce is `0.45` apart, and the lane-drop step this must never merge is `4.5`.
+ * produce is `0.45` apart, and the lane-drop step {@link jointDiscs} must never
+ * merge is `4.5` — {@link nodeDots} no longer meets that step, since a through
+ * pair takes one of its two origins rather than both (ramps spec §2.13.4).
  * So the guard sits six orders below the smallest decision and eight above the
  * largest slack, and it is never a design parameter.
  *
@@ -1206,19 +1209,131 @@ export function junctionArms(
  */
 const SAME_POINT = 1e-6;
 
+/** The cosine of {@link TAPER_MAX_BEND}: the least a through pair's directions may agree. */
+const THROUGH_MIN_DOT = Math.cos((TAPER_MAX_BEND * Math.PI) / 180);
+
 /**
- * Where a node's dots are drawn: **one per distinct arm origin**, so a divided
- * road's end is marked on each of its carriageways instead of once in the median
- * between them, and an aligned link's end is marked on the road rather than on
- * the polyline it stepped off (ramps spec §2.10).
+ * A link's unit direction of travel at one of its ends, off its **layout**
+ * polyline — never the drawn one, whose shifts will depend on the pairs this
+ * feeds (ramps spec §2.13.2). The nearest segment of non-zero length: a bend
+ * dragged onto its own node makes the adjacent segment zero-length, so it is
+ * skipped. `undefined` when there is no such segment, or no polyline.
+ */
+function travelDirection(
+  doc: Document,
+  link: Link,
+  atEnd: boolean,
+): Vec2 | undefined {
+  const poly = linkPolyline(doc, link);
+  if (!poly) return undefined;
+  const n = poly.length;
+  for (let s = 0; s < n - 1; s++) {
+    const i = atEnd ? n - 2 - s : s;
+    const dx = poly[i + 1].x - poly[i].x;
+    const dy = poly[i + 1].y - poly[i].y;
+    const len = Math.hypot(dx, dy);
+    if (len > 0) return { x: dx / len, y: dy / len };
+  }
+  return undefined;
+}
+
+/**
+ * The through pairs at one node, as `[arriving, leaving]` links — see
+ * {@link throughPairs}, which is this over every node.
+ */
+function pairsAt(doc: Document, nodeId: NodeId): [Link, Link][] {
+  // A self-loop is excluded by asking for the *other* end to be elsewhere.
+  const into = doc.links.filter((l) => l.to_node === nodeId && l.from_node !== nodeId);
+  const from = doc.links.filter((l) => l.from_node === nodeId && l.to_node !== nodeId);
+
+  // A reversed twin, or any U-turn, goes back where it came from.
+  const candidates: [Link, Link][] = [];
+  for (const a of into) {
+    for (const b of from) if (a.from_node !== b.to_node) candidates.push([a, b]);
+  }
+
+  const uses = new Map<LinkId, number>();
+  for (const [a, b] of candidates) {
+    uses.set(a.id, (uses.get(a.id) ?? 0) + 1);
+    uses.set(b.id, (uses.get(b.id) ?? 0) + 1);
+  }
+
+  // First pass: a candidate whose links belong to no other is a pair, at any
+  // angle — a plain waypoint, or each carriageway of a divided one. No direction.
+  const pairs: [Link, Link][] = [];
+  const rest: { a: Link; b: Link; dot: number }[] = [];
+  for (const [a, b] of candidates) {
+    if (uses.get(a.id) === 1 && uses.get(b.id) === 1) {
+      pairs.push([a, b]);
+      continue;
+    }
+    const da = travelDirection(doc, a, true);
+    const db = travelDirection(doc, b, false);
+    if (!da || !db) continue;
+    const dot = da.x * db.x + da.y * db.y;
+    // Spelled so a non-finite dot is never taken.
+    if (!(dot >= THROUGH_MIN_DOT)) continue;
+    rest.push({ a, b, dot });
+  }
+
+  // Second pass: straightest first, then by id, and never by `doc.links` order.
+  const byId = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0);
+  rest.sort((x, y) => y.dot - x.dot || byId(x.a.id, y.a.id) || byId(x.b.id, y.b.id));
+  const used = new Set<LinkId>();
+  for (const { a, b } of rest) {
+    if (used.has(a.id) || used.has(b.id)) continue;
+    used.add(a.id);
+    used.add(b.id);
+    pairs.push([a, b]);
+  }
+  return pairs;
+}
+
+/**
+ * Which link continues which: a map from each arriving link's id to the id of
+ * the leaving link that carries its road on through the node (ramps spec
+ * §2.13.2). A side only means something between those two, and one dot marks
+ * both ({@link nodeDots}).
  *
- * "Distinct" means distinct as a **position** — no angle, no mean, no grouping.
- * That is what makes the result a set rather than an ordering: a rule clever
- * enough to know that two same-side origins `4.5` apart belong together is a
- * clustering rule, and greedy clustering over a three-arm fan changes the number
- * of dots under a permutation of `doc.links`. So a divided waypoint with a lane
- * drop draws **four** dots, two overlapping on each side, which is what two road
- * ends at two places look like.
+ * At each node a **candidate** is an arriving and a leaving link, neither a
+ * self-loop, that do not go back where they came from — the test `tapers`
+ * applies, which is what excludes a reversed twin. Then two passes:
+ * - a candidate whose two links belong to no other is a pair, at any angle;
+ * - the rest are taken greedily, straightest first, and never one turning more
+ *   than {@link TAPER_MAX_BEND}. So a gore pairs the mainline and not the ramp, a
+ *   crossroads its straight-throughs, and a fan of sharp turns nothing.
+ *
+ * **Nothing here reads a position in `doc.links`.** The sort key is the turn,
+ * then the arriving id, then the leaving id, so the answer is the same whatever
+ * order the links were drawn in — the property §2.10.2 pinned for the dots.
+ */
+export function throughPairs(doc: Document): Map<LinkId, LinkId> {
+  const pairs = new Map<LinkId, LinkId>();
+  for (const node of doc.nodes) {
+    for (const [a, b] of pairsAt(doc, node.id)) pairs.set(a.id, b.id);
+  }
+  return pairs;
+}
+
+/**
+ * Where a node's dots are drawn: **one per road through it** — one per through
+ * pair ({@link throughPairs}), and one per remaining arm at its own origin — so a
+ * divided road's end is marked on each of its carriageways instead of once in the
+ * median between them, and a waypoint whose two roads end at different points is
+ * still one node (ramps spec §2.10, §2.13.4).
+ *
+ * **A pair's dot is at the narrower arm's origin**, because that point is on both
+ * roads: where two roads share a centre or an edge, the narrower lane region lies
+ * inside the wider. Equal widths take the arriving arm's, so the pick reads only
+ * the pair and never which arm `junctionArms` lists first.
+ *
+ * **This is not the clustering §2.10.2 ruled out.** That rule asked whether two
+ * origins were *near enough* to belong together, which is not transitive and so
+ * changed the count under a permutation of `doc.links`. A pair is topological —
+ * which link continues which — so no distance and no order enters it. The dots
+ * are emitted in `junctionArms` order, a pair's taking the place of whichever of
+ * its arms comes first, and the {@link SAME_POINT} merge runs over the whole
+ * result, so a centred crossroads still draws one.
  *
  * The node keeps its own position: only the *mark* moves, and a drag still
  * dispatches `moveNode` with the node's own position.
@@ -1237,9 +1352,27 @@ export function nodeDots(
   // and being connected, so an arms-only rule would make the node tool look
   // broken on its first click (§2.10.3).
   if (!arms.length) return [p];
+
+  const armOf = new Map(arms.map((arm) => [arm.id, arm]));
+  // Each paired arm names its pair, so the pair is emitted once, where its first arm is.
+  const pairOf = new Map<LinkId, { at: Vec2; key: LinkId }>();
+  for (const [a, b] of pairsAt(doc, nodeId)) {
+    const into = armOf.get(a.id);
+    const out = armOf.get(b.id);
+    if (!into || !out) continue;
+    const pair = { at: out.width < into.width ? out.origin : into.origin, key: a.id };
+    pairOf.set(a.id, pair);
+    pairOf.set(b.id, pair);
+  }
+
   const dots: Vec2[] = [];
+  const emitted = new Set<LinkId>();
   for (const arm of arms) {
-    if (!dots.some((d) => distance(d, arm.origin) < SAME_POINT)) dots.push(arm.origin);
+    const pair = pairOf.get(arm.id);
+    if (pair && emitted.has(pair.key)) continue;
+    if (pair) emitted.add(pair.key);
+    const at = pair ? pair.at : arm.origin;
+    if (!dots.some((d) => distance(d, at) < SAME_POINT)) dots.push(at);
   }
   return dots;
 }
@@ -1264,8 +1397,9 @@ export interface JointDisc {
  * free end, a reversed twin pair reaching one node, stays flat on both
  * carriageways ({@link nodeNeighbours}).
  *
- * One disc per distinct origin under {@link SAME_POINT}, as {@link nodeDots} counts
- * them, at the **widest** arm's radius where origins coincide.
+ * One disc per distinct **arm** origin under {@link SAME_POINT} — not one per
+ * through pair, as {@link nodeDots} counts, since a disc fills each road's own
+ * end — at the **widest** arm's radius where origins coincide.
  *
  * The caller draws these **before the first road**. That is what makes the fix a
  * fix rather than a new overpaint: a disc can cover no road's paint, while the
