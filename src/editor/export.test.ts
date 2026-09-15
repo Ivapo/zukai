@@ -93,10 +93,13 @@ function vocabulary(): Document {
  * the link's selection — and the **rule that paints it**, which had to leave
  * `styles/diagram.css`. This regex is matched against the whole file, embedded
  * stylesheet included, so a rule left behind fails every one of those tests.
- * `road-arrow` is the newest token.
+ *
+ * `is-shown` is the newest token (ramps §2.12.3): the class a node's group takes
+ * while its dot is visible on the canvas, and the selector the rule hiding the
+ * others is written against.
  */
 const CHROME =
-  /road-hit|jn-hit|marking-hit|sign-hit|bend-hit|bend-handle|node-dot|road-arrow|-halo|is-selected|link-preview|grid|cursor/;
+  /road-hit|jn-hit|marking-hit|sign-hit|bend-hit|bend-handle|node-dot|road-arrow|-halo|is-selected|is-shown|link-preview|grid|cursor/;
 
 /**
  * The text between the **first** `<style>` and the first `</style>` — the

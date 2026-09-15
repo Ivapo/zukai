@@ -611,6 +611,7 @@ export function Canvas({ state, dispatch }: CanvasProps) {
             selection,
             linkFrom,
             cursor,
+            revealNodes: tool === "link",
             onNodePointerDown,
             onLinkPointerDown,
             onMarkingPointerDown,

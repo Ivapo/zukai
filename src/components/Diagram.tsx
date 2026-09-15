@@ -93,6 +93,13 @@ export interface Interaction {
   selection: Selection | null;
   linkFrom: NodeId | null;
   cursor: Vec2 | null;
+  /**
+   * Every node's dot is shown, not just the ones being edited. The canvas sets it
+   * under the link tool, because a link is drawn by clicking nodes and you connect
+   * what you can see — so `Diagram` learns a fact rather than the tool vocabulary
+   * (ramps §2.12.3).
+   */
+  revealNodes: boolean;
   onNodePointerDown: (e: React.PointerEvent, node: Node) => void;
   onLinkPointerDown: (e: React.PointerEvent, link: Link) => void;
   /**
@@ -156,6 +163,12 @@ export function Diagram({
   // it, since that line is a hairline on the canvas and shows through any cover
   // at some zoom (bus stops §2.9).
   const { bays, cuts } = busBays(doc, offsets);
+  // The link a node's dot is shown for, by being one of its ends — on the link arm
+  // of `Selection` alone, as the direction arrow is (road declutter §2.1), so a
+  // selected bend or marking shows none.
+  const sel = interaction?.selection ?? null;
+  const selectedLink =
+    sel?.kind === "link" ? doc.links.find((l) => l.id === sel.id) : undefined;
 
   return (
     <g className="diagram">
@@ -237,12 +250,23 @@ export function Diagram({
             />
           );
         }
+        // Shown while it is being edited (ramps §2.12.3). A node no link touches is
+        // always shown, or a node just placed is invisible (§2.10.3).
+        const shown =
+          !!interaction &&
+          (isSelected(sel, "node", node.id) ||
+            interaction.linkFrom === node.id ||
+            selectedLink?.from_node === node.id ||
+            selectedLink?.to_node === node.id ||
+            !doc.links.some((l) => l.from_node === node.id || l.to_node === node.id) ||
+            interaction.revealNodes);
         return (
           <NodeShape
             key={node.id}
             node={node}
             pos={p}
             dots={nodeDots(doc, node.id, offsets)}
+            shown={shown}
             interaction={interaction}
           />
         );
@@ -1098,16 +1122,24 @@ function arrowTriangle(at: Vec2, dir: Vec2, size: number): string {
  * roads run off the edge of the frame, and a bead on a cut end states that the
  * road stops there. So a figure carries none, and the group — its `transform`,
  * its `onPointerDown` — is left exactly as it is either way.
+ *
+ * **On the canvas a dot is shown only while its node is being edited, and a dot
+ * that is not shown is still drawn** (ramps §2.12.3). It is the node's only hit
+ * target, so leaving it out would remove the drag rather than the mark. `shown`
+ * adds `is-shown` to the group and nothing else; `styles.css` paints the dot of a
+ * group without it transparent, and `:hover` reveals it.
  */
 function NodeShape({
   node,
   pos,
   dots,
+  shown,
   interaction,
 }: {
   node: Node;
   pos: Vec2;
   dots: Vec2[];
+  shown: boolean;
   interaction?: Interaction;
 }) {
   const r = node.type === "junction" ? 9 : node.type === "waypoint" ? 4 : 6;
@@ -1117,7 +1149,7 @@ function NodeShape({
   const at = dots.map((d) => ({ cx: d.x - pos.x || undefined, cy: d.y - pos.y || undefined }));
   return (
     <g
-      className={`node node-${node.type}${selected ? " is-selected" : ""}`}
+      className={`node node-${node.type}${selected ? " is-selected" : ""}${shown ? " is-shown" : ""}`}
       transform={`translate(${pos.x} ${pos.y})`}
       onPointerDown={
         interaction && ((e: React.PointerEvent) => interaction.onNodePointerDown(e, node))

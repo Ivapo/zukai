@@ -83,6 +83,7 @@ function interaction(): Interaction {
     selection: { kind: "link", id: "L1" },
     linkFrom: null,
     cursor: null,
+    revealNodes: false,
     onNodePointerDown: () => {},
     onLinkPointerDown: () => {},
     onMarkingPointerDown: () => {},
@@ -501,8 +502,10 @@ describe("node dots", () => {
    * hairline takes on the canvas.
    */
   it("emits a centred undivided node exactly as it did before the dots moved", () => {
+    // Nothing selected: the helper selects `L1`, whose two ends would also carry
+    // `is-shown` (§2.12.3), which is a different claim from this one.
     const svg = renderToStaticMarkup(
-      <Diagram doc={chain()} interaction={interaction()} />,
+      <Diagram doc={chain()} interaction={{ ...interaction(), selection: null }} />,
     );
 
     expect(svg).toContain(
@@ -523,8 +526,9 @@ describe("node dots", () => {
    * A canvas fact since Phase 7, which is where a dot exists at all (§2.11.1).
    */
   it("marks a divided road's endpoint on both carriageways, from one group", () => {
+    // Nothing selected, for the same reason as the test above.
     const svg = renderToStaticMarkup(
-      <Diagram doc={twoWay()} interaction={interaction()} />,
+      <Diagram doc={twoWay()} interaction={{ ...interaction(), selection: null }} />,
     );
     const group = svg.slice(
       svg.indexOf('<g class="node node-endpoint" transform="translate(0 0)">'),
@@ -538,6 +542,113 @@ describe("node dots", () => {
     expect(group.slice(0, end)).toContain('cy="-13.5"');
     // The node itself has not moved.
     expect(svg).toContain('<g class="node node-endpoint" transform="translate(0 0)">');
+  });
+});
+
+/**
+ * **A node's dot is drawn on every road end and shown only while its node is
+ * being edited** (ramps §2.12.3). Shown is a class token and nothing else: the dot
+ * stays in the markup because it is the node's only hit target, and `styles.css`
+ * paints the dot of a group without the token transparent.
+ */
+describe("a node's dot shows while it is being edited", () => {
+  /** `L1` runs `N1(0,0) → N2(120,0)` and `L2` runs `N2 → N3(240,0)`. */
+  function chain(): Document {
+    return run(
+      initialState(),
+      { type: "addNode", pos: { x: 0, y: 0 } },
+      { type: "addNode", pos: { x: 120, y: 0 } },
+      { type: "addNode", pos: { x: 240, y: 0 } },
+      { type: "startLink", from: "N1" },
+      { type: "completeLink", to: "N2" },
+      { type: "startLink", from: "N2" },
+      { type: "completeLink", to: "N3" },
+    ).doc;
+  }
+
+  /** The chain's nodes, by the `x` each group is translated to. */
+  const AT = { N1: 0, N2: 120, N3: 240 } as const;
+
+  /** The group of the node drawn at `(x, 0)`, opening tag through its `</g>`. */
+  function group(svg: string, x: number): string {
+    const start = svg.search(
+      new RegExp(`<g class="node [^"]*" transform="translate\\(${x} 0\\)">`),
+    );
+    if (start < 0) throw new Error(`the markup carries no node at (${x}, 0)`);
+    return svg.slice(start, svg.indexOf("</g>", start));
+  }
+
+  /** Which of the chain's nodes carry `is-shown`, in id order. */
+  function shown(svg: string): string[] {
+    return Object.entries(AT)
+      .filter(([, x]) => /^<g class="[^"]*\bis-shown\b/.test(group(svg, x)))
+      .map(([id]) => id);
+  }
+
+  const render = (over: Partial<Interaction>, doc = chain()) =>
+    renderToStaticMarkup(<Diagram doc={doc} interaction={{ ...interaction(), ...over }} />);
+
+  /** Hidden is not absent: every road end still has the dot a press lands on. */
+  it("draws every node's dot and shows none when nothing is being edited", () => {
+    const svg = render({ selection: null });
+
+    for (const x of Object.values(AT)) expect(group(svg, x)).toContain('class="node-dot"');
+    expect(shown(svg)).toEqual([]);
+  });
+
+  it("shows the two ends of the selected link", () => {
+    expect(shown(render({ selection: { kind: "link", id: "L1" } }))).toEqual(["N1", "N2"]);
+  });
+
+  it("shows the selected node alone, after its selection token", () => {
+    const svg = render({ selection: { kind: "node", id: "N3" } });
+
+    expect(shown(svg)).toEqual(["N3"]);
+    expect(group(svg, AT.N3)).toMatch(/^<g class="node node-endpoint is-selected is-shown"/);
+  });
+
+  /** On the link arm alone, as the direction arrow is (road declutter §2.1). */
+  it("shows none when a bend on a link is selected rather than the link", () => {
+    expect(shown(render({ selection: { kind: "bend", link: "L1", index: 0 } }))).toEqual([]);
+  });
+
+  it("shows the node a link is being drawn from", () => {
+    expect(shown(render({ selection: null, linkFrom: "N3" }))).toEqual(["N3"]);
+  });
+
+  /**
+   * Also **the vacuity check for `export.test.ts`'s `is-shown` token**: the canvas
+   * carries the very token an exported figure must not.
+   */
+  it("shows every node while the canvas reveals them", () => {
+    expect(shown(render({ selection: null, revealNodes: true }))).toEqual(["N1", "N2", "N3"]);
+  });
+
+  /** Or a node just placed would be invisible (§2.10.3). */
+  it("shows a node no link touches", () => {
+    const svg = render(
+      { selection: null },
+      run(
+        initialState(),
+        { type: "addNode", pos: { x: 0, y: 0 } },
+        { type: "addNode", pos: { x: 120, y: 0 } },
+      ).doc,
+    );
+
+    expect(group(svg, 0)).toMatch(/^<g class="node node-endpoint is-shown"/);
+    expect(group(svg, 120)).toMatch(/^<g class="node node-endpoint is-shown"/);
+  });
+
+  /** A junction draws a glyph and no dot, so there is nothing to show. */
+  it("leaves a junction's glyph alone", () => {
+    const glyph = (revealNodes: boolean) => {
+      const svg = render({ revealNodes }, sample());
+      return svg.slice(svg.indexOf('<g class="junction"'));
+    };
+
+    expect(glyph(true)).toContain('<g class="junction" transform="translate(120 40)">');
+    expect(glyph(true)).toBe(glyph(false));
+    expect(glyph(true)).not.toContain("is-shown");
   });
 });
 

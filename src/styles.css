@@ -420,6 +420,19 @@ body {
   stroke: none;
 }
 
+/* A dot is shown only while its node is being edited (ramps §2.12.3), and a
+   hidden one is transparent rather than absent: it is the node's only hit
+   target, and a circle at opacity 0 still takes the press and still matches
+   :hover. The hover rule must come after this one — the two selectors tie on
+   specificity, so source order decides. */
+.node:not(.is-shown) .node-dot {
+  opacity: 0;
+}
+
+.node:hover .node-dot {
+  opacity: 1;
+}
+
 /* The direction arrow is the same exception: it paints, and it is drawn only on
    the selected link, so a figure never carries it (road declutter §2.1). */
 
