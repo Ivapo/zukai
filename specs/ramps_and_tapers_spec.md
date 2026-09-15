@@ -7,7 +7,8 @@ note: >
   Draw the transitions between roads — lane-count tapers, ramp gores, and
   junction interiors that follow a divided road's carriageways. Per-link
   alignment (Phases 2 and 9) was shipped and then replaced by a side stated on
-  the node. Read §0 before §2.3 or §2.11.3.
+  the node; the per-road node dots (Phases 6 and 13) were shipped and then
+  replaced by one dot at the node. Read §0 before §2.3, §2.10, §2.11.3 or §2.13.4.
 
 phases:
   - name: "Phase 1 — Arms carry their position (road spec OQ-6)"
@@ -38,8 +39,8 @@ phases:
   - name: "Phase 6 — The node dot sits on the road"
     reviewed: 2026-08-11
     shipped: 2026-08-11
-    cut: null
-    by: null
+    cut: 2026-09-15
+    by: zk-005
   - name: "Phase 7 — A figure carries no node dots"
     reviewed: 2026-08-11
     shipped: 2026-08-11
@@ -73,8 +74,8 @@ phases:
   - name: "Phase 13 — A joint draws one dot per road through it"
     reviewed: 2026-09-14
     shipped: 2026-09-14
-    cut: null
-    by: null
+    cut: 2026-09-15
+    by: zk-005
   - name: "Phase 14 — The joint says which side the lanes change on"
     reviewed: 2026-09-14
     shipped: 2026-09-14
@@ -82,7 +83,7 @@ phases:
     by: null
   - name: "Phase 15 — A node draws one dot, a junction included"
     reviewed: 2026-09-15
-    shipped: null
+    shipped: 2026-09-15
     cut: null
     by: null
 
@@ -95,7 +96,9 @@ reference: "Motorway diagram convention as road atlases and variable-message sig
 
 # Ramps and Tapers Spec
 
-## 0. Closing note — per-link alignment is cut (2026-09-14)
+## 0. Closing notes
+
+### 0.1 Per-link alignment is cut (2026-09-14)
 
 **Everything else in this spec stands**: the arms carrying their position, tapers,
 gores and their chevrons, the dots, flat ends and joint discs, and waypoints. What
@@ -123,6 +126,31 @@ a side. §2.13.5 records the reasoning.
 
 **An old file's `align` key is ignored**, and the road draws centred. There is no
 migration arm and no `SCHEMA_VERSION` move (OQ-12).
+
+### 0.2 Per-road node dots are cut (2026-09-15)
+
+What went is the **dot drawn on each road end**. Phase 6's dot on the road and
+Phase 13's one dot per road through a joint both shipped, and both were **removed on
+2026-09-15** by Phase 15 of this same spec (§2.14.3). Read §2.10 and §2.13.4 as the
+record of a design that was built, used, and replaced.
+
+**Why.** §2.10 moved the dot off `nodePos` because a dot in a divided road's median
+read, *in a figure*, as an object in the median. Phases 7 and 12 then removed that
+reader: no figure carries a dot, and the canvas shows one only while its node is
+edited. What remained was an editing mark drawn once per road, and a Y downstream of a
+lane change drew as two circles on one node, which §2.13.4's through pairs did not
+reach (§2.14).
+
+**What replaced it.** `Diagram.tsx:NodeShape` draws one dot at the node's own position,
+with no `cx` or `cy`. A `junction` draws one too, canvas only, as the glyph's next
+sibling, with radius 4 and no `node-halo`; hovering its pad reveals it (§2.14.2).
+
+**What stands.** `geometry.ts:throughPairs` was built by Phase 13 for the dots, and it
+stays: Phase 14's walk (`geometry.ts:lateralShifts`) stands on it. So do `jointDiscs`
+and `SAME_POINT`, which still merge arm origins.
+
+**The removal rode inside the phase that replaced it**, as §0.1's did, so the canvas
+never drew a Y as two nodes for a phase.
 
 ## 1. Goal
 
@@ -797,6 +825,11 @@ This section is the second reopening
 (`/Users/ivapo/.claude/skills/spec-driven-dev/spec-authoring.md` §6.1), and it
 takes up **OQ-4**, which Phase 1 opened and left.
 
+> **CORRECTED 2026-09-15 — the dot is back at `nodePos`, and a junction draws one; see
+> §0.2 and §2.14.** The reader this section argued from, a figure, no longer sees a dot
+> (§2.11.1), and "a junction draws a glyph and no dot at all" stopped being true when
+> Phase 15 gave a junction a canvas-only dot.
+
 `Diagram.tsx:NodeShape` draws one dot at `nodePos`. On a divided road that
 position is the **shared centreline**: `carriageways` steps each carriageway out
 from it by `carriagewayOffset`, so the dot lands on neither. A reader of the
@@ -816,6 +849,11 @@ nobody corrected. It is one defect with two sources, and §2.10.2's rule address
 the shift rather than the divide, so it fixes both.
 
 #### 2.10.1 OQ-4 asked "a dot per carriageway, or nothing at all", and the answer is a dot per carriageway
+
+> **CORRECTED 2026-09-15 — answered a third way, one dot at the node; see §2.14.1.**
+> The first reason below still holds and is why the dot was not removed: it is the
+> node's hit target. The second no longer does, because the dot is an editing mark
+> shown only while its node is edited, not a statement to a reader that a road ends.
 
 Three reasons, and the first is the one that settles it:
 
@@ -858,6 +896,11 @@ at a joint where one carriageway's two halves are drawn to two places.
 >
 > The tolerance paragraphs still hold. `SAME_POINT` now answers to `jointDiscs`, which
 > still merges arm origins, and to the whole-result merge in `nodeDots`.
+
+> **CORRECTED 2026-09-15 — a node draws one dot, at the node; see §2.14.1.** Phase 15
+> removed `nodeDots` (in `geometry.ts`), so neither this section's rule nor the note
+> above describes the drawing any more. The tolerance paragraphs still hold for
+> `jointDiscs`, which is now the only thing `SAME_POINT` answers to.
 
 An arm is per *link*, so counting arms over-counts wherever two arms are drawn to
 the same place. Write each arm's **displacement** `v = origin − nodePos` and the
@@ -967,6 +1010,11 @@ being connected, which is every first click of every drawing. The fallback to
 it as one.
 
 #### 2.10.4 The dots share one group, so the hit target and the halo follow them
+
+> **CORRECTED 2026-09-15 — there is one dot and one halo, at the node; see §2.14.1.**
+> The group, its `onNodePointerDown` and the grab offset from `nodePos` are unchanged.
+> The hit target and the halo no longer follow the roads, and a junction's dot takes
+> no halo, since its glyph's `jn-halo` already marks it (§2.14.2).
 
 Both circles go inside the existing `<g>`, which keeps `onNodePointerDown` on one
 element and leaves the drag exactly as it is. `Canvas.tsx:onNodePointerDown`
@@ -1496,6 +1544,9 @@ A node's dot is shown when any of these holds:
 
 Unchanged:
 - **A junction** draws a glyph and no dot.
+  > **CORRECTED 2026-09-15 — a junction draws a dot too, by this same predicate; see
+  > §2.14.2.** It is canvas only, the glyph's next sibling, and hovering the pad
+  > reveals it.
 - **An export** passes no `interaction`, so it carries no dot, token or rule, and
   `is-shown` joins `export.test.ts`'s `CHROME`.
 
@@ -1524,7 +1575,7 @@ against §2.3's shift. A prototype of the design below was then rendered through
   aligning *both* links to the same edge draws the change on one side. So the one
   fact "the lane is added on the left" has to be written twice, on two objects that
   are not the place it happens.
-- **The waypoint splits.** `geometry.ts:nodeDots` draws one dot per distinct arm
+- **The waypoint splits.** `nodeDots` (in `geometry.ts`) draws one dot per distinct arm
   origin. Aligned links end at different points — a 1-lane road's lane-region centre
   is 4.5 off the line, a 2-lane road's 9 — so the one node draws two dots 4.5 apart.
   §2.10.2 foresaw this for a divided lane drop ("four dots") and accepted it. On an
@@ -1691,6 +1742,11 @@ Five things this shape settles:
   That is Phase 14's one wiring obligation.
 
 #### 2.13.4 A joint draws one dot per road through it (decision, recorded — Phase 13)
+
+> **CORRECTED 2026-09-15 — cut by Phase 15; a node draws one dot, at the node; see §0.2
+> and §2.14.** This rule settled the through pair and not a road beside its nodes that
+> meets no continuation, which is the Y §2.14 reports. `throughPairs` (§2.13.2) stays,
+> for the walk.
 
 **Decision (recorded): `nodeDots` draws one dot per through pair, at the narrower
 arm's origin, and one per remaining arm at its own origin, as today.**
@@ -1903,6 +1959,10 @@ the `CORRECTED` notes still record what went and why.
   confirms the reading §2.10.2 claimed: the four-dot row reads as one road end per
   carriageway.** What it also exposes is OQ-10's question in a sharper form — see
   there.
+  > **CORRECTED 2026-09-15 — answered again by Phase 15: one dot, at the node (§2.14.1).**
+  > The hit-target argument above still stands, which is why the answer is not
+  > "nothing at all". The reading it credits, a dot per carriageway, lost its reader
+  > when Phases 7 and 12 made the dot chrome shown only while edited.
 - **OQ-5 — RESOLVED 2026-08-14 by Phase 9, as §2.11.3 proposed: kept explicit, with
   the state made legible.** ~~Could alignment be derived instead of set?~~ The revisit
   condition this question set was *tedium*, and the printed figure produced a
@@ -3096,7 +3156,7 @@ why it goes first.
   - **`geometry.ts`:** `throughPairs(doc)`, exported and pure, returning
     `Map<LinkId, LinkId>` by §2.13.2's two passes, its sort key and its direction rule.
     It reads directions from `document.ts:linkPolyline`.
-  - **`geometry.ts:nodeDots`:** §2.13.4's rule — the arm it takes, the order it emits,
+  - **`nodeDots` (in `geometry.ts`):** §2.13.4's rule — the arm it takes, the order it emits,
     and the whole-result `SAME_POINT` merge. The signature is unchanged, and it may
     compute only the pairs at the node it is asked about.
   - **Comments this phase makes false are corrected in place**, and that is the only
@@ -3591,3 +3651,17 @@ that shows none. The gate below pins every exported figure byte-identical.
       edit only if it claims a junction has no dot.
   - **Other:** `CLAUDE.md` none needed. OQ-11 stays open. Roadmap memory, one line. One
     push.
+- **Shipped 2026-09-15.** As specified. 604 vitest: 10 cases went (the 9 `nodeDots`
+  cases and "leaves a junction's glyph alone") and 7 came (the Y, the five junction
+  cases, and the export case). `cargo test` unchanged at 74, and the landing figures
+  byte-identical.
+  - **All six mutations failed their named case.** The first also failed
+    `render-examples` on all three figures.
+  - **The dev pass matched in Chromium and WebKit.**
+    - The Y draws one dot at `N3`, shown by selecting `L2` and by hovering.
+    - On `examples/roundabout.zkai`, hovering the pad (`elementFromPoint` gives
+      `jn-edge`) shows the junction's dot and leaves the other nodes' hidden.
+    - A press on the hidden dot drags the junction, and a press on the pad selects it.
+    - A selected junction draws one `jn-halo` and no `node-halo`.
+    - The link tool reveals the dot, and a link starts from it.
+    - An SVG exported from the demo carries no `node-junction`.

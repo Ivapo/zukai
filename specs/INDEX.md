@@ -11,7 +11,7 @@
 - **[road-rendering](road_rendering_spec.md)** — `zk-004` · accepted · partial
   Make the drawn road honour the road model — class, lane widths, lane kinds, and two-way carriageways that don't sit on top of each other.
 - **[ramps-and-tapers](ramps_and_tapers_spec.md)** — `zk-005` · accepted · partial
-  Draw the transitions between roads — lane-count tapers, ramp gores, and junction interiors that follow a divided road's carriageways. Per-link alignment (Phases 2 and 9) was shipped and then replaced by a side stated on the node. Read §0 before §2.3 or §2.11.3.
+  Draw the transitions between roads — lane-count tapers, ramp gores, and junction interiors that follow a divided road's carriageways. Per-link alignment (Phases 2 and 9) was shipped and then replaced by a side stated on the node; the per-road node dots (Phases 6 and 13) were shipped and then replaced by one dot at the node. Read §0 before §2.3, §2.10, §2.11.3 or §2.13.4.
 - **[road-markings](road_markings_spec.md)** — `zk-006` · accepted · done
   Render and place road-surface markings — stop and give-way lines, crossings, lane arrows, lane lines. Paint only; signs and any painted text wait on font embedding.
 - **[signs-and-text](signs_and_text_spec.md)** — `zk-007` · accepted · done

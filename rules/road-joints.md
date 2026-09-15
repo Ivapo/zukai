@@ -14,8 +14,8 @@ covers: >
   three things measure to, the pad that follows the arms inside it, taper
   wedges at a through joint, the gore between two separating arms — its
   triangle, its chevrons, and the one derivation that faces them at the driver —
-  the flat road end and the joint disc under the roads, and the dots that mark a
-  node once per road through it, on the canvas only
+  the flat road end and the joint disc under the roads, the through pairs, and
+  the one dot that marks a node, a junction included, on the canvas only
 max_lines: 268
 generated: 2026-08-14
 ---
@@ -73,23 +73,22 @@ multiplies the base term only; the floor is unscaled**, so **Size clamps**: belo
 roughly half scale the floor binds even on an undivided junction, because a pad
 narrower than its own approach is not a smaller junction but a broken one.
 
-## A node is marked once per road through it — on the canvas (ramps OQ-4, §2.13.4)
+## A node is marked once, at the node — on the canvas (ramps §2.14)
 
-`throughPairs(doc)` maps each arriving link to the leaving one that continues it. No
-twin or U-turn is a candidate; one sharing no link pairs at any angle, the rest go
-greedily, straightest within `TAPER_MAX_BEND` (off `linkPolyline`, never the drawn
-line), then by id. `nodeDots(doc, nodeId, offsets)` marks a pair once, at its
-**narrower** arm's origin (on both roads; the arriving arm's on a tie), and any other
-arm at its own, in `junctionArms`' order under `SAME_POINT`: so a divided end or lane
-drop draws a dot per carriageway. Only the mark moves, never `nodePos`, so a drag
-still sends the node's own position; `junctionArms` answers for any node.
+`throughPairs(doc)` maps each arriving link to the leaving one that continues it, for
+the lateral walk (`rules/road-rendering.md`). No twin or U-turn is a candidate; one
+sharing no link pairs at any angle, the rest go greedily, straightest within
+`TAPER_MAX_BEND` (off `linkPolyline`, never the drawn line), then by id, never order.
 
-- **A pair is topology, not clustering** — nearness is not transitive (§2.10.2).
-- **The epsilon is float slack, not a tolerance** — worst parting `2.84e-14` against
-  a smallest design step of `0.45`; its own constant, not `SAME_EDGE`'s. A link-less
-  node keeps its dot at the node; no layout entry returns nothing.
-- **One `<g>` holds every dot and halo**, so `onNodePointerDown` stays on one
-  element and either dot grabs the node; a zero displacement emits no `cx`/`cy`.
+`NodeShape` draws **one** dot and its halo at `nodePos`, with no `cx`/`cy`, whatever
+the roads do: a divided road's end is marked in its median, and a road the walk moved
+beside its node leaves the dot on the node. Radius 6 for an endpoint, 4 otherwise.
+Per-road dots (`nodeDots`) were cut: they drew a Y after a lane change as two nodes.
+
+- **A junction draws one too**, in its own group emitted right after the glyph's and
+  only with an `interaction`, so an export gains no bytes. No `node-halo`, since
+  `jn-halo` already rings it. `.junction:hover + .node` reveals it from the pad, so
+  that adjacency is load-bearing.
 - **A figure carries none** (ramps §2.11.1) — a bead on a road running off the frame
   says it stops there — so the dot is gated on `interaction`, its rule in `styles.css`.
 - **The canvas shows a dot only while its node is edited** (ramps §2.12.3): the group
@@ -101,8 +100,9 @@ still sends the node's own position; `junctionArms` answers for any node.
 `.road-casing` is butt-capped: the later link's round cap painted over the earlier
 link's lines at every node — a bead on a straight waypoint, a knob on a shifted T.
 A bend's round corner is `jointDiscs` instead, a `<circle class="road-joint">` per
-distinct arm origin (`SAME_POINT`; the widest arm's `width / 2` where they
-coincide), emitted **before the first road**: it covers no paint, and an overlap
+distinct arm origin (`SAME_POINT`, float slack only: worst `2.84e-14` against a
+smallest design step of `0.45`, and not `SAME_EDGE`; the widest arm's `width / 2` where
+they coincide), emitted **before the first road**: it covers no paint, and an overlap
 away from a joint (a ramp over a shoulder) draws as before. Only where no one owns
 the joint — **not a `junction`** (pad, ring, gore), **not `tapered`** (it would bulge
 past the wedge), and **`nodeNeighbours` ≥ 2**, so a divided free end stays flat.

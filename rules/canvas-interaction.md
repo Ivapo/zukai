@@ -111,9 +111,8 @@ dragged *by the point you took hold of*; a marking is re-projected **absolutely*
 jumps up to half its hit strip, and buys the import case: a marking whose metres
 overrun its drawn road is clamped into the pad, and only this brings it back.
 
-**A node is several circles, shown or hidden, and the drag does not notice.**
-`nodeDots` marks a node once per road through it (`rules/road-joints.md`); they share
-**one** `<g>`, and the offset comes off `nodePos`, so any dot pressed grabs it.
+**A node is one dot, at `nodePos`, where the offset comes from** (`road-joints.md`). A
+junction's pad grabs it too; a carriageway's end takes the road, its dot in the median.
 
 **Only the bend gesture has a threshold**, and it is the only one that *creates*
 what it drags. A press on a road selects it immediately and records a `linkPress`;
@@ -178,12 +177,13 @@ outside corner pans — ramps §2.12.1), the selection halos, `.link-preview`, t
 handles, **`.road-arrow`** on the selected link alone, `vector-effect` on hairlines,
 and **`.node-dot`** with its group's **`is-shown`**.
 
-**A dot is drawn on every road end and shown only while its node is edited** (ramps
-§2.12.3): selected, `linkFrom`, an end of the selected *link* (not bend), touched by
-no link, or `Interaction.revealNodes`, which `Canvas` sets under the link tool.
-Hidden is `opacity: 0` in `styles.css`, never absence — the dot is the node's only
-hit target, and a transparent circle still takes the press — and `.node:hover`
-reveals it, written *after* the hiding rule because the two selectors tie.
+**A node's one dot is shown only while its node is edited** (ramps §2.12.3):
+selected, `linkFrom`, an end of the selected *link* (not bend), touched by no link, or
+`Interaction.revealNodes`, which `Canvas` sets under the link tool. Hidden is
+`opacity: 0` in `styles.css`, never absence — the dot is the node's only hit target,
+and a transparent circle still takes the press — and `.node:hover` reveals it, written
+*after* the hiding rule because the two selectors tie. A junction's dot, its glyph's
+next sibling, also shows on `.junction:hover + .node`.
 
 Two rules keep it honest. Chrome paint lives in `src/styles.css`, **never** in
 `styles/diagram.css`, which travels inside every exported file — the dot's and the
@@ -202,6 +202,6 @@ small **dead zones for the node tool** — nudging the click is the whole remedy
 `hairline` and `BendHandle`. `App.tsx` owns the keyboard. `Toolbar.tsx` owns the
 tool buttons. The pure arithmetic is `geometry.ts` — `screenToWorld`,
 `zoomAbout`, `nearestOnPolyline`, `pointAlongPolyline`, `bendInsertion`,
-`bandAt`, `boundaryAt`, `anchoredAlong`, `GRID_PITCH`, `snap`, `gridPattern`,
-`nodeDots` — the only part with tests. **There is no `Canvas.test.tsx`** and no test
-reads `styles.css`, so the gestures and the hidden dot are a `bun run dev` pass.
+`bandAt`, `boundaryAt`, `anchoredAlong`, `GRID_PITCH`, `snap`, `gridPattern` —
+the only part with tests. **There is no `Canvas.test.tsx`** and no test reads
+`styles.css`, so the gestures and the hidden dot are a `bun run dev` pass.
